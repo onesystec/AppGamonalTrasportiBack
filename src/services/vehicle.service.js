@@ -18,7 +18,9 @@ import {
 import {
   createAreaCEntry,
   deleteAreaCEntriesByIds,
+  deleteAreaCEntryById,
   findAllEntries,
+  findDiscardedEntriesOlderThan,
   findEntryById,
   findTodayEntryForVehicle,
   findUnpaidEntries,
@@ -481,6 +483,31 @@ export const updateAreaCEntryForActor = async (id, data, file) => {
   return toAreaCEntryResponse(updated);
 };
 
+const romeDay = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+
+// Elimina una entrada de Area C que no queremos guardar (boton "Eliminar" de Mapa >
+// Area C, tras confirmar en el front). Siempre borra el comprobante de R2. Si la entrada
+// es de HOY (hora de Roma) no se borra la fila sino que se oculta (descartada): el Area C
+// se cobra por dia y checkAreaCEntries crea una entrada nueva si no encuentra ninguna de
+// hoy - sin esa marca, el registro reaparecia al siguiente chequeo (y con un push
+// nuevo) mientras el vehiculo siguiera dentro. Las de dias anteriores se borran de verdad.
+export const deleteAreaCEntryForActor = async (id) => {
+  const entry = await findEntryById(id);
+  if (!entry || entry.descartada) {
+    throw new AppError("Entrada de Area C no encontrada", 404);
+  }
+
+  if (entry.comprobanteKey) await deleteObject(entry.comprobanteKey);
+
+  if (romeDay(entry.enteredAt) === romeDay(new Date())) {
+    await updateEntryById(id, { descartada: true, comprobanteKey: null, pagado: false, paidAt: null });
+  } else {
+    await deleteAreaCEntryById(id);
+  }
+
+  return { id };
+};
+
 // Medida de optimizacion de costos (storage de Neon): sin esto, AreaCEntry crece para
 // siempre. Solo poda lo que sigue SIN pagar (ver findUnpaidEntriesOlderThan) - una
 // pagada queda de por vida, igual que cualquier otro documento de la app. Si alguna
@@ -488,7 +515,13 @@ export const updateAreaCEntryForActor = async (id, data, file) => {
 // de borrar la fila, para no dejar archivos huerfanos.
 export const cleanupOldAreaCEntries = async () => {
   const cutoffDate = new Date(Date.now() - env.AREA_C_ENTRY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const toDelete = await findUnpaidEntriesOlderThan(cutoffDate);
+  // Ademas de lo sin pagar vencido, se limpian las "eliminadas" de hace mas de 1 dia (ya
+  // pasaron a otro dia de Roma, la marca no hace falta - ver deleteAreaCEntryForActor).
+  const discardedCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const toDelete = [
+    ...(await findUnpaidEntriesOlderThan(cutoffDate)),
+    ...(await findDiscardedEntriesOlderThan(discardedCutoff)),
+  ].filter((entry, index, all) => all.findIndex((other) => other.id === entry.id) === index);
   if (toDelete.length === 0) {
     return { deletedCount: 0, retentionDays: env.AREA_C_ENTRY_RETENTION_DAYS, cutoffDate };
   }

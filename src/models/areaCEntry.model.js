@@ -29,12 +29,12 @@ export const updateEntryById = (id, data) => prisma.areaCEntry.update({ where: {
 // front separa por "pagado". Tope de 200 mas que de sobra: las pagadas se acumulan
 // lento (una por vehiculo por dia como mucho) y las no pagadas se podan solas.
 export const findAllEntries = () =>
-  prisma.areaCEntry.findMany({ orderBy: { enteredAt: "desc" }, take: 200 });
+  prisma.areaCEntry.findMany({ where: { descartada: false }, orderBy: { enteredAt: "desc" }, take: 200 });
 
 // Para la campanita de notificaciones: solo las que siguen sin pagar - una vez pagada,
 // deja de tener sentido seguir avisando (ver computeAreaCAlerts en el front).
 export const findUnpaidEntries = () =>
-  prisma.areaCEntry.findMany({ where: { pagado: false }, orderBy: { enteredAt: "desc" } });
+  prisma.areaCEntry.findMany({ where: { pagado: false, descartada: false }, orderBy: { enteredAt: "desc" } });
 
 // Retencion (ver AREA_C_ENTRY_RETENTION_DAYS en env.js) - solo lo que sigue SIN pagar:
 // una vez pagada (con o sin comprobante) la entrada queda como registro permanente,
@@ -44,6 +44,16 @@ export const findUnpaidEntriesOlderThan = (cutoffDate) =>
     where: { pagado: false, enteredAt: { lt: cutoffDate } },
     select: { id: true, comprobanteKey: true },
   });
+
+// Filas "eliminadas" de dias anteriores: ya no hace falta conservarlas (solo servian para
+// que el chequeo del dia no recreara la entrada).
+export const findDiscardedEntriesOlderThan = (cutoffDate) =>
+  prisma.areaCEntry.findMany({
+    where: { descartada: true, enteredAt: { lt: cutoffDate } },
+    select: { id: true, comprobanteKey: true },
+  });
+
+export const deleteAreaCEntryById = (id) => prisma.areaCEntry.delete({ where: { id } });
 
 export const deleteAreaCEntriesByIds = (ids) =>
   prisma.areaCEntry.deleteMany({ where: { id: { in: ids } } });

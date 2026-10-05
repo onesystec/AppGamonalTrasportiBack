@@ -2,6 +2,7 @@ import { getPushDiagnostics } from "../services/pushNotification.service.js";
 import { getVelocityFleetUsageStats } from "../services/velocityFleet.service.js";
 import {
   cleanupOldAreaCEntries,
+  deleteAreaCEntryForActor,
   cleanupOldSpeedingEvents,
   createVehicleRecordForActor,
   deleteMantenimientoForActor,
@@ -82,6 +83,13 @@ export const listUnpaidAreaCEntries = asyncHandler(async (req, res) => {
 export const updateAreaCEntry = asyncHandler(async (req, res) => {
   const entry = await updateAreaCEntryForActor(req.params.id, req.body, req.file);
   res.status(200).json({ success: true, data: { entry } });
+});
+
+// Elimina una entrada de Area C que no queremos guardar (Mapa > Area C, el front pide
+// confirmacion antes) - ver deleteAreaCEntryForActor.
+export const deleteAreaCEntry = asyncHandler(async (req, res) => {
+  const result = await deleteAreaCEntryForActor(req.params.id);
+  res.status(200).json({ success: true, data: result });
 });
 
 // Medida de optimizacion de costos (ver cleanupOldAreaCEntries en vehicle.service.js) -

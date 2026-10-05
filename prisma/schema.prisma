@@ -199,6 +199,10 @@ model AreaCEntry {
   pagado         Boolean   @default(false)
   paidAt         DateTime?
   comprobanteKey String?
+  // "Eliminada" desde el Mapa > Area C. Si era de HOY se conserva la fila (oculta) para
+  // que el chequeo automatico (checkAreaCEntries) no la vuelva a crear mientras el
+  // vehiculo siga dentro del Area C; las de dias anteriores se borran de verdad.
+  descartada     Boolean   @default(false)
 
   @@index([vehicleId, enteredAt])
   @@map("area_c_entries")

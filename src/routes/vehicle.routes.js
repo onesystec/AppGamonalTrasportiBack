@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   cleanupAreaCEntries,
+  deleteAreaCEntry,
   cleanupSpeedingEvents,
   create,
   getById,
@@ -78,6 +79,12 @@ router.patch(
   areaCEntryUpload.single("comprobante"),
   validate(updateAreaCEntrySchema),
   updateAreaCEntry
+);
+router.delete(
+  "/area-c-entries/:id",
+  authorize("OWNER", "ADMIN"),
+  validate(idParamSchema, "params"),
+  deleteAreaCEntry
 );
 // Excesos de velocidad (campanita) + su limpieza (medida de optimizacion de costos,
 // ver SPEEDING_EVENT_RETENTION_DAYS en env.js) - mismo criterio que Area C arriba.
