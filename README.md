@@ -38,6 +38,7 @@ cp .env.example .env
 | `R2_SIGNED_URL_EXPIRES_SECONDS` | Minutos (en segundos) de validez de cada URL firmada, default 900 (15 min) |
 | `GOOGLE_MAPS_API_KEY` | API key de Google Cloud con "Geocoding API" habilitada |
 | `VELOCITY_FLEET_REFRESH_TOKEN` | Opcional. Refresh Token de la cuenta de Velocity Fleet (GPS de vehiculo, seccion Mapa) - sin esto el Mapa sigue andando igual, solo con la ubicacion del celular del chofer |
+| `PHONE_LOCATION_ENABLED` | `false` por defecto: el backend ignora (sin error) la ubicacion que mande el celular del chofer y no lista ubicaciones de celulares; los ETA en vivo usan el GPS del vehiculo (Velocity Fleet). `true` para volver a usar el GPS del celular |
 | `LOCATION_PING_RETENTION_DAYS` | Dias de historial de `LocationPing` que se conservan, default 90 - ver seccion "Monitoreo y costos" |
 | `AREA_C_ENTRY_RETENTION_DAYS` | Dias que se conserva un `AreaCEntry` (alerta de Area C), default 3 - ver seccion "Monitoreo y costos" |
 | `SPEEDING_THRESHOLD_KMH` | Velocidad (km/h) a partir de la cual se genera una alerta de exceso de velocidad, default 120 |

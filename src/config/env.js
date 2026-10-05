@@ -34,6 +34,15 @@ const envSchema = z.object({
   // vez de la del GPS del vehiculo (ver velocityFleet.service.js).
   VELOCITY_FLEET_REFRESH_TOKEN: z.string().optional(),
 
+  // GPS del celular del chofer (ubicacion en vivo + historial LocationPing). Apagado por
+  // defecto: la ubicacion sale del GPS del vehiculo (Velocity Fleet). Con "false" el
+  // backend ignora (sin error) lo que mande una app vieja, no guarda nada y no lista
+  // ubicaciones de celulares; poner "true" para volver a usarlo.
+  PHONE_LOCATION_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
+
   // Dias de historial de LocationPing (recorrido GPS del celular del chofer, ver
   // "Ruta chofer"/"Recorrido real (GPS)") que se conservan antes de poder borrarlos con
   // /api/users/location-pings/cleanup - medida de optimizacion de costos (storage de

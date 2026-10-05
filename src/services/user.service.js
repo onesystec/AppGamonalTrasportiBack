@@ -17,6 +17,7 @@ import {
 } from "../models/user.model.js";
 import { deletePushToken, upsertPushToken } from "../models/pushToken.model.js";
 import { env } from "../config/env.js";
+import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { findActiveRecordsByDriverIds } from "../models/record.model.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { calculateRoute, snapPointsToRoad } from "./routing.service.js";
@@ -195,6 +196,10 @@ const isImplausibleFix = ({ lat, lng, accuracy }, lastKnown) => {
 // de un dia puntual - salvo que el chofer siga parado en el mismo lugar que el ultimo
 // punto guardado, para no llenar el historial de puntos identicos.
 export const updateMyLocation = async (actorId, { lat, lng, accuracy }) => {
+  // GPS del celular apagado (ver PHONE_LOCATION_ENABLED): una app vieja puede seguir
+  // mandando posiciones - se responde OK sin guardar nada ni hacer ninguna consulta.
+  if (!env.PHONE_LOCATION_ENABLED) return;
+
   const lastKnown = await findUserLocationById(actorId);
   if (isImplausibleFix({ lat, lng, accuracy }, lastKnown)) return;
 
@@ -207,8 +212,10 @@ export const updateMyLocation = async (actorId, { lat, lng, accuracy }) => {
   ]);
 };
 
-export const updateMyLocationPermission = (actorId, denegado) =>
-  updateUserLocationPermission(actorId, denegado);
+export const updateMyLocationPermission = async (actorId, denegado) => {
+  if (!env.PHONE_LOCATION_ENABLED) return;
+  return updateUserLocationPermission(actorId, denegado);
+};
 
 // El propio chofer se marca "no disponible" para la reperibilita de esta noche (o se
 // desmarca) - toUserResponse resuelve la URL firmada del avatar igual que cualquier
@@ -262,6 +269,8 @@ export const cleanupOldLocationPings = async () => {
 // ADMIN tiene abierto en el mapa (ver getLiveEtaForRecord en record.service.js y
 // getReturnEtaForDriver mas abajo).
 export const listActiveDriverLocations = async () => {
+  if (!env.PHONE_LOCATION_ENABLED) return [];
+
   const since = new Date(Date.now() - LOCATION_FRESH_MINUTES * 60 * 1000);
   const users = await findUsersWithFreshLocation(since);
   if (users.length === 0) return [];
@@ -295,16 +304,24 @@ export const listActiveDriverLocations = async () => {
 // marcador de un chofer libre. Best-effort, igual que calculateRoute: si falla o la
 // ubicacion no esta fresca, se devuelve null y el mapa muestra "no disponible".
 export const getReturnEtaForDriver = async (driverId) => {
-  const user = await findUserLocationById(driverId);
-  if (!user || user.ubicacionLat == null || user.ubicacionLng == null) return null;
+  // La posicion sale del GPS del vehiculo asignado al chofer (Velocity Fleet); la del
+  // celular solo se usa si esta habilitada (PHONE_LOCATION_ENABLED) y no hay del vehiculo.
+  const driver = await findUserById(driverId);
+  let origin = null;
 
-  const staleSince = new Date(Date.now() - LOCATION_FRESH_MINUTES * 60 * 1000);
-  if (!user.ubicacionActualizada || user.ubicacionActualizada < staleSince) return null;
+  const vehiclePosition = await getFreshVehiclePositionByTarga(driver?.vehiculoAsignado?.targa);
+  if (vehiclePosition) {
+    origin = { lat: vehiclePosition.lat, lng: vehiclePosition.lng };
+  } else if (env.PHONE_LOCATION_ENABLED) {
+    const user = await findUserLocationById(driverId);
+    const staleSince = new Date(Date.now() - LOCATION_FRESH_MINUTES * 60 * 1000);
+    if (user?.ubicacionLat != null && user.ubicacionLng != null && user.ubicacionActualizada >= staleSince) {
+      origin = { lat: user.ubicacionLat, lng: user.ubicacionLng };
+    }
+  }
+  if (!origin) return null;
 
-  const ruta = await calculateRoute([
-    { lat: user.ubicacionLat, lng: user.ubicacionLng },
-    { lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng },
-  ]);
+  const ruta = await calculateRoute([origin, { lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng }]);
   if (!ruta) return null;
 
   return { distanciaKm: ruta.distanciaKm, duracionMin: ruta.duracionMin, geometria: ruta.geometria };

@@ -15,6 +15,8 @@ import { purgeFilesForRecord } from "./recordFile.service.js";
 import { geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
+import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
+import { env } from "../config/env.js";
 import {
   appendRecordToAppsheet,
   deleteRecordFromAppsheet,
@@ -483,19 +485,28 @@ export const getLiveEtaForRecord = async (id) => {
   }
   if (record.estado !== "IN_CONSEGNA") return null;
 
-  const driver = await findUserLocationById(record.driverId);
-  if (!driver || driver.ubicacionLat == null || driver.ubicacionLng == null) return null;
-
-  const staleSince = new Date(Date.now() - LOCATION_FRESH_MINUTES * 60 * 1000);
-  if (!driver.ubicacionActualizada || driver.ubicacionActualizada < staleSince) return null;
+  // Posicion de origen: el GPS del vehiculo del servicio (o, si no tiene, el asignado al
+  // chofer) - Velocity Fleet. La del celular del chofer solo si esta habilitada
+  // (PHONE_LOCATION_ENABLED) y no hay del vehiculo.
+  let origin = null;
+  const driverUser = await findUserById(record.driverId);
+  const targa = record.vehicle?.targa ?? driverUser?.vehiculoAsignado?.targa;
+  const vehiclePosition = await getFreshVehiclePositionByTarga(targa);
+  if (vehiclePosition) {
+    origin = { lat: vehiclePosition.lat, lng: vehiclePosition.lng };
+  } else if (env.PHONE_LOCATION_ENABLED) {
+    const driver = await findUserLocationById(record.driverId);
+    const staleSince = new Date(Date.now() - LOCATION_FRESH_MINUTES * 60 * 1000);
+    if (driver?.ubicacionLat != null && driver.ubicacionLng != null && driver.ubicacionActualizada >= staleSince) {
+      origin = { lat: driver.ubicacionLat, lng: driver.ubicacionLng };
+    }
+  }
+  if (!origin) return null;
 
   const finalStop = record.stops[record.stops.length - 1];
   if (!finalStop || finalStop.lat == null || finalStop.lng == null) return null;
 
-  const ruta = await calculateRoute([
-    { lat: driver.ubicacionLat, lng: driver.ubicacionLng },
-    { lat: finalStop.lat, lng: finalStop.lng },
-  ]);
+  const ruta = await calculateRoute([origin, { lat: finalStop.lat, lng: finalStop.lng }]);
   if (!ruta) return null;
 
   return { distanciaKm: ruta.distanciaKm, duracionMin: ruta.duracionMin, geometria: ruta.geometria };

@@ -133,6 +133,28 @@ const trackVelocityFleetCall = () => {
 // [{ targa, lat, lng, speed, ignition, direction, updatedAt }] - vehicle_registration
 // es la targa (confirmado en la doc de Device Positions); lat/lon vienen asi (no
 // lat/lng) en la respuesta cruda de Velocity Fleet, se normaliza el nombre aca.
+// Una posicion mas vieja que esto se considera sin senal (vehiculo apagado, GPS caido).
+const VEHICLE_POSITION_FRESH_MINUTES = 30;
+
+// Posicion actual de un vehiculo puntual por targa, o null si no tiene GPS, no hay datos
+// recientes o Velocity Fleet no responde. Usa la misma cache de getVehicleLivePositions,
+// asi que pedir varias seguidas no suma llamadas a su API.
+export const getFreshVehiclePositionByTarga = async (targa) => {
+  if (!targa) return null;
+  let positions;
+  try {
+    positions = await getVehicleLivePositions();
+  } catch {
+    return null;
+  }
+  const position = positions.find((p) => p.targa === normalizeTarga(targa));
+  if (!position) return null;
+  if (position.updatedAt && Date.now() - position.updatedAt.getTime() > VEHICLE_POSITION_FRESH_MINUTES * 60000) {
+    return null;
+  }
+  return position;
+};
+
 export const getVehicleLivePositions = async () => {
   if (!env.VELOCITY_FLEET_REFRESH_TOKEN) return [];
 
