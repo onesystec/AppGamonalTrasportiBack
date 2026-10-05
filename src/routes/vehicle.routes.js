@@ -7,6 +7,7 @@ import {
   getById,
   getEtaToDestination,
   getPushStatus,
+  getSpeedingSummary,
   getVelocityFleetUsage,
   list,
   listAreaCEntries,
@@ -32,6 +33,7 @@ import {
   idParamSchema,
   mantenimientoIdParamSchema,
   registerKmSchema,
+  speedingEventsQuerySchema,
   updateAreaCEntrySchema,
   updateVehicleSchema,
 } from "../validators/vehicle.validator.js";
@@ -88,7 +90,13 @@ router.delete(
 );
 // Excesos de velocidad (campanita) + su limpieza (medida de optimizacion de costos,
 // ver SPEEDING_EVENT_RETENTION_DAYS en env.js) - mismo criterio que Area C arriba.
-router.get("/speeding-events", authorize("OWNER", "ADMIN"), listSpeedingEvents);
+router.get(
+  "/speeding-events",
+  authorize("OWNER", "ADMIN"),
+  validate(speedingEventsQuerySchema, "query"),
+  listSpeedingEvents
+);
+router.get("/speeding-events/summary", authorize("OWNER", "ADMIN"), getSpeedingSummary);
 router.post("/speeding-events/cleanup", authorize("OWNER"), cleanupSpeedingEvents);
 // Importa a demanda las targas de Velocity Fleet que todavia no tengan ficha en la
 // app (boton en Vehiculos) - solo OWNER: crea vehiculos reales con area SIN_ASIGNAR,

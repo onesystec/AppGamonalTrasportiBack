@@ -30,12 +30,17 @@ import {
 import {
   createSpeedingEvent,
   deleteSpeedingEventsOlderThan,
+  findEventsForVehicle,
+  findEventsInRange,
   findRecentEventForVehicle,
   findRecentEvents,
+  summarizeEventsByDay,
+  summarizeEventsByVehicle,
 } from "../models/speedingEvent.model.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { env } from "../config/env.js";
+import { buildLocalDateRange } from "../utils/dateRange.js";
 import { geocodeAddress } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
@@ -536,7 +541,29 @@ export const cleanupOldAreaCEntries = async () => {
 // Excesos de velocidad recientes (ver checkSpeedingEvents) - para la campanita de
 // notificaciones del front. A diferencia de Area C, es un aviso comun (se puede
 // descartar con la X normal).
-export const listSpeedingEventsForActor = () => findRecentEvents();
+// Sin filtros: los ultimos eventos (campanita). Con "day" (YYYY-MM-DD, hora de Roma) o
+// "vehicleId": solo el detalle que se abrio en Control de Flota.
+export const listSpeedingEventsForActor = ({ day, vehicleId } = {}) => {
+  if (day) {
+    const [year, month, date] = day.split("-").map(Number);
+    return findEventsInRange(buildLocalDateRange(year, month, date, "Europe/Rome"));
+  }
+  if (vehicleId) return findEventsForVehicle(vehicleId);
+  return findRecentEvents();
+};
+
+// Control de Flota: un resumen chico (por dia y por vehiculo) para armar los acordeones
+// sin traer ningun evento; el detalle se pide despues, a demanda.
+export const getSpeedingSummaryForActor = async () => {
+  const [days, vehicles] = await Promise.all([summarizeEventsByDay(), summarizeEventsByVehicle()]);
+  return {
+    thresholdKmh: env.SPEEDING_THRESHOLD_KMH,
+    retentionDays: env.SPEEDING_EVENT_RETENTION_DAYS,
+    total: days.reduce((sum, d) => sum + d.count, 0),
+    days,
+    vehicles,
+  };
+};
 
 // Medida de optimizacion de costos (storage de Neon): sin excepciones (a diferencia de
 // AreaCEntry, aca no hay "pagado" que conservar de por vida) - se poda todo lo que

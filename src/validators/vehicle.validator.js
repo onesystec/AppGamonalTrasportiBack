@@ -50,6 +50,13 @@ export const idParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
 });
 
+// Detalle de excesos de velocidad a demanda (Control de Flota): un dia de Roma o un
+// vehiculo; sin ninguno de los dos se devuelven los ultimos (campanita).
+export const speedingEventsQuerySchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha invalida").optional(),
+  vehicleId: z.string().uuid("Id invalido").optional(),
+});
+
 export const mantenimientoIdParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
   mantenimientoId: z.string().uuid("Id invalido"),

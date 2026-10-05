@@ -11,6 +11,7 @@ import {
   getVehicleByIdForActor,
   listAreaCEntriesForActor,
   listMantenimientosForActor,
+  getSpeedingSummaryForActor,
   listSpeedingEventsForActor,
   listUnpaidAreaCEntriesForActor,
   listVehicleLivePositionsForActor,
@@ -103,8 +104,14 @@ export const cleanupAreaCEntries = asyncHandler(async (req, res) => {
 // Excesos de velocidad (ver checkSpeedingEvents en vehicle.service.js) - para la
 // campanita de notificaciones del front.
 export const listSpeedingEvents = asyncHandler(async (req, res) => {
-  const events = await listSpeedingEventsForActor();
+  const events = await listSpeedingEventsForActor(req.query);
   res.status(200).json({ success: true, data: { events } });
+});
+
+// Resumen por dia y por vehiculo para los acordeones de Control de Flota.
+export const getSpeedingSummary = asyncHandler(async (req, res) => {
+  const summary = await getSpeedingSummaryForActor();
+  res.status(200).json({ success: true, data: { summary } });
 });
 
 // Medida de optimizacion de costos (ver cleanupOldSpeedingEvents en
