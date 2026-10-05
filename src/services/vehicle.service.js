@@ -4,7 +4,7 @@ import {
   deleteVehicleById,
   findVehicleById,
   findVehicleIdsAndTargas,
-  findVehicles,
+  findVehiclesWithDrivers,
   updateVehicleById,
 } from "../models/vehicle.model.js";
 import { findOwnerAndAdminUserIds } from "../models/user.model.js";
@@ -85,6 +85,13 @@ const toResponse = async (vehicle) => ({
   autorizadoAreaC: vehicle.autorizadoAreaC,
   createdAt: vehicle.createdAt,
   updatedAt: vehicle.updatedAt,
+  // Solo viene cuando la consulta incluyo los choferes (lista de vehiculos).
+  ...(vehicle.choferesAsignados && {
+    conductores: vehicle.choferesAsignados.map((c) => ({
+      id: c.id,
+      nombre: `${c.nombre} ${c.apellido}`.trim(),
+    })),
+  }),
 });
 
 export const createVehicleRecordForActor = async (data, files) => {
@@ -116,7 +123,7 @@ export const createVehicleRecordForActor = async (data, files) => {
 };
 
 export const listVehiclesForActor = async () => {
-  const vehicles = await findVehicles();
+  const vehicles = await findVehiclesWithDrivers();
   return Promise.all(vehicles.map(toResponse));
 };
 
