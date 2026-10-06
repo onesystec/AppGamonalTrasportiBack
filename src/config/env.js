@@ -49,6 +49,27 @@ const envSchema = z.object({
   // Neon), ver ese endpoint en user.controller.js.
   LOCATION_PING_RETENTION_DAYS: z.coerce.number().default(90),
 
+  // Fotos de comprobante de los servicios (RecordFile en R2): pasados estos dias desde que
+  // se subieron se borran solas (archivo en R2 + fila) para no acumular storage - ver
+  // cleanupExpiredRecordFiles en recordFile.service.js. 0 desactiva el borrado. Solo
+  // aplica a los tipos de RECORD_FILE_RETENTION_TYPES (coma-separados): CMR y FACTURA
+  // quedan fuera a proposito (son documentos de transporte/fiscales, no fotos). NUNCA toca
+  // los documentos de choferes ni de vehiculos (tabla Documento), solo RecordFile.
+  RECORD_FILE_RETENTION_DAYS: z.coerce.number().default(90),
+  RECORD_FILE_RETENTION_TYPES: z
+    .string()
+    .default("FOTO_ENTREGA,COMPROBANTE")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+    )
+    .refine(
+      (types) => types.every((t) => ["CMR", "FOTO_ENTREGA", "FACTURA", "COMPROBANTE", "OTRO"].includes(t)),
+      "RECORD_FILE_RETENTION_TYPES tiene un tipo invalido"
+    ),
+
   // Dias que se conserva un AreaCEntry SIN PAGAR (alerta de vehiculo sin autorizacion
   // dentro del Area C, ver vehicle.service.js) antes de poder borrarlo con
   // /api/vehiculos/area-c-entries/cleanup. Default chico (3 dias) a proposito: en

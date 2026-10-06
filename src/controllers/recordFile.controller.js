@@ -1,4 +1,5 @@
 import {
+  cleanupExpiredRecordFiles,
   createFileForRecord,
   deleteFile,
   listFilesForRecord,
@@ -18,4 +19,11 @@ export const list = asyncHandler(async (req, res) => {
 export const remove = asyncHandler(async (req, res) => {
   await deleteFile(req.params.id);
   res.status(204).send();
+});
+
+// Borrado manual de fotos vencidas (ademas del que corre solo una vez al dia, ver
+// retentionScheduler.js). ?dryRun=true solo cuenta cuantas se borrarian.
+export const cleanup = asyncHandler(async (req, res) => {
+  const result = await cleanupExpiredRecordFiles({ dryRun: req.query.dryRun === "true" });
+  res.status(200).json({ success: true, data: result });
 });

@@ -40,6 +40,8 @@ cp .env.example .env
 | `VELOCITY_FLEET_REFRESH_TOKEN` | Opcional. Refresh Token de la cuenta de Velocity Fleet (GPS de vehiculo, seccion Mapa) - sin esto el Mapa sigue andando igual, solo con la ubicacion del celular del chofer |
 | `PHONE_LOCATION_ENABLED` | `false` por defecto: el backend ignora (sin error) la ubicacion que mande el celular del chofer y no lista ubicaciones de celulares; los ETA en vivo usan el GPS del vehiculo (Velocity Fleet). `true` para volver a usar el GPS del celular |
 | `LOCATION_PING_RETENTION_DAYS` | Dias de historial de `LocationPing` que se conservan, default 90 - ver seccion "Monitoreo y costos" |
+| `RECORD_FILE_RETENTION_DAYS` | Dias que se conservan las fotos de comprobante de los servicios (`RecordFile`) en R2 antes de borrarse solas, default 90 (0 = nunca) - ver seccion "Monitoreo y costos" |
+| `RECORD_FILE_RETENTION_TYPES` | Tipos de archivo a los que aplica ese borrado, default `FOTO_ENTREGA,COMPROBANTE` (CMR y FACTURA no se tocan) |
 | `AREA_C_ENTRY_RETENTION_DAYS` | Dias que se conserva un `AreaCEntry` (alerta de Area C), default 3 - ver seccion "Monitoreo y costos" |
 | `SPEEDING_THRESHOLD_KMH` | Velocidad (km/h) a partir de la cual se genera una alerta de exceso de velocidad, default 120 |
 | `SPEEDING_DEDUP_MINUTES` | Minutos para agrupar un exceso sostenido como el mismo episodio (no una alerta nueva cada poll), default 20 |
@@ -358,6 +360,16 @@ proxy en memoria del proceso (cache de 25s de las posiciones, cache de 5min del 
 targa->vehiculo), asi que por si solo no suma storage ni filas nuevas. Los puntos de
 costo reales de la app son otros, y estas son las medidas ya implementadas mas como
 revisarlas:
+
+**0. Fotos de comprobante: se borran solas a los 90 dias.** Las fotos de los servicios
+(`RecordFile`, tipos `FOTO_ENTREGA` y `COMPROBANTE`) se borran de R2 y de la base cuando
+pasan `RECORD_FILE_RETENTION_DAYS` (default 90) desde que se subieron, para no acumular
+storage. Corre solo una vez al dia a las 12:00 de Roma, dentro del proceso del backend
+(`src/services/retentionScheduler.js`, solo con `NODE_ENV=production`), y se puede
+disparar a mano con `POST /api/files/cleanup` (solo OWNER; `?dryRun=true` solo cuenta
+cuantas se borrarian). No toca los documentos de choferes/vehiculos (tabla `Documento`),
+ni los tipos CMR/FACTURA/OTRO, ni las fotos de comprobante de Area C. Si el borrado en R2
+falla, la fila se conserva y se reintenta al dia siguiente.
 
 **1. Confirmar que Neon tiene Autosuspend activo.** Es la palanca mas importante,
 mucho mas que cualquier cache del codigo: mientras el compute de Neon este "despierto"

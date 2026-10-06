@@ -1,10 +1,13 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
+import { startRetentionScheduler } from "./services/retentionScheduler.js";
 
 const server = app.listen(env.PORT, () => {
   console.log(`RegistrosGTBack escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
 });
+
+startRetentionScheduler();
 
 const shutdown = async (signal) => {
   console.log(`\n${signal} recibido, cerrando servidor...`);

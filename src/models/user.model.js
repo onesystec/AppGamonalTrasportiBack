@@ -31,6 +31,45 @@ export const SAFE_USER_SELECT = {
 
 const normalizeEmail = (email) => email.trim().toLowerCase();
 
+// Cache en memoria del usuario que usa authenticate() en CADA request. Sin esto, cada
+// pedido a la API (incluso uno que se responde desde otra cache, como las posiciones de
+// Velocity Fleet) hace un SELECT a Postgres, y eso es lo que lo mantiene despierto en
+// Neon (se cobra por hora despierta). Toda escritura sobre un usuario pasa por este
+// archivo y la invalida (ver invalidatingAuthCache), asi que desactivar a alguien o
+// cambiarle el rol corta el acceso al instante; solo un cambio hecho por fuera de la app
+// (directo en la base) tarda hasta AUTH_CACHE_TTL_MS en notarse. Un solo proceso de
+// Render: no hace falta cache compartida.
+const AUTH_CACHE_TTL_MS = 3 * 60 * 1000;
+const AUTH_CACHE_MAX_ENTRIES = 500;
+const authCache = new Map();
+// Sube con cada invalidacion: si una lectura arranco antes de una escritura y termina
+// despues, no debe guardar el valor viejo en la cache.
+let authCacheEpoch = 0;
+
+const dropAuthCache = (id) => {
+  authCacheEpoch += 1;
+  authCache.delete(id);
+};
+
+// Envuelve una escritura sobre el usuario: invalida antes y despues de que termine.
+const invalidatingAuthCache = (id, writePromise) => {
+  dropAuthCache(id);
+  return writePromise.finally(() => dropAuthCache(id));
+};
+
+export const findUserByIdForAuth = async (id) => {
+  const cached = authCache.get(id);
+  if (cached && cached.expiresAt > Date.now()) return { ...cached.user };
+
+  const epochAtStart = authCacheEpoch;
+  const user = await findUserById(id);
+  if (user && epochAtStart === authCacheEpoch) {
+    if (authCache.size >= AUTH_CACHE_MAX_ENTRIES) authCache.clear();
+    authCache.set(id, { user, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
+  }
+  return user ? { ...user } : user;
+};
+
 export const findAllUsers = () =>
   prisma.user.findMany({
     select: SAFE_USER_SELECT,
@@ -72,29 +111,36 @@ export const updateUserById = (id, data) => {
   if (payload.correoElectronico) {
     payload.correoElectronico = normalizeEmail(payload.correoElectronico);
   }
-  return prisma.user.update({
-    where: { id },
-    data: payload,
-    select: SAFE_USER_SELECT,
-  });
+  return invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: payload,
+      select: SAFE_USER_SELECT,
+    })
+  );
 };
 
-export const deleteUserById = (id) => prisma.user.delete({ where: { id } });
+export const deleteUserById = (id) =>
+  invalidatingAuthCache(id, prisma.user.delete({ where: { id } }));
 
 export const updateUserLocation = (id, lat, lng) =>
-  prisma.user.update({
-    where: { id },
-    data: {
-      ubicacionLat: lat,
-      ubicacionLng: lng,
-      ubicacionActualizada: new Date(),
-      // Si llega una ubicacion nueva es porque el permiso funciona: limpia cualquier
-      // aviso previo de permiso denegado sin que el chofer tenga que hacer nada.
-      ubicacionPermisoDenegado: false,
-      ubicacionPermisoActualizada: new Date(),
-    },
-    select: { id: true },
-  });
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: {
+        ubicacionLat: lat,
+        ubicacionLng: lng,
+        ubicacionActualizada: new Date(),
+        // Si llega una ubicacion nueva es porque el permiso funciona: limpia cualquier
+        // aviso previo de permiso denegado sin que el chofer tenga que hacer nada.
+        ubicacionPermisoDenegado: false,
+        ubicacionPermisoActualizada: new Date(),
+      },
+      select: { id: true },
+    })
+  );
 
 // Historial de posiciones (ver LocationPing en schema.prisma) - se inserta ademas de
 // pisar ubicacionLat/Lng en updateUserLocation, no en su lugar: una sirve para "donde
@@ -125,18 +171,24 @@ export const deleteLocationPingsOlderThan = (cutoffDate) =>
   prisma.locationPing.deleteMany({ where: { recordedAt: { lt: cutoffDate } } });
 
 export const updateUserReperibilidad = (id, noDisponible) =>
-  prisma.user.update({
-    where: { id },
-    data: { reperibilidadNoDisponible: noDisponible, reperibilidadActualizada: new Date() },
-    select: SAFE_USER_SELECT,
-  });
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: { reperibilidadNoDisponible: noDisponible, reperibilidadActualizada: new Date() },
+      select: SAFE_USER_SELECT,
+    })
+  );
 
 export const updateUserLocationPermission = (id, denegado) =>
-  prisma.user.update({
-    where: { id },
-    data: { ubicacionPermisoDenegado: denegado, ubicacionPermisoActualizada: new Date() },
-    select: { id: true },
-  });
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: { ubicacionPermisoDenegado: denegado, ubicacionPermisoActualizada: new Date() },
+      select: { id: true },
+    })
+  );
 
 // Solo los campos de ubicacion (no SAFE_USER_SELECT, que no los incluye a proposito
 // para no filtrar coordenadas GPS en cualquier fetch de usuario): usado a demanda para
@@ -166,10 +218,13 @@ export const findUsersWithFreshLocation = (sinceDate) =>
   });
 
 export const setResetToken = (id, hashedToken, expiresAt) =>
-  prisma.user.update({
-    where: { id },
-    data: { resetPasswordToken: hashedToken, resetPasswordExpires: expiresAt },
-  });
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: { resetPasswordToken: hashedToken, resetPasswordExpires: expiresAt },
+    })
+  );
 
 export const findUserByValidResetToken = (hashedToken) =>
   prisma.user.findFirst({
@@ -180,12 +235,15 @@ export const findUserByValidResetToken = (hashedToken) =>
   });
 
 export const resetPasswordAndClearToken = (id, hashedPassword) =>
-  prisma.user.update({
-    where: { id },
-    data: {
-      password: hashedPassword,
-      resetPasswordToken: null,
-      resetPasswordExpires: null,
-    },
-    select: SAFE_USER_SELECT,
-  });
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: {
+        password: hashedPassword,
+        resetPasswordToken: null,
+        resetPasswordExpires: null,
+      },
+      select: SAFE_USER_SELECT,
+    })
+  );
