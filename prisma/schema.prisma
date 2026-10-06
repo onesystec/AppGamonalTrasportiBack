@@ -109,6 +109,8 @@ model User {
   documentos Documento[]
   mancatosComoChofer MancatoPagamento[] @relation("MancatoChofer")
   mancatosCreados    MancatoPagamento[] @relation("MancatoCreadoPor")
+  multasComoChofer   Multa[]            @relation("MultaChofer")
+  multasCreadas      Multa[]            @relation("MultaCreadaPor")
   records    Record[]
   mantenimientosRegistrados MantenimientoVehiculo[]
   locationPings LocationPing[]
@@ -186,6 +188,7 @@ model Vehiculo {
 
   @@map("vehiculos")
   mancatos MancatoPagamento[]
+  multas   Multa[]
 }
 
 // Un registro liviano por CADA DIA que un vehiculo sin autorizadoAreaC entra al
@@ -537,4 +540,49 @@ model MancatoPagamento {
   @@index([driverId])
   @@index([fecha])
   @@map("mancato_pagamentos")
+}
+
+enum QuienPagaMulta {
+  CHOFER_PAGO
+  A_DESCONTAR
+}
+
+// Multa de transito (verbale) de un vehiculo de la flota, a nombre de un chofer responsable.
+// Se carga desde la oficina (OWNER/ADMIN); el chofer solo ve las suyas. Igual que
+// MancatoPagamento, el estado (Pendiente / Pagado / Vencido) no se guarda: se deriva de
+// pagado + fechaVencimiento. A diferencia de aquel, el vencimiento lo dice el verbale (se
+// carga a mano; por defecto recepcion + 60 dias). quienPaga dice si el chofer pago la multa
+// el mismo o si la pago la empresa y hay que descontarsela (descontado marca que ya se hizo).
+model Multa {
+  id               String         @id @default(uuid())
+  numeroVerbale    String         @unique
+  targa            String
+  vehicleId        String?
+  vehicle          Vehiculo?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId         String?
+  driver           User?          @relation("MultaChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById      String?
+  createdBy        User?          @relation("MultaCreadaPor", fields: [createdById], references: [id], onDelete: SetNull)
+  // Dia en que se cometio la infraccion (opcional): sirve para saber quien llevaba el
+  // vehiculo ese dia, cruzando con Registros.
+  fechaInfraccion  DateTime?      @db.Date
+  fechaRecepcion   DateTime       @db.Date
+  fechaVencimiento DateTime       @db.Date
+  costo            Decimal        @db.Decimal(10, 2)
+  quienPaga        QuienPagaMulta
+  descontado       Boolean        @default(false)
+  descontadoAt     DateTime?
+  comentarios      String?
+  multaKey         String?
+  comprobanteKey   String?
+  pagado           Boolean        @default(false)
+  pagadoAt         DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([pagado, fechaVencimiento])
+  @@index([driverId])
+  @@index([fechaRecepcion])
+  @@index([quienPaga, descontado])
+  @@map("multas")
 }
