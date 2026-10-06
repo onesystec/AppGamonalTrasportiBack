@@ -98,6 +98,11 @@ model User {
   // "Quitar" una vez que ya no aplica.
   proximoServicioFecha DateTime? @db.Date
   proximoServicioNota  String?
+  // Datos de contacto que el propio usuario completa desde "Mi perfil" (opcionales).
+  direccion                    String?
+  contactoEmergenciaNombre     String?
+  contactoEmergenciaParentesco String?
+  contactoEmergenciaTelefono   String?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
 

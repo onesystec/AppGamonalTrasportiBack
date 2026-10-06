@@ -42,6 +42,10 @@ const SELF_EDITABLE_FIELDS = [
   "numeroCelular",
   "password",
   "compartirUbicacion",
+  "direccion",
+  "contactoEmergenciaNombre",
+  "contactoEmergenciaParentesco",
+  "contactoEmergenciaTelefono",
 ];
 
 // El bucket es privado: nunca se expone la key interna, siempre una URL firmada fresca.

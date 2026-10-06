@@ -39,6 +39,10 @@ export const updateUserSchema = z
     reperibilidadNoDisponible: z.boolean().optional(),
     proximoServicioFecha: z.coerce.date().nullable().optional(),
     proximoServicioNota: z.string().trim().max(500).nullable().optional(),
+    direccion: z.string().trim().max(200).nullable().optional(),
+    contactoEmergenciaNombre: z.string().trim().max(100).nullable().optional(),
+    contactoEmergenciaParentesco: z.string().trim().max(50).nullable().optional(),
+    contactoEmergenciaTelefono: z.string().trim().max(30).nullable().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "Debe enviar al menos un campo para actualizar",

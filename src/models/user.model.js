@@ -21,6 +21,10 @@ export const SAFE_USER_SELECT = {
   vehiculoAsignado: { select: { id: true, targa: true, modelo: true } },
   proximoServicioFecha: true,
   proximoServicioNota: true,
+  direccion: true,
+  contactoEmergenciaNombre: true,
+  contactoEmergenciaParentesco: true,
+  contactoEmergenciaTelefono: true,
   createdAt: true,
   updatedAt: true,
 };
