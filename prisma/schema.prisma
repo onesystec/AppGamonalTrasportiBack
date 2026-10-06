@@ -107,6 +107,8 @@ model User {
   updatedAt            DateTime  @updatedAt
 
   documentos Documento[]
+  mancatosComoChofer MancatoPagamento[] @relation("MancatoChofer")
+  mancatosCreados    MancatoPagamento[] @relation("MancatoCreadoPor")
   records    Record[]
   mantenimientosRegistrados MantenimientoVehiculo[]
   locationPings LocationPing[]
@@ -183,6 +185,7 @@ model Vehiculo {
   speedingEvents    SpeedingEvent[]
 
   @@map("vehiculos")
+  mancatos MancatoPagamento[]
 }
 
 // Un registro liviano por CADA DIA que un vehiculo sin autorizadoAreaC entra al
@@ -499,4 +502,39 @@ model TelegramDraft {
   updatedAt DateTime @updatedAt
 
   @@map("telegram_drafts")
+}
+
+// Multa/aviso de pago omitido ("mancato pagamento"): el chofer (o un admin) lo registra y
+// se puede pagar hasta el dia 15 posterior a la fecha (fecha + 15), como dicen los avisos. El estado
+// (Pendiente / Pagado / Vencido) NO se guarda: se deriva de pagado + fechaVencimiento en
+// cada consulta, asi no hace falta ningun cron que marque los vencidos. createdAt es el
+// momento real en que se subio al sistema (no editable) y fueraDePlazo queda fijo al
+// crear: se subio cuando el plazo ya habia vencido.
+model MancatoPagamento {
+  id               String    @id @default(uuid())
+  numero           String    @unique
+  targa            String
+  vehicleId        String?
+  vehicle          Vehiculo? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId         String?
+  driver           User?     @relation("MancatoChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById      String?
+  createdBy        User?     @relation("MancatoCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
+  fecha            DateTime  @db.Date
+  fechaVencimiento DateTime  @db.Date
+  costo            Decimal   @db.Decimal(10, 2)
+  sitioWeb         String?
+  fotoKey          String?
+  comprobanteKey   String?
+  comentarios      String?
+  pagado           Boolean   @default(false)
+  pagadoAt         DateTime?
+  fueraDePlazo     Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([pagado, fechaVencimiento])
+  @@index([driverId])
+  @@index([fecha])
+  @@map("mancato_pagamentos")
 }
