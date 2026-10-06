@@ -1,3 +1,4 @@
+import compression from "compression";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -9,6 +10,9 @@ import routes from "./routes/index.js";
 const app = express();
 
 app.use(helmet());
+// gzip de las respuestas JSON: GET /records del historial pesa MBs sin comprimir y el
+// trafico de salida de Render se cobra por GB pasado el cupo incluido.
+app.use(compression());
 app.use(
   cors({
     origin: env.CORS_ORIGIN === "*" ? "*" : env.CORS_ORIGIN.split(",").map((o) => o.trim()),
