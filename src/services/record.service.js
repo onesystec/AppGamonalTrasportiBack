@@ -18,7 +18,7 @@ import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { syncRelevoForRecord } from "./traspaso.service.js";
 import { groupFuelByRecord } from "../models/combustible.model.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
-import { geocodeStops } from "./geocoding.service.js";
+import { geocodeAddress, geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
@@ -102,13 +102,37 @@ const RELEVANT_FOR_MATCHING = [
   "rutaDuracionMin",
 ];
 
-// Geocodifica las paradas (en orden) y calcula la ruta deposito -> paradas. Devuelve
+// Punto de salida de un servicio: el elegido en el formulario o, si nunca se eligio, el deposito.
+const salidaOf = (record) =>
+  record.salidaLat != null && record.salidaLng != null
+    ? { direccion: record.salidaDireccion ?? "Salida", lat: record.salidaLat, lng: record.salidaLng }
+    : { direccion: DEPOT_ORIGIN.direccion, lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng };
+
+// De lo que manda el formulario ({ direccion, lat?, lng? }) al punto con coordenadas. Con coordenadas
+// (sugerencia con ubicacion exacta) no se geocodifica; sin ellas se geocodifica el texto, y si no se
+// encuentra se avisa en vez de aproximar a la ciudad: una salida mal ubicada cambia toda la ruta.
+const resolveSalida = async (input) => {
+  if (!input) return null;
+  if (input.lat != null && input.lng != null) {
+    return { direccion: input.direccion, lat: input.lat, lng: input.lng };
+  }
+  const { lat, lng } = await geocodeAddress(input.direccion);
+  return { direccion: input.direccion, lat, lng };
+};
+
+const salidaColumns = (salida) => ({
+  salidaDireccion: salida?.direccion ?? null,
+  salidaLat: salida?.lat ?? null,
+  salidaLng: salida?.lng ?? null,
+});
+
+// Geocodifica las paradas (en orden) y calcula la ruta salida -> paradas. Devuelve
 // el payload listo para mezclar en la data que se manda a Prisma. fallbackCiudad: si
 // una parada no geocodifica, geocodeStops la aproxima al centro de esa ciudad en vez
 // de fallar el registro entero (ver geocoding.service.js).
-const buildStopsPipeline = async (direcciones, fallbackCiudad) => {
+const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = DEPOT_ORIGIN) => {
   const stopsGeocoded = await geocodeStops(direcciones, fallbackCiudad);
-  const ruta = await calculateRoute([DEPOT_ORIGIN, ...stopsGeocoded]);
+  const ruta = await calculateRoute([salida, ...stopsGeocoded]);
 
   return {
     stopsCreate: stopsGeocoded.map((s, i) => ({
@@ -272,7 +296,7 @@ const toFullResponse = (record) => {
     aplicativo: record.aplicativo,
     spedizzione: record.spedizzione,
     extrasPiazzaZona: record.extrasPiazzaZona,
-    origen: DEPOT_ORIGIN,
+    salida: salidaOf(record),
     // record.stops es undefined en los resultados de listado (findRecords no trae
     // la relacion, ver RECORD_SELECT_LIST) - solo esta presente en un fetch de un
     // registro puntual (findRecordById).
@@ -335,7 +359,7 @@ const toChoferResponse = (record) => ({
   aplicativo: record.aplicativo,
   spedizzione: record.spedizzione,
   extrasPiazzaZona: record.extrasPiazzaZona,
-  origen: DEPOT_ORIGIN,
+  salida: salidaOf(record),
   stops: record.stops?.map(({ id, orden, direccion, lat, lng }) => ({ id, orden, direccion, lat, lng })),
   ruta: {
     distanciaKm: record.rutaDistanciaKm,
@@ -372,12 +396,14 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
     throw new AppError("No tienes permisos para crear un registro fuera de tu area", 403);
   }
 
-  const { stops: direcciones, ...rest } = data;
+  const { stops: direcciones, salida: salidaInput, ...rest } = data;
+  const salida = await resolveSalida(salidaInput);
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-    await buildStopsPipeline(direcciones, data.ciudad);
+    await buildStopsPipeline(direcciones, data.ciudad, salida ?? DEPOT_ORIGIN);
 
   let record = await createRecordModel({
     ...rest,
+    ...(salida ? salidaColumns(salida) : {}),
     destinazione,
     rutaDistanciaKm,
     rutaDuracionMin,
@@ -598,13 +624,26 @@ export const updateRecordForActor = async (actor, id, data) => {
       await assertDriverActivo(payload.driverId);
     }
 
+    // "salida": undefined = no se toca, null = vuelve al deposito, objeto = nueva salida.
+    let salidaChange;
+    if ("salida" in payload) {
+      const { salida: salidaInput, ...withoutSalida } = payload;
+      payload = withoutSalida;
+      salidaChange = salidaInput === null ? null : await resolveSalida(salidaInput);
+    }
+    const currentSalida = salidaOf(record);
+    const nextSalida = salidaChange === undefined ? currentSalida : (salidaChange ?? salidaOf({}));
+    const salidaMoved =
+      salidaChange !== undefined &&
+      (nextSalida.lat !== currentSalida.lat || nextSalida.lng !== currentSalida.lng);
+
     if (payload.stops) {
       const { stops: direcciones, ...rest } = payload;
       if (stopsUnchanged(record.stops, direcciones)) {
         payload = rest;
       } else {
         const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-          await buildStopsPipeline(direcciones, payload.ciudad ?? record.ciudad);
+          await buildStopsPipeline(direcciones, payload.ciudad ?? record.ciudad, nextSalida);
         payload = {
           ...rest,
           destinazione,
@@ -614,6 +653,24 @@ export const updateRecordForActor = async (actor, id, data) => {
           rutaCalculadaAt,
           stops: { deleteMany: {}, create: stopsCreate },
         };
+      }
+    }
+
+    if (salidaChange !== undefined) {
+      payload = { ...payload, ...salidaColumns(salidaChange) };
+      // La salida cambio pero las paradas no: se recalcula la ruta con las paradas ya ubicadas.
+      if (salidaMoved && !("rutaDistanciaKm" in payload)) {
+        const placed = record.stops.filter((s) => s.lat != null && s.lng != null);
+        if (placed.length > 0) {
+          const ruta = await calculateRoute([nextSalida, ...placed]);
+          payload = {
+            ...payload,
+            rutaDistanciaKm: ruta?.distanciaKm ?? null,
+            rutaDuracionMin: ruta?.duracionMin ?? null,
+            rutaGeometria: ruta?.geometria ?? null,
+            rutaCalculadaAt: ruta ? new Date() : null,
+          };
+        }
       }
     }
   } else {

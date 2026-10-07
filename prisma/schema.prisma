@@ -425,6 +425,11 @@ model Record {
   // Ruta calculada (deposito fijo -> paradas en orden), cacheada para no recalcular
   // en cada lectura. Null si todavia no se calculo o si el servicio de ruteo fallo.
   stops           RecordStop[]
+  // Punto de salida del servicio. null = el deposito de siempre (constants/depot.js). Se elige en el
+  // formulario del servicio (sugerencias: DHL Milano, AB Service, DHL Roma, o una direccion libre).
+  salidaDireccion String?
+  salidaLat       Float?
+  salidaLng       Float?
   rutaDistanciaKm Float?
   rutaDuracionMin Float?
   rutaGeometria   Json?

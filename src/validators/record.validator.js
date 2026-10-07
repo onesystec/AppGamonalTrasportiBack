@@ -53,6 +53,16 @@ const stopsField = z
   .min(1, "Debe haber al menos una parada")
   .max(10, "Maximo 10 paradas");
 
+// Punto de salida del servicio (opcional): una direccion de texto y, si viene de una sugerencia con
+// ubicacion exacta, sus coordenadas (sin ellas se geocodifica el texto). null = volver al deposito.
+const salidaField = z
+  .object({
+    direccion: z.string().trim().min(1, "La direccion de salida no puede estar vacia").max(200),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+  })
+  .refine((v) => (v.lat == null) === (v.lng == null), { message: "lat y lng van juntas" });
+
 // Cuando sale realmente el vehiculo. "" (o null) la borra al editar.
 // El formulario manda la hora "de pared" sin zona (AAAA-MM-DDTHH:mm): se interpreta como hora de
 // Roma (la operacion es ahi), sin depender de la zona del navegador ni del servidor.
@@ -84,6 +94,7 @@ export const createRecordSchema = z.object({
     .optional(),
   origenExternoId: z.string().trim().min(1).optional(),
   stops: stopsField,
+  salida: salidaField.optional(),
   ...operationalFields,
   ...economicFields,
 });
@@ -102,6 +113,7 @@ export const updateRecordSchema = z.object({
   spedizzione: z.enum(SPEDIZZIONE_VALUES).optional(),
   extrasPiazzaZona: z.enum(EXTRAS_PIAZZA_ZONA_VALUES).optional(),
   stops: stopsField.optional(),
+  salida: salidaField.nullable().optional(),
   // Chofer que termino el servicio en lugar del asignado (null = nadie, quita el relevo).
   choferRelevoId: z.string().uuid("choferRelevoId invalido").nullable().optional(),
   ...operationalFields,

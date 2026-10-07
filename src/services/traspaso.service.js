@@ -93,6 +93,9 @@ export const syncRelevoForRecord = async (record, relevoDriverId) => {
     extrasPiazzaZona: record.extrasPiazzaZona,
     fechaServicio: record.fechaServicio,
     eta: record.eta,
+    salidaDireccion: record.salidaDireccion,
+    salidaLat: record.salidaLat,
+    salidaLng: record.salidaLng,
     stops: {
       create: (record.stops ?? []).map((s) => ({
         orden: s.orden,
