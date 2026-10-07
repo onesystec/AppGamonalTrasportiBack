@@ -1,6 +1,38 @@
 import { prisma } from "../config/prisma.js";
 
+const PERSON = { select: { id: true, nombre: true, apellido: true } };
+
+// Traspaso entre choferes (ver Record.servicioOrigenId en schema.prisma): el segundo tramo de un
+// servicio y, del lado de la continuacion, el servicio del que viene.
+const TRASPASO_SELECT = {
+  continuaciones: {
+    select: {
+      id: true,
+      codigo: true,
+      estado: true,
+      driverId: true,
+      traspasoHora: true,
+      horasEstado: true,
+      horaInicioReal: true,
+      driver: PERSON,
+    },
+  },
+  servicioOrigen: {
+    select: {
+      id: true,
+      codigo: true,
+      driverId: true,
+      fechaServicio: true,
+      fechaRetiro: true,
+      horaInicioReal: true,
+      horaFinReal: true,
+      driver: PERSON,
+    },
+  },
+};
+
 const RECORD_INCLUDE = {
+  ...TRASPASO_SELECT,
   driver: { select: { id: true, nombre: true, apellido: true } },
   vehicle: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
@@ -48,6 +80,9 @@ const RECORD_SELECT_LIST = {
   fechaServicio: true,
   eta: true,
   fechaRetiro: true,
+  servicioOrigenId: true,
+  traspasoHora: true,
+  ...TRASPASO_SELECT,
   descripcion: true,
   codigo: true,
   destinazione: true,
@@ -63,6 +98,17 @@ const RECORD_SELECT_LIST = {
   horasDia: true,
   horasNoche: true,
   tiempoEspera: true,
+  horaInicioReal: true,
+  horaFinReal: true,
+  pausaMin: true,
+  horasEstado: true,
+  horasEnviadasAt: true,
+  horasRevisadasAt: true,
+  horasNota: true,
+  horasDeclaradas: true,
+  paradasCalculadasAt: true,
+  finFueraDeBase: true,
+  gpsFin: true,
   comentarios: true,
   kilometrosReales: true,
   kilometros: true,
@@ -288,3 +334,19 @@ export const releaseCombustiblesOfRecord = (recordId) =>
     where: { recordId },
     data: { recordId: null, asignacion: "EN_ESPERA", asignacionMotivo: "El servicio asignado se elimino." },
   });
+
+// Servicios con horas esperando revision (o devueltas), para la pantalla de aprobacion.
+// El detalle pesado (stops, geometria de la ruta) no hace falta aca.
+export const findRecordsByHorasEstado = ({ estados, spedizzioneFilter, driverId } = {}) =>
+  prisma.record.findMany({
+    where: {
+      horasEstado: { in: estados },
+      ...(driverId ? { driverId } : {}),
+      ...(spedizzioneFilter ?? {}),
+    },
+    select: RECORD_SELECT_LIST,
+    orderBy: [{ horasEnviadasAt: "asc" }, { fechaServicio: "asc" }],
+  });
+
+export const countRecordsByHorasEstado = ({ estado, spedizzioneFilter }) =>
+  prisma.record.count({ where: { horasEstado: estado, ...(spedizzioneFilter ?? {}) } });

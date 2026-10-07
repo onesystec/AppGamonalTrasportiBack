@@ -102,6 +102,8 @@ export const updateRecordSchema = z.object({
   spedizzione: z.enum(SPEDIZZIONE_VALUES).optional(),
   extrasPiazzaZona: z.enum(EXTRAS_PIAZZA_ZONA_VALUES).optional(),
   stops: stopsField.optional(),
+  // Chofer que termino el servicio en lugar del asignado (null = nadie, quita el relevo).
+  choferRelevoId: z.string().uuid("choferRelevoId invalido").nullable().optional(),
   ...operationalFields,
   ...economicFields,
 });

@@ -76,6 +76,9 @@ export const findCandidateServices = ({ vehicleId, from, to }) =>
   prisma.record.findMany({
     where: {
       vehicleId,
+      // La continuacion de un traspaso copia las fechas del servicio original: no es un servicio
+      // distinto para saber de quien es un peaje o una carga de combustible.
+      servicioOrigenId: null,
       estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] },
       OR: [
         { fechaRetiro: { gte: from, lte: to } },

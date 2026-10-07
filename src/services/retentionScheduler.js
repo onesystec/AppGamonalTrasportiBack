@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { deleteParadasOlderThan } from "../models/parada.model.js";
 import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
@@ -40,6 +41,14 @@ export const startRetentionScheduler = () => {
       }
     } catch (err) {
       console.error("[retencion] fallo la limpieza de fotos vencidas:", err.message);
+    }
+
+    try {
+      const cutoff = new Date(Date.now() - env.PARADA_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+      const { count } = await deleteParadasOlderThan(cutoff);
+      if (count > 0) console.log(`[retencion] paradas de vehiculo viejas borradas: ${count}`);
+    } catch (err) {
+      console.error("[retencion] fallo la limpieza de paradas:", err.message);
     }
   };
 

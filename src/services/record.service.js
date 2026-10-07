@@ -15,6 +15,7 @@ import {
 import { findUserById, findUserLocationById } from "../models/user.model.js";
 import { purgeFilesForRecord } from "./recordFile.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
+import { syncRelevoForRecord } from "./traspaso.service.js";
 import { groupFuelByRecord } from "../models/combustible.model.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
 import { geocodeStops } from "./geocoding.service.js";
@@ -50,13 +51,21 @@ const AREA_SPEDIZZIONES = {
   DHL: ["DHL", "AB_SERVICE", "EXTRAS_STEFANIA"],
 };
 
-const spedizzioneFilterForActor = (actor) =>
+export const spedizzioneFilterForActor = (actor) =>
   actor.cargo === "ADMIN" ? (AREA_SPEDIZZIONE_WHERE[actor.area] ?? { spedizzione: { in: [] } }) : undefined;
+
+// Filtro de las listas y conteos que usa la oficina: ademas del area del actor, solo los servicios
+// originales. El segundo tramo de un traspaso entre choferes (la "continuacion") no es un servicio
+// mas para el cliente ni para los totales: se ve desde su servicio original.
+const listFilterForActor = (actor) =>
+  isPrivileged(actor)
+    ? { ...(spedizzioneFilterForActor(actor) ?? {}), servicioOrigenId: null }
+    : spedizzioneFilterForActor(actor);
 
 const canAccessSpedizzione = (actor, spedizzione) =>
   actor.cargo !== "ADMIN" || (AREA_SPEDIZZIONES[actor.area] ?? []).includes(spedizzione ?? null);
 
-const assertAccess = (actor, record) => {
+export const assertAccess = (actor, record) => {
   if (actor.cargo === "OWNER" || record.driverId === actor.id) return;
   if (isPrivileged(actor) && canAccessSpedizzione(actor, record.spedizzione)) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
@@ -122,6 +131,48 @@ const stopsUnchanged = (existingStops, direcciones) =>
   existingStops.every(
     (stop, i) => stop.direccion.trim().toLowerCase() === direcciones[i].trim().toLowerCase()
   );
+
+// Traspaso entre choferes. Del lado del servicio original: quien lo termino ("relevo"); del lado de
+// la continuacion: de quien lo recibio ("origen").
+const toRelevo = (record) => {
+  const next = record.continuaciones?.[0];
+  return next
+    ? {
+        recordId: next.id,
+        codigo: next.codigo,
+        driverId: next.driverId,
+        chofer: next.driver,
+        traspasoHora: next.traspasoHora ?? null,
+        estado: next.estado,
+      }
+    : null;
+};
+const toOrigen = (record) =>
+  record.servicioOrigen
+    ? {
+        recordId: record.servicioOrigen.id,
+        codigo: record.servicioOrigen.codigo,
+        chofer: record.servicioOrigen.driver,
+        finJornada: record.servicioOrigen.horaFinReal ?? null,
+      }
+    : null;
+
+// Jornada declarada por el chofer y su estado de aprobacion (ver utils/workHours.js).
+// "esperaMin" se reconstruye de tiempoEspera (horas) para que el formulario trabaje en minutos.
+export const toJornada = (record) => ({
+  inicio: record.horaInicioReal ?? null,
+  fin: record.horaFinReal ?? null,
+  pausaMin: record.pausaMin ?? 0,
+  esperaMin: record.tiempoEspera ? Math.round(record.tiempoEspera * 60) : 0,
+  horasDia: record.horasDia ?? null,
+  horasNoche: record.horasNoche ?? null,
+  estado: record.horasEstado ?? null,
+  enviadasAt: record.horasEnviadasAt ?? null,
+  revisadasAt: record.horasRevisadasAt ?? null,
+  nota: record.horasNota ?? null,
+  declaradas: record.horasDeclaradas ?? null,
+  finFueraDeBase: record.finFueraDeBase ?? false,
+});
 
 // Resumen de combustible de un servicio. En el detalle trae los comprobantes ("combustibles");
 // en los listados solo la suma y la cantidad (ver attachFuel).
@@ -234,6 +285,10 @@ const toFullResponse = (record) => {
     horasDia: record.horasDia,
     horasNoche: record.horasNoche,
     tiempoEspera: record.tiempoEspera,
+    jornada: toJornada(record),
+    relevo: toRelevo(record),
+    origen: toOrigen(record),
+    traspasoHora: record.traspasoHora ?? null,
     comentarios: record.comentarios,
     kilometros: record.kilometros,
     kilometrosReales: record.kilometrosReales,
@@ -290,6 +345,10 @@ const toChoferResponse = (record) => ({
   horasDia: record.horasDia,
   horasNoche: record.horasNoche,
   tiempoEspera: record.tiempoEspera,
+  jornada: toJornada(record),
+  relevo: toRelevo(record),
+  origen: toOrigen(record),
+  traspasoHora: record.traspasoHora ?? null,
   comentarios: record.comentarios,
   kilometros: record.kilometros,
   kilometrosReales: record.kilometrosReales,
@@ -409,7 +468,7 @@ export const exportRecordsForActor = async (actor, filters) => {
 
   const records = await findRecordsForExport({
     dateRange,
-    spedizzioneFilter: spedizzioneFilterForActor(actor),
+    spedizzioneFilter: listFilterForActor(actor),
     driverId,
     clientId,
     vehicleId,
@@ -425,7 +484,7 @@ export const exportRecordsForActor = async (actor, filters) => {
 
 export const listRecordsForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
-  const spedizzioneFilter = spedizzioneFilterForActor(actor);
+  const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFuel(await findRecords({ driverId, dateRange, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
@@ -441,7 +500,7 @@ export const listPendingRecordsForActor = async (actor) => {
     .split("-")
     .map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
-  const spedizzioneFilter = spedizzioneFilterForActor(actor);
+  const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
@@ -463,7 +522,7 @@ export const searchRecordsForActor = async (actor, q) => {
   const query = (q ?? "").trim();
   if (query.length < SEARCH_MIN_LENGTH) return [];
   const driverId = isPrivileged(actor) ? undefined : actor.id;
-  const spedizzioneFilter = spedizzioneFilterForActor(actor);
+  const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFuel(await searchRecords({ q: query, driverId, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
@@ -473,7 +532,7 @@ export const searchRecordsForActor = async (actor, q) => {
 // aca, asi que no hace falta distinguir toFullResponse/toChoferResponse.
 export const listRecordsSummaryForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
-  const spedizzioneFilter = spedizzioneFilterForActor(actor);
+  const spedizzioneFilter = listFilterForActor(actor);
   return findRecordsSummary({ driverId, dateRange, spedizzioneFilter });
 };
 
@@ -484,6 +543,41 @@ export const getRecordByIdForActor = async (actor, id) => {
   }
   assertAccess(actor, record);
   return toResponse(record, actor);
+};
+
+const HOURS_TOTAL_FIELDS = ["horasDia", "horasNoche", "tiempoEspera"];
+
+// Cargar los totales de horas directamente (formulario viejo / app instalada sin actualizar)
+// sigue funcionando, pero pasa por la misma aprobacion que el flujo nuevo:
+//  - un chofer las deja PENDIENTES (o se ignoran si ya estan aprobadas);
+//  - la oficina las deja APROBADAS (ella es quien aprueba).
+// Solo cuenta si el valor realmente cambio: el formulario reenvia todos los campos en cada
+// guardado y editar un comentario no debe aprobar horas que nadie reviso.
+const applyHoursApprovalRules = (actor, record, payload) => {
+  const changed = HOURS_TOTAL_FIELDS.filter((key) => key in payload && payload[key] !== record[key]);
+  if (changed.length === 0) return payload;
+
+  if (isPrivileged(actor)) {
+    return {
+      ...payload,
+      horasEstado: "APROBADAS",
+      horasRevisadasAt: new Date(),
+      horasRevisadaPorId: actor.id,
+    };
+  }
+
+  if (record.horasEstado === "APROBADAS") {
+    return Object.fromEntries(Object.entries(payload).filter(([key]) => !HOURS_TOTAL_FIELDS.includes(key)));
+  }
+  return {
+    ...payload,
+    horasEstado: "PENDIENTE",
+    horasEnviadasAt: new Date(),
+    horasNota: null,
+    horasDeclaradas: Object.fromEntries(
+      HOURS_TOTAL_FIELDS.map((key) => [key, key in payload ? payload[key] : (record[key] ?? null)])
+    ),
+  };
 };
 
 export const updateRecordForActor = async (actor, id, data) => {
@@ -527,6 +621,16 @@ export const updateRecordForActor = async (actor, id, data) => {
       Object.entries(data).filter(([key]) => SELF_EDITABLE_FIELDS.includes(key))
     );
   }
+
+  // "choferRelevoId" no es una columna: crea, cambia o quita el segundo tramo del servicio. Va antes de
+  // guardar para que un conflicto (ej. el relevo ya cargo horas) no deje el servicio a medias.
+  if (isPrivileged(actor) && "choferRelevoId" in payload) {
+    const { choferRelevoId, ...rest } = payload;
+    payload = rest;
+    await syncRelevoForRecord(record, choferRelevoId);
+  }
+
+  payload = applyHoursApprovalRules(actor, record, payload);
 
   let updated = await updateRecordById(id, payload);
 
@@ -612,6 +716,8 @@ export const deleteRecord = async (actor, id) => {
   assertAccess(actor, record);
 
   await purgeFilesForRecord(id);
+  // Las continuaciones de un traspaso se borran con el original (cascada): sus archivos tambien.
+  for (const next of record.continuaciones ?? []) await purgeFilesForRecord(next.id);
   // Los peajes asignados a este servicio vuelven a esperar uno (y se re-evaluan sin el).
   await releaseMancatosOfRecord(id);
   await releaseCombustiblesOfRecord(id);

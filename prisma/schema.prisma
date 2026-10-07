@@ -187,6 +187,7 @@ model Vehiculo {
   choferesAsignados User[]
   areaCEntries      AreaCEntry[]
   speedingEvents    SpeedingEvent[]
+  paradas           ParadaVehiculo[]
 
   @@map("vehiculos")
   mancatos MancatoPagamento[]
@@ -240,6 +241,47 @@ model SpeedingEvent {
 
   @@index([vehicleId, occurredAt])
   @@map("speeding_events")
+}
+
+// Clasificacion de una parada del vehiculo (ver vehicleStops.service.js). EN_CURSO: el vehiculo
+// sigue detenido. SERVICIO: cerca de una parada del servicio o del deposito (carga, descarga,
+// espera: es trabajo). COMBUSTIBLE: coincide con un comprobante de combustible. TOLERADA: dura
+// menos que la tolerancia. A_REVISAR: el resto, para que la oficina la mire.
+enum ParadaClase {
+  EN_CURSO
+  SERVICIO
+  COMBUSTIBLE
+  TOLERADA
+  A_REVISAR
+}
+
+// Una fila por CADA parada del vehiculo durante la jornada declarada de un servicio (no puntos
+// GPS: solo el episodio "estuvo detenido de X a Y en este lugar"), calculada con el historial de
+// GPS de OneSystec al enviar el chofer sus horas (ver vehicleStops.service.js). Hoy es solo
+// informativo: no cambia el pago. Retencion: PARADA_RETENTION_DAYS.
+model ParadaVehiculo {
+  id                 String      @id @default(uuid())
+  vehicleId          String
+  vehicle            Vehiculo    @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  targa              String
+  driverId           String?
+  recordId           String?
+  startedAt          DateTime
+  endedAt            DateTime?
+  durationMin        Int         @default(0)
+  lat                Float
+  lng                Float
+  // true si el motor estuvo apagado en algun momento de la parada.
+  motorApagado       Boolean     @default(false)
+  clase              ParadaClase @default(EN_CURSO)
+  motivo             String?
+  distanciaServicioM Int?
+  createdAt          DateTime    @default(now())
+
+  @@index([vehicleId, startedAt])
+  @@index([startedAt])
+  @@index([clase])
+  @@map("paradas_vehiculo")
 }
 
 // Historial de cada carga de KM en la seccion Mecanica: conserva el registro completo
@@ -335,6 +377,15 @@ model Client {
   @@map("clients")
 }
 
+// Estado de las horas de un servicio: el chofer las envia (PENDIENTE), el responsable las
+// aprueba (APROBADAS) o las devuelve con una nota (DEVUELTAS) para que el chofer las corrija.
+// Sin estado = el chofer todavia no cargo horas.
+enum HorasEstado {
+  PENDIENTE
+  APROBADAS
+  DEVUELTAS
+}
+
 model Record {
   id     String       @id @default(uuid())
   estado RecordStatus @default(IN_SOSPESO)
@@ -383,6 +434,29 @@ model Record {
   horasDia         Float?
   horasNoche       Float?
   tiempoEspera     Float?
+  // Jornada que declara el chofer al cerrar el servicio (ver utils/workHours.js): de
+  // inicio/fin/espera/pausa salen horasDia, horasNoche y tiempoEspera. Solo cuentan para el
+  // pago cuando el responsable las aprueba (horasEstado = APROBADAS); si no hay horas
+  // aprobadas se paga por km. horasDeclaradas guarda lo que envio el chofer tal cual, para
+  // poder comparar si el responsable luego lo ajusto.
+  horaInicioReal      DateTime?
+  horaFinReal         DateTime?
+  pausaMin            Int?
+  horasEstado         HorasEstado?
+  horasEnviadasAt     DateTime?
+  horasRevisadasAt    DateTime?
+  horasRevisadaPorId  String?
+  horasNota           String?
+  horasDeclaradas     Json?
+  // Cuando se calcularon las paradas del vehiculo para esta jornada (ParadaVehiculo con recordId);
+  // null = todavia no se calcularon (o fallo la consulta al GPS).
+  paradasCalculadasAt DateTime?
+  // El chofer termino sin pasar por el lugar de espera (por ejemplo fue directo a casa): su fin es la
+  // hora de llegada. La regla de pago lo topea a lo que habria tardado en volver desde su ultima entrega.
+  finFueraDeBase      Boolean   @default(false)
+  // Lectura del GPS sobre el final de la jornada (ultimo movimiento del vehiculo, ultima entrega, tiempo
+  // de vuelta al lugar de espera y tope). Solo fechas y duraciones: no guarda ubicaciones de fuera de la jornada.
+  gpsFin              Json?
   comentarios      String?
   kilometrosReales Float? // KM real cargado por el chofer, para comparar contra "kilometros" (planificado)
 
@@ -405,12 +479,23 @@ model Record {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Traspaso entre choferes: cuando un chofer no puede terminar un servicio y otro lo termina, el
+  // segundo tramo es un servicio aparte (la "continuacion"), con su chofer, su jornada y su pago, enlazado
+  // al servicio original. La continuacion no se factura ni cuenta como servicio nuevo: la plata del
+  // cliente sigue en el original. traspasoHora = cuando el segundo chofer recibio el paquete.
+  servicioOrigenId String?
+  servicioOrigen   Record?  @relation("Traspaso", fields: [servicioOrigenId], references: [id], onDelete: Cascade)
+  continuaciones   Record[] @relation("Traspaso")
+  traspasoHora     DateTime?
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]
 
   @@index([fechaServicio])
   @@index([driverId])
+  @@index([horasEstado])
+  @@index([servicioOrigenId])
   @@map("records")
 }
 

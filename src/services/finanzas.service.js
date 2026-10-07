@@ -7,6 +7,8 @@ import {
   findRecordsLite,
 } from "../models/finanzas.model.js";
 import { AppError } from "../utils/AppError.js";
+import { countRecordsByHorasEstado } from "../models/record.model.js";
+import { spedizzioneFilterForActor } from "./record.service.js";
 import { countCombustibleByAsignacion } from "../models/combustible.model.js";
 import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
@@ -48,20 +50,24 @@ const comparisonLimitDay = (month) => (month === romeDay().slice(0, 7) ? Number(
 
 const numberOr0 = (value) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
-// Pago de UN servicio. Con horas cargadas (dia + noche) se paga por hora; sin horas, por
-// distancia (proporcional a cada 100 km); y las horas de espera se suman en ambos casos.
-// Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de
-// la ruta calculada.
+// Pago de UN servicio. Con horas APROBADAS por el responsable se paga por hora, de dia o de
+// noche segun la tarifa; sin horas aprobadas (el chofer no las cargo, estan pendientes de
+// revision o fueron devueltas) se paga por defecto por distancia, proporcional a cada 100 km.
+// La espera solo se suma cuando las horas estan aprobadas. Distancia: la que reporto el chofer
+// si la cargo, si no la del servicio y, de ultima, la de la ruta calculada.
 export const computeServicePay = (record) => {
-  const horas = numberOr0(record.horasDia) + numberOr0(record.horasNoche);
-  const esperaHoras = numberOr0(record.tiempoEspera);
+  const aprobadas = record.horasEstado === "APROBADAS";
+  const horasDia = numberOr0(record.horasDia);
+  const horasNoche = numberOr0(record.horasNoche);
+  const horas = horasDia + horasNoche;
+  const esperaHoras = aprobadas ? numberOr0(record.tiempoEspera) : 0;
 
   let modo = "HORAS";
   let km = null;
   let kmFuente = null;
   let pagoBase;
-  if (horas > 0) {
-    pagoBase = horas * PAY_RATES.horaEur;
+  if (aprobadas && horas > 0) {
+    pagoBase = horasDia * PAY_RATES.horaDiaEur + horasNoche * PAY_RATES.horaNocheEur;
   } else {
     modo = "KM";
     if (numberOr0(record.kilometrosReales) > 0) {
@@ -83,7 +89,10 @@ export const computeServicePay = (record) => {
 
   return {
     modo,
-    horas: round2(horas),
+    horasEstado: record.horasEstado ?? null,
+    horas: round2(modo === "HORAS" ? horas : 0),
+    horasDia: round2(modo === "HORAS" ? horasDia : 0),
+    horasNoche: round2(modo === "HORAS" ? horasNoche : 0),
     km: km == null ? null : round2(km),
     kmFuente,
     esperaHoras: round2(esperaHoras),
@@ -92,6 +101,11 @@ export const computeServicePay = (record) => {
     total: round2(pagoBase + pagoEspera),
   };
 };
+
+// Pago que tendria un servicio si sus horas actuales se aprobaran tal cual (para mostrarle al
+// responsable el efecto de aprobar, y al chofer una estimacion mientras espera).
+export const computePayIfApproved = (record) =>
+  computeServicePay({ ...record, horasEstado: "APROBADAS" });
 
 const isPayable = (record) => PAYABLE_STATUSES.includes(record.estado);
 
@@ -185,7 +199,7 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   const { from, to } = windowFor(firstMonth, month);
   const driverId = privileged ? undefined : actor.id;
 
-  const [records, fuel, mancato, multas, fuelAsignaciones, fuelToAudit] = await Promise.all([
+  const [records, fuel, mancato, multas, fuelAsignaciones, fuelToAudit, horasPorAprobar] = await Promise.all([
     findRecordsLite({ from, to, driverId }),
     findCombustibleLite({
       from: monthStartDate(firstMonth),
@@ -197,6 +211,8 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     // Cargas esperando servicio: sin rango de fechas, no vencen.
     countCombustibleByAsignacion(privileged ? {} : { driverId: actor.id }),
     privileged ? loadFuelToAudit({ from, to }) : Promise.resolve([]),
+    // Horas enviadas por los choferes que esperan aprobacion (sin rango de fechas: no vencen).
+    privileged ? countRecordsByHorasEstado({ estado: "PENDIENTE", spedizzioneFilter: spedizzioneFilterForActor(actor) }) : Promise.resolve(0),
   ]);
 
   const limitDay = comparisonLimitDay(month);
@@ -305,6 +321,13 @@ export const getFinanzasResumenForActor = async (actor, query) => {
       to: "/finanzas/mancato?asignacion=EN_ESPERA",
     });
   }
+  if (privileged && horasPorAprobar > 0) {
+    atencion.push({
+      tone: "warning",
+      title: `${horasPorAprobar} ${horasPorAprobar === 1 ? "servicio con horas" : "servicios con horas"} por aprobar`,
+      to: "/finanzas/horas",
+    });
+  }
   if (recM.vencidas > 0) {
     atencion.push({
       tone: "danger",
@@ -388,7 +411,12 @@ const serviceItem = (record, pay) => ({
   fecha: record.fechaServicio,
   cliente: record.client?.nombre ?? null,
   destinazione: record.destinazione,
+  horaInicioReal: record.horaInicioReal ?? null,
+  horaFinReal: record.horaFinReal ?? null,
+  horasNota: record.horasNota ?? null,
   ...pay,
+  // Lo que se pagaria si las horas cargadas se aprobaran (solo tiene sentido si hay horas).
+  estimadoSiAprobada: pay.horasEstado && pay.horasEstado !== "APROBADAS" ? computePayIfApproved(record).total : null,
 });
 
 export const getPagosChoferesForActor = async (actor, query) => {
@@ -419,15 +447,27 @@ export const getPagosChoferesForActor = async (actor, query) => {
         nombre: r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer",
         servicios: 0,
         horas: 0,
+        horasDia: 0,
+        horasNoche: 0,
         km: 0,
         esperaHoras: 0,
+        serviciosPorKm: 0,
+        horasPorAprobar: 0,
+        horasDevueltas: 0,
+        horasSinCargar: 0,
         pagoBase: 0,
         pagoEspera: 0,
         total: 0,
         serviciosSinDato: 0,
       };
     entry.servicios += 1;
-    entry.horas += pay.modo === "HORAS" ? pay.horas : 0;
+    entry.horas += pay.horas;
+    entry.horasDia += pay.horasDia;
+    entry.horasNoche += pay.horasNoche;
+    if (pay.modo === "KM") entry.serviciosPorKm += 1;
+    if (r.horasEstado === "PENDIENTE") entry.horasPorAprobar += 1;
+    else if (r.horasEstado === "DEVUELTAS") entry.horasDevueltas += 1;
+    else if (!r.horasEstado) entry.horasSinCargar += 1;
     entry.km += pay.modo === "KM" ? (pay.km ?? 0) : 0;
     entry.esperaHoras += pay.esperaHoras;
     entry.pagoBase += pay.pagoBase;
@@ -444,6 +484,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
       return {
         ...e,
         horas: round2(e.horas),
+        horasDia: round2(e.horasDia),
+        horasNoche: round2(e.horasNoche),
         km: round2(e.km),
         esperaHoras: round2(e.esperaHoras),
         pagoBase: round2(e.pagoBase),

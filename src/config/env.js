@@ -89,6 +89,42 @@ const envSchema = z.object({
   // asi que se poda entero pasado este plazo, sin excepciones.
   SPEEDING_EVENT_RETENTION_DAYS: z.coerce.number().default(30),
 
+  // Paradas del vehiculo durante la jornada de un chofer: se calculan con el historial de GPS de la
+  // plataforma OneSystec (su API, ver onesystec.service.js) cuando el chofer envia sus horas o la
+  // oficina abre la aprobacion. Hoy es solo informativo, no cambia el pago. Sin estas dos variables
+  // la funcion queda apagada (el resto de la app anda igual). La clave va SOLO aca, nunca en el codigo.
+  ONESYSTEC_BASE_URL: z.string().url().optional(),
+  ONESYSTEC_API_KEY: z.string().min(10).optional(),
+  // Una parada se registra recien cuando el vehiculo lleva este tiempo detenido (minutos).
+  STOP_MIN_MINUTES: z.coerce.number().default(5),
+  // Hasta cuantos minutos una parada se considera normal (semaforo, baño, cafe) y no se revisa.
+  STOP_TOLERANCE_MINUTES: z.coerce.number().default(15),
+  // Metros que puede moverse el vehiculo y seguir "en la misma parada" (maniobras en un patio).
+  STOP_RADIUS_METERS: z.coerce.number().default(120),
+  // Metros a una parada del servicio o a un lugar de trabajo para considerar la parada como trabajo.
+  STOP_SERVICE_RADIUS_METERS: z.coerce.number().default(250),
+  // Lugares de trabajo ademas del deposito (aparcamiento de la empresa, etc.): una parada ahi no es
+  // una parada "a revisar". JSON: [{"nombre":"Aparcamiento","lat":45.42,"lng":9.29}]. Opcional.
+  WORK_PLACES: z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (!value) return [];
+      try {
+        const list = JSON.parse(value);
+        if (!Array.isArray(list)) throw new Error("no es una lista");
+        return list.filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lng));
+      } catch {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "WORK_PLACES debe ser un JSON valido (lista de {nombre, lat, lng})" });
+        return z.NEVER;
+      }
+    }),
+  // Cuantos minutos MAS ALLA del fin declarado se mira el GPS, solo para saber si el vehiculo seguia
+  // circulando. Mas minutos = mas datos por consulta; 30 alcanza para detectar un fin declarado temprano.
+  STOP_TAIL_MINUTES: z.coerce.number().default(30),
+  // Dias que se conservan las paradas antes de borrarse solas (limpieza diaria).
+  PARADA_RETENTION_DAYS: z.coerce.number().default(90),
+
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando
   // igual (la campanita web sigue mostrando las mismas alertas), solo que sin avisar
