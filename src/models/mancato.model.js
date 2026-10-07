@@ -1,7 +1,20 @@
 import { prisma } from "../config/prisma.js";
 
 const PERSON_SELECT = { select: { id: true, nombre: true, apellido: true } };
-const INCLUDE = { driver: PERSON_SELECT, createdBy: PERSON_SELECT };
+const SERVICE_SELECT = {
+  select: {
+    id: true,
+    codigo: true,
+    estado: true,
+    destinazione: true,
+    fechaRetiro: true,
+    eta: true,
+    driverId: true,
+    client: { select: { nombre: true } },
+    driver: PERSON_SELECT,
+  },
+};
+const INCLUDE = { driver: PERSON_SELECT, createdBy: PERSON_SELECT, record: SERVICE_SELECT };
 
 export const createMancato = (data) => prisma.mancatoPagamento.create({ data, include: INCLUDE });
 
@@ -45,6 +58,8 @@ export const findMancatosForStats = (where) =>
       createdAt: true,
       pagado: true,
       pagadoAt: true,
+      asignacion: true,
+      recordId: true,
       driverId: true,
       driver: { select: { nombre: true, apellido: true } },
     },
@@ -52,3 +67,80 @@ export const findMancatosForStats = (where) =>
 
 export const countActiveChoferes = () =>
   prisma.user.count({ where: { cargo: "CHOFER", estado: "ACTIVO" } });
+
+// ---- Cruce con servicios (ver mancatoMatching.service.js)
+
+// Servicios del vehiculo que podrian ser el dueno de un peaje: ni anulados ni reprogramados
+// (esos no se hicieron en ese momento) y con inicio o recepcion dentro de la ventana.
+export const findCandidateServices = ({ vehicleId, from, to }) =>
+  prisma.record.findMany({
+    where: {
+      vehicleId,
+      estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] },
+      OR: [
+        { fechaRetiro: { gte: from, lte: to } },
+        { fechaServicio: { gte: from, lte: to } },
+      ],
+    },
+    select: {
+      id: true,
+      codigo: true,
+      estado: true,
+      destinazione: true,
+      driverId: true,
+      fechaServicio: true,
+      fechaRetiro: true,
+      eta: true,
+      rutaDuracionMin: true,
+      client: { select: { nombre: true } },
+      driver: PERSON_SELECT,
+    },
+  });
+
+// Mancatos que el sistema puede volver a asignar (la oficina no los fijo a mano).
+export const findAssignableMancatos = ({ vehicleId, since }) =>
+  prisma.mancatoPagamento.findMany({
+    where: {
+      vehicleId,
+      asignacion: { in: ["AUTO", "SUGERIDO", "EN_ESPERA"] },
+      fechaHoraTransito: { gte: since },
+    },
+    select: {
+      id: true,
+      vehicleId: true,
+      driverId: true,
+      fechaHoraTransito: true,
+      recordId: true,
+      asignacion: true,
+      tramo: true,
+      asignacionMotivo: true,
+    },
+  });
+
+export const findVehiclesWithAssignableMancatos = async ({ since }) => {
+  const rows = await prisma.mancatoPagamento.groupBy({
+    by: ["vehicleId"],
+    where: {
+      vehicleId: { not: null },
+      asignacion: { in: ["AUTO", "SUGERIDO", "EN_ESPERA"] },
+      fechaHoraTransito: { gte: since },
+    },
+  });
+  return rows.map((r) => r.vehicleId);
+};
+
+export const updateMancatoAssignment = (id, data) =>
+  prisma.mancatoPagamento.update({ where: { id }, data });
+
+export const findRecordForAssignment = (id) =>
+  prisma.record.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      codigo: true,
+      fechaServicio: true,
+      fechaRetiro: true,
+      eta: true,
+      rutaDuracionMin: true,
+    },
+  });

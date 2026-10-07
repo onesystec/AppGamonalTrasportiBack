@@ -3,6 +3,8 @@ import {
   deleteMancatoForActor,
   getMancatoForActor,
   getMancatoStatsForActor,
+  listMancatoCandidatesForActor,
+  rematchMancatosForActor,
   getMancatoSummaryForActor,
   listMancatosForActor,
   updateMancatoForActor,
@@ -42,4 +44,14 @@ export const remove = asyncHandler(async (req, res) => {
 export const stats = asyncHandler(async (req, res) => {
   const result = await getMancatoStatsForActor(req.user, req.query);
   res.status(200).json({ success: true, data: { stats: result } });
+});
+
+export const candidates = asyncHandler(async (req, res) => {
+  const items = await listMancatoCandidatesForActor(req.user, req.params.id);
+  res.status(200).json({ success: true, data: { candidatos: items } });
+});
+
+export const rematch = asyncHandler(async (req, res) => {
+  const result = await rematchMancatosForActor(req.user);
+  res.status(200).json({ success: true, data: { resultado: result } });
 });

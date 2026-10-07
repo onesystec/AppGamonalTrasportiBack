@@ -8,11 +8,19 @@ import {
   findMancatoByNumero,
   findMancatos,
   findMancatosForStats,
+  findRecordForAssignment,
   findVehicleByTarga,
   sumMancatosCosto,
   updateMancatoById,
 } from "../models/mancato.model.js";
+import {
+  listCandidatesForMancato,
+  matchMancato,
+  rematchAll,
+  tramoForService,
+} from "./mancatoMatching.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
+import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
 
@@ -21,6 +29,11 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // transito"): se puede pagar hasta el dia 15 POSTERIOR a la fecha, o sea fecha + 15. Se
 // paga hasta el final de ese ultimo dia.
 const PLAZO_DIAS_DESPUES_DE_LA_FECHA = 15;
+// Un mancato que no concuerda con ningun servicio espera este tiempo (desde que se subio) a que
+// la oficina cargue el servicio; pasado el plazo se muestra como "fuera del horario laboral".
+// No se guarda: se deriva al leer (igual que Pendiente/Vencido), asi no hace falta ningun cron
+// y, si el servicio aparece despues, el mancato igual puede asignarse.
+const ESPERA_SERVICIO_DIAS = 7;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -29,6 +42,50 @@ const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dayDiff = (fromDay, toDay) => Math.round((dayToDate(toDay) - dayToDate(fromDay)) / DAY_MS);
 const addDays = (day, days) => new Date(dayToDate(day).getTime() + days * DAY_MS);
 const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
+
+const waitCutoff = () => new Date(Date.now() - ESPERA_SERVICIO_DIAS * DAY_MS);
+
+// Estado de asignacion que se muestra (ver ESPERA_SERVICIO_DIAS).
+const displayAsignacion = (m) => {
+  if (m.asignacion === "MANUAL" && !m.recordId) return "FUERA_DE_HORARIO";
+  if (m.asignacion === "EN_ESPERA" && m.createdAt <= waitCutoff()) return "FUERA_DE_HORARIO";
+  return m.asignacion;
+};
+
+const displayMotivo = (m, shown) => {
+  if (shown === "FUERA_DE_HORARIO") {
+    return m.asignacion === "MANUAL"
+      ? "La oficina lo dejo sin servicio: fuera del horario laboral."
+      : `No apareció ningun servicio en ${ESPERA_SERVICIO_DIAS} dias: fuera del horario laboral. Si se carga uno, se asigna solo.`;
+  }
+  if (shown === "EN_ESPERA") {
+    return "Esperando que se cargue el servicio. Se vuelve a evaluar solo cuando se cargue o edite un servicio de este vehiculo.";
+  }
+  return m.asignacionMotivo;
+};
+
+const asignacionWhere = (value) => {
+  const cutoff = waitCutoff();
+  switch (value) {
+    case "EN_ESPERA":
+      return { asignacion: "EN_ESPERA", createdAt: { gt: cutoff } };
+    case "FUERA_DE_HORARIO":
+      return {
+        OR: [
+          { asignacion: "MANUAL", recordId: null },
+          { asignacion: "EN_ESPERA", createdAt: { lte: cutoff } },
+        ],
+      };
+    case "MANUAL":
+      return { asignacion: "MANUAL", recordId: { not: null } };
+    case "REVISAR":
+      return {
+        OR: [{ asignacion: "SUGERIDO" }, { asignacion: "EN_ESPERA", createdAt: { gt: cutoff } }],
+      };
+    default:
+      return { asignacion: value };
+  }
+};
 
 const calcVencimiento = (fechaDay) => addDays(fechaDay, PLAZO_DIAS_DESPUES_DE_LA_FECHA);
 
@@ -59,6 +116,7 @@ const buildWhere = (actor, filters, today) => {
   if (filters.from) and.push({ fecha: { gte: dayToDate(filters.from) } });
   if (filters.to) and.push({ fecha: { lte: dayToDate(filters.to) } });
   if (filters.fueraDePlazo === "true") and.push({ fueraDePlazo: true });
+  if (filters.asignacion) and.push(asignacionWhere(filters.asignacion));
   if (filters.q) {
     const q = filters.q;
     and.push({
@@ -106,6 +164,7 @@ const attachment = async (key) =>
 // El bucket es privado: la respuesta lleva URLs firmadas frescas, nunca la key interna.
 const toResponse = async (m, today) => {
   const vencimientoDay = dateOnlyToDay(m.fechaVencimiento);
+  const asignacionShown = displayAsignacion(m);
   const [foto, comprobante] = await Promise.all([attachment(m.fotoKey), attachment(m.comprobanteKey)]);
   const diasRestantes = dayDiff(today, vencimientoDay);
   return {
@@ -116,6 +175,8 @@ const toResponse = async (m, today) => {
     driver: person(m.driver),
     registradoPor: person(m.createdBy),
     fecha: m.fecha,
+    fechaHoraTransito: m.fechaHoraTransito,
+    horaTransito: m.fechaHoraTransito ? romeHHMM(m.fechaHoraTransito) : null,
     fechaVencimiento: m.fechaVencimiento,
     costo: Number(m.costo),
     sitioWeb: m.sitioWeb,
@@ -131,10 +192,36 @@ const toResponse = async (m, today) => {
     fueraDePlazo: m.fueraDePlazo,
     diasTarde: m.fueraDePlazo ? Math.max(0, dayDiff(vencimientoDay, romeDay(m.createdAt))) : 0,
     pagadoFueraDePlazo: Boolean(m.pagadoAt) && romeDay(m.pagadoAt) > vencimientoDay,
+    // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
+    asignacion: asignacionShown,
+    tramo: m.tramo,
+    asignacionMotivo: displayMotivo(m, asignacionShown),
+    esperaHasta:
+      m.asignacion === "EN_ESPERA"
+        ? new Date(m.createdAt.getTime() + ESPERA_SERVICIO_DIAS * DAY_MS)
+        : null,
+    servicio: m.record
+      ? {
+          id: m.record.id,
+          codigo: m.record.codigo,
+          estado: m.record.estado,
+          cliente: m.record.client?.nombre ?? null,
+          destinazione: m.record.destinazione,
+          driver: person(m.record.driver),
+          fechaRetiro: m.record.fechaRetiro,
+          eta: m.record.eta,
+        }
+      : null,
     // Fecha y hora reales de registro: la pone el sistema, no se puede editar.
     registradoAt: m.createdAt,
     updatedAt: m.updatedAt,
   };
+};
+
+const assertNotFuture = (transitAt, now = new Date()) => {
+  if (transitAt.getTime() > now.getTime() + 10 * 60 * 1000) {
+    throw new AppError("La hora del transito no puede ser futura", 400);
+  }
 };
 
 const resolveDriverId = (actor, requestedDriverId) => {
@@ -153,8 +240,11 @@ export const createMancatoForActor = async (actor, data, files) => {
     throw new AppError(`Ya existe un mancato pagamento con el numero ${data.numero}`, 409);
   }
 
-  const id = randomUUID();
   const now = new Date();
+  const transitAt = romeLocalToDate(data.fecha, data.hora);
+  assertNotFuture(transitAt, now);
+
+  const id = randomUUID();
   const vencimiento = calcVencimiento(data.fecha);
   const comprobanteFile = files.comprobante?.[0];
 
@@ -169,6 +259,12 @@ export const createMancatoForActor = async (actor, data, files) => {
     }
 
     const vehicle = await findVehicleByTarga(data.targa);
+    // A que servicio pertenece este peaje (AUTO / SUGERIDO / EN_ESPERA).
+    const assignment = await matchMancato({
+      vehicleId: vehicle?.id ?? null,
+      driverId,
+      fechaHoraTransito: transitAt,
+    });
     const created = await createMancatoRecord({
       id,
       numero: data.numero,
@@ -177,6 +273,8 @@ export const createMancatoForActor = async (actor, data, files) => {
       driverId,
       createdById: actor.id,
       fecha: dayToDate(data.fecha),
+      fechaHoraTransito: transitAt,
+      ...assignment,
       fechaVencimiento: vencimiento,
       costo: data.costo,
       sitioWeb: data.sitioWeb ?? null,
@@ -285,6 +383,56 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
     payload.vehicleId = (await findVehicleByTarga(changes.targa))?.id ?? null;
   }
   if (privileged && changes.driverId) payload.driverId = changes.driverId;
+
+  // Si cambia algo que decide a que servicio pertenece (dia, hora, targa o chofer) se vuelve a
+  // evaluar, salvo que la oficina ya lo haya fijado (CONFIRMADO / MANUAL).
+  if (changes.fecha || changes.hora || changes.targa || (privileged && changes.driverId)) {
+    const day = changes.fecha ?? dateOnlyToDay(current.fecha);
+    const hhmm = changes.hora ?? (current.fechaHoraTransito ? romeHHMM(current.fechaHoraTransito) : null);
+    if (hhmm) {
+      payload.fechaHoraTransito = romeLocalToDate(day, hhmm);
+      assertNotFuture(payload.fechaHoraTransito);
+    }
+    if (!["CONFIRMADO", "MANUAL"].includes(current.asignacion)) {
+      Object.assign(
+        payload,
+        await matchMancato({
+          vehicleId: "vehicleId" in payload ? payload.vehicleId : current.vehicleId,
+          driverId: payload.driverId ?? current.driverId,
+          fechaHoraTransito: payload.fechaHoraTransito ?? current.fechaHoraTransito,
+        })
+      );
+    }
+  }
+
+  // Decision de la oficina: elegir el servicio a mano, dejarlo "fuera del horario laboral" o
+  // confirmar el que propuso el sistema.
+  if (privileged && changes.recordId !== undefined) {
+    if (changes.recordId === null) {
+      Object.assign(payload, {
+        recordId: null,
+        asignacion: "MANUAL",
+        tramo: null,
+        asignacionMotivo: "La oficina lo dejo sin servicio.",
+      });
+    } else {
+      const service = await findRecordForAssignment(changes.recordId);
+      if (!service) throw new AppError("Servicio no encontrado", 404);
+      const transit = payload.fechaHoraTransito ?? current.fechaHoraTransito;
+      Object.assign(payload, {
+        recordId: service.id,
+        asignacion: "MANUAL",
+        tramo: transit ? tramoForService(service, transit) : null,
+        asignacionMotivo: `Asignado a mano al servicio ${service.codigo}.`,
+      });
+    }
+  } else if (privileged && changes.confirmar) {
+    if (!current.recordId || !["SUGERIDO", "AUTO"].includes(current.asignacion)) {
+      throw new AppError("No hay una asignacion para confirmar", 400);
+    }
+    payload.asignacion = "CONFIRMADO";
+    payload.asignacionMotivo = `${current.asignacionMotivo ?? ""} Confirmado por la oficina.`.trim();
+  }
   if (privileged && changes.fecha) {
     const vencimiento = calcVencimiento(changes.fecha);
     payload.fecha = dayToDate(changes.fecha);
@@ -372,6 +520,7 @@ export const getMancatoStatsForActor = async (actor, query) => {
     createdDay: romeDay(r.createdAt),
     pagado: r.pagado,
     pagadoDay: r.pagadoAt ? romeDay(r.pagadoAt) : null,
+    asignacion: displayAsignacion(r),
     driverId: r.driverId,
     driverName: r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer",
   }));
@@ -447,6 +596,25 @@ export const getMancatoStatsForActor = async (actor, query) => {
       vencidosMasDe30Dias: vencidosGraves.length,
       porVencer3Dias: porVencer.length,
       totalVencido: totalOf(vencidos),
+      // Asignacion a servicios: lo que la oficina debe mirar.
+      sugeridos: items.filter((i) => i.asignacion === "SUGERIDO").length,
+      enEspera: items.filter((i) => i.asignacion === "EN_ESPERA").length,
+      fueraDeHorario: items.filter((i) => i.asignacion === "FUERA_DE_HORARIO").length,
     },
   };
+};
+
+// Servicios del vehiculo cerca del transito, para que la oficina elija a mano el correcto.
+export const listMancatoCandidatesForActor = async (actor, id) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  const mancato = await findMancatoById(id);
+  if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
+  return listCandidatesForMancato(mancato);
+};
+
+// Vuelve a evaluar todos los mancatos que la oficina no fijo a mano (p. ej. despues de
+// completar muchas Fechas de retiro).
+export const rematchMancatosForActor = async (actor) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  return rematchAll();
 };

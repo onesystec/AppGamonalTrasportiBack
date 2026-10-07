@@ -5,6 +5,19 @@ const RECORD_INCLUDE = {
   vehicle: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
   stops: { orderBy: { orden: "asc" } },
+  // Peajes (mancato pagamento) que el sistema asigno a este servicio.
+  mancatos: {
+    orderBy: { fechaHoraTransito: "asc" },
+    select: {
+      id: true,
+      numero: true,
+      fechaHoraTransito: true,
+      tramo: true,
+      asignacion: true,
+      costo: true,
+      pagado: true,
+    },
+  },
 };
 
 const RECORD_RELATIONS_SELECT = {
@@ -29,6 +42,7 @@ const RECORD_SELECT_LIST = {
   ...RECORD_RELATIONS_SELECT,
   fechaServicio: true,
   eta: true,
+  fechaRetiro: true,
   descripcion: true,
   codigo: true,
   destinazione: true,
@@ -250,3 +264,15 @@ export const findActiveRecordsByDriverIds = (driverIds) =>
   });
 
 export const deleteRecordById = (id) => prisma.record.delete({ where: { id } });
+
+// Si se borra un servicio, los peaje que tenia asignados vuelven a esperar uno nuevo.
+export const releaseMancatosOfRecord = (recordId) =>
+  prisma.mancatoPagamento.updateMany({
+    where: { recordId },
+    data: {
+      recordId: null,
+      asignacion: "EN_ESPERA",
+      tramo: null,
+      asignacionMotivo: "El servicio asignado se elimino.",
+    },
+  });

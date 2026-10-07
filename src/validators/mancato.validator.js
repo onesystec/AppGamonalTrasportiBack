@@ -45,8 +45,22 @@ const numero = z
   .max(60)
   .transform((value) => value.toUpperCase());
 
+// Hora del transito (la que dice el aviso), en hora de Roma.
+const hora = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora invalida (usa HH:MM)");
+
+const ASIGNACION_VALUES = [
+  "AUTO",
+  "SUGERIDO",
+  "CONFIRMADO",
+  "MANUAL",
+  "EN_ESPERA",
+  "FUERA_DE_HORARIO",
+  "REVISAR",
+];
+
 export const createMancatoSchema = z.object({
   numero,
+  hora,
   targa,
   // Solo lo usan OWNER/ADMIN; un CHOFER siempre queda como el chofer de su propio mancato.
   driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
@@ -59,6 +73,11 @@ export const createMancatoSchema = z.object({
 // "" borra el campo (null); ausente no lo toca.
 export const updateMancatoSchema = z.object({
   numero: numero.optional(),
+  hora: hora.optional(),
+  // Solo OWNER/ADMIN: servicio elegido a mano ("" lo deja fuera del horario laboral) o
+  // confirmar el que propuso el sistema.
+  recordId: z.preprocess(emptyToNull, z.string().uuid("Servicio invalido").nullable().optional()),
+  confirmar: z.enum(["true"]).optional(),
   targa: targa.optional(),
   driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
   fecha: dateOnly.refine((value) => value <= romeToday(), "La fecha no puede ser futura").optional(),
@@ -79,6 +98,8 @@ const listFilters = {
   from: z.preprocess(emptyToUndefined, dateOnly.optional()),
   to: z.preprocess(emptyToUndefined, dateOnly.optional()),
   fueraDePlazo: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
+  // REVISAR = lo que la oficina debe mirar: sugeridos + en espera de servicio.
+  asignacion: z.preprocess(emptyToUndefined, z.enum(ASIGNACION_VALUES).optional()),
 };
 
 const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto"];

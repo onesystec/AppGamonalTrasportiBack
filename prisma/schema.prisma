@@ -111,6 +111,8 @@ model User {
   mancatosCreados    MancatoPagamento[] @relation("MancatoCreadoPor")
   multasComoChofer   Multa[]            @relation("MultaChofer")
   multasCreadas      Multa[]            @relation("MultaCreadaPor")
+  combustiblesComoChofer RegistroCombustible[] @relation("CombustibleChofer")
+  combustiblesCreados    RegistroCombustible[] @relation("CombustibleCreadoPor")
   records    Record[]
   mantenimientosRegistrados MantenimientoVehiculo[]
   locationPings LocationPing[]
@@ -189,6 +191,7 @@ model Vehiculo {
   @@map("vehiculos")
   mancatos MancatoPagamento[]
   multas   Multa[]
+  combustibles RegistroCombustible[]
 }
 
 // Un registro liviano por CADA DIA que un vehiculo sin autorizadoAreaC entra al
@@ -345,6 +348,10 @@ model Record {
 
   fechaServicio DateTime
   eta           DateTime
+  // Cuando sale realmente el vehiculo a hacer el servicio (lo carga la oficina). Junto con
+  // eta y la duracion de la ruta permite saber que servicio estaba haciendo un vehiculo en un
+  // momento dado (ver mancatoMatching.service.js). Null en los servicios historicos.
+  fechaRetiro   DateTime?
 
   descripcion  String
   codigo       String       @unique
@@ -398,7 +405,8 @@ model Record {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  files RecordFile[]
+  files    RecordFile[]
+  mancatos MancatoPagamento[]
 
   @@index([fechaServicio])
   @@index([driverId])
@@ -507,6 +515,28 @@ model TelegramDraft {
   @@map("telegram_drafts")
 }
 
+// Como quedo asignado un mancato a un servicio: AUTO (el sistema lo vinculo con certeza),
+// SUGERIDO (hay dudas: la oficina debe confirmarlo), CONFIRMADO (la oficina acepto lo que
+// propuso el sistema), MANUAL (la oficina lo eligio a mano, o lo dejo sin servicio a
+// proposito: "fuera del horario laboral") y EN_ESPERA (todavia no hay ningun servicio que
+// concuerde: a menudo el chofer sube el peaje antes de que la oficina cargue el servicio, asi
+// que se vuelve a evaluar solo cuando se carga/edita un servicio del vehiculo; si pasa el
+// plazo de espera sin servicio, se muestra como "fuera del horario laboral" - ese paso se
+// deriva al leer, no se guarda).
+enum MancatoAsignacion {
+  AUTO
+  SUGERIDO
+  CONFIRMADO
+  MANUAL
+  EN_ESPERA
+}
+
+// Parte del viaje en la que se paso el peaje: antes o despues de la hora de entrega.
+enum MancatoTramo {
+  IDA
+  VUELTA
+}
+
 // Multa/aviso de pago omitido ("mancato pagamento"): el chofer (o un admin) lo registra y
 // se puede pagar hasta el dia 15 posterior a la fecha (fecha + 15), como dicen los avisos. El estado
 // (Pendiente / Pagado / Vencido) NO se guarda: se deriva de pagado + fechaVencimiento en
@@ -524,6 +554,9 @@ model MancatoPagamento {
   createdById      String?
   createdBy        User?     @relation("MancatoCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
   fecha            DateTime  @db.Date
+  // Dia y hora exactos del transito (los dice el aviso). "fecha" sigue siendo la que cuenta
+  // para el plazo de pago; esta sirve para asignar el mancato al servicio correcto.
+  fechaHoraTransito DateTime?
   fechaVencimiento DateTime  @db.Date
   costo            Decimal   @db.Decimal(10, 2)
   sitioWeb         String?
@@ -533,12 +566,21 @@ model MancatoPagamento {
   pagado           Boolean   @default(false)
   pagadoAt         DateTime?
   fueraDePlazo     Boolean   @default(false)
+  // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
+  recordId          String?
+  record            Record?           @relation(fields: [recordId], references: [id], onDelete: SetNull)
+  asignacion        MancatoAsignacion @default(EN_ESPERA)
+  tramo             MancatoTramo?
+  asignacionMotivo  String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   @@index([pagado, fechaVencimiento])
   @@index([driverId])
   @@index([fecha])
+  @@index([recordId])
+  @@index([vehicleId, fechaHoraTransito])
+  @@index([asignacion])
   @@map("mancato_pagamentos")
 }
 
@@ -585,4 +627,40 @@ model Multa {
   @@index([fechaRecepcion])
   @@index([quienPaga, descontado])
   @@map("multas")
+}
+
+enum AreaCombustible {
+  DHL_MILANO
+  DHL_ROMA
+  EXTRAS_PIAZZA_MILANO
+  EXTRAS_PIAZZA_ROMA
+  AB_SERVICE
+  FARMACIA
+}
+
+// Carga de combustible: el chofer sube el comprobante (foto del ticket) con el monto, la
+// gasolinera ("metodo") y el area a la que se imputa el gasto. Lo registra el propio chofer
+// (o un OWNER/ADMIN a nombre de uno). createdAt es el momento real de registro (no
+// editable) y marca la ventana en la que el chofer todavia puede corregirlo.
+model RegistroCombustible {
+  id             String          @id @default(uuid())
+  targa          String
+  vehicleId      String?
+  vehicle        Vehiculo?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId       String?
+  driver         User?           @relation("CombustibleChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById    String?
+  createdBy      User?           @relation("CombustibleCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
+  fecha          DateTime        @db.Date
+  monto          Decimal         @db.Decimal(10, 2)
+  metodo         String
+  area           AreaCombustible
+  comprobanteKey String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([fecha])
+  @@index([driverId, fecha])
+  @@index([area, fecha])
+  @@map("registros_combustible")
 }

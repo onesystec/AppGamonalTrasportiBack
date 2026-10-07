@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { romeLocalToDate } from "../utils/romeTime.js";
 
 const RECORD_STATUS_VALUES = [
   "CONSEGNATO",
@@ -52,12 +53,27 @@ const stopsField = z
   .min(1, "Debe haber al menos una parada")
   .max(10, "Maximo 10 paradas");
 
+// Cuando sale realmente el vehiculo. "" (o null) la borra al editar.
+// El formulario manda la hora "de pared" sin zona (AAAA-MM-DDTHH:mm): se interpreta como hora de
+// Roma (la operacion es ahi), sin depender de la zona del navegador ni del servidor.
+const fechaRetiro = z.preprocess(
+  (value) => {
+    if (value === "" || value === null) return null;
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
+      return romeLocalToDate(value.slice(0, 10), value.slice(11, 16));
+    }
+    return value;
+  },
+  z.coerce.date({ errorMap: () => ({ message: "fechaRetiro invalida" }) }).nullable().optional()
+);
+
 export const createRecordSchema = z.object({
   driverId: z.string().uuid("driverId invalido"),
   vehicleId: z.string().uuid("vehicleId invalido"),
   clientId: z.string().uuid("clientId invalido"),
   fechaServicio: z.coerce.date({ errorMap: () => ({ message: "fechaServicio invalida" }) }),
   eta: z.coerce.date({ errorMap: () => ({ message: "eta invalida" }) }),
+  fechaRetiro,
   descripcion: z.string().trim().min(1, "La descripcion es obligatoria"),
   codigo: z.string().trim().min(1, "El codigo es obligatorio"),
   ciudad: z.string().trim().optional(),
@@ -78,6 +94,7 @@ export const updateRecordSchema = z.object({
   clientId: z.string().uuid().optional(),
   fechaServicio: z.coerce.date().optional(),
   eta: z.coerce.date().optional(),
+  fechaRetiro,
   descripcion: z.string().trim().min(1).optional(),
   codigo: z.string().trim().min(1).optional(),
   ciudad: z.string().trim().optional(),

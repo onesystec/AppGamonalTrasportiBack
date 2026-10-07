@@ -7,11 +7,13 @@ import {
   findRecordsPending,
   findRecordsSummary,
   findRecordsWithSyncFailure,
+  releaseMancatosOfRecord,
   searchRecords,
   updateRecordById,
 } from "../models/record.model.js";
 import { findUserById, findUserLocationById } from "../models/user.model.js";
 import { purgeFilesForRecord } from "./recordFile.service.js";
+import { rematchVehicleSafe } from "./mancatoMatching.service.js";
 import { geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
@@ -75,6 +77,19 @@ const SELF_EDITABLE_FIELDS = [
   "kilometrosReales",
 ];
 
+// Campos de un servicio que deciden a que servicio pertenece un peaje (ver
+// mancatoMatching.service.js). "stops" cambia la duracion de la ruta.
+const RELEVANT_FOR_MATCHING = [
+  "fechaRetiro",
+  "fechaServicio",
+  "eta",
+  "vehicleId",
+  "driverId",
+  "estado",
+  "stops",
+  "rutaDuracionMin",
+];
+
 // Geocodifica las paradas (en orden) y calcula la ruta deposito -> paradas. Devuelve
 // el payload listo para mezclar en la data que se manda a Prisma. fallbackCiudad: si
 // una parada no geocodifica, geocodeStops la aproxima al centro de esa ciudad en vez
@@ -104,6 +119,18 @@ const stopsUnchanged = (existingStops, direcciones) =>
   existingStops.every(
     (stop, i) => stop.direccion.trim().toLowerCase() === direcciones[i].trim().toLowerCase()
   );
+
+// Peajes asignados a un servicio (solo en el detalle; el listado no los trae).
+const toMancatosSummary = (mancatos) =>
+  mancatos?.map((m) => ({
+    id: m.id,
+    numero: m.numero,
+    fechaHoraTransito: m.fechaHoraTransito,
+    tramo: m.tramo,
+    asignacion: m.asignacion,
+    costo: Number(m.costo),
+    pagado: m.pagado,
+  }));
 
 const computeTotals = (record) => {
   const kilometros = record.kilometros ?? 0;
@@ -141,6 +168,8 @@ const toFullResponse = (record) => {
     client: record.client,
     fechaServicio: record.fechaServicio,
     eta: record.eta,
+    fechaRetiro: record.fechaRetiro,
+    mancatos: toMancatosSummary(record.mancatos),
     descripcion: record.descripcion,
     codigo: record.codigo,
     destinazione: record.destinazione,
@@ -194,6 +223,8 @@ const toChoferResponse = (record) => ({
   client: record.client,
   fechaServicio: record.fechaServicio,
   eta: record.eta,
+  fechaRetiro: record.fechaRetiro,
+  mancatos: toMancatosSummary(record.mancatos),
   descripcion: record.descripcion,
   codigo: record.codigo,
   destinazione: record.destinazione,
@@ -272,6 +303,10 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
       record = await updateRecordById(record.id, { appsheetSyncFallido: true }).catch(() => record);
     }
   }
+
+  // Los choferes suelen subir un peaje antes de que la oficina cargue el servicio: ahora que
+  // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar.
+  await rematchVehicleSafe(record.vehicleId);
 
   return toFullResponse(record);
 };
@@ -469,6 +504,13 @@ export const updateRecordForActor = async (actor, id, data) => {
     updated = await updateRecordById(id, { appsheetSyncFallido: true }).catch(() => updated);
   }
 
+  // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
+  // cambiar a que servicio pertenece un peaje.
+  if (RELEVANT_FOR_MATCHING.some((key) => key in payload)) {
+    await rematchVehicleSafe(record.vehicleId);
+    if (updated.vehicleId !== record.vehicleId) await rematchVehicleSafe(updated.vehicleId);
+  }
+
   return toResponse(updated, actor);
 };
 
@@ -520,7 +562,10 @@ export const deleteRecord = async (actor, id) => {
   assertAccess(actor, record);
 
   await purgeFilesForRecord(id);
+  // Los peajes asignados a este servicio vuelven a esperar uno (y se re-evaluan sin el).
+  await releaseMancatosOfRecord(id);
   await deleteRecordById(id);
+  await rematchVehicleSafe(record.vehicleId);
 
   // Best-effort, igual que la escritura al crear (ver createRecord): si falla (permisos,
   // red, cuota), el registro ya se borro de la app igual, no se corta el flujo por esto.
