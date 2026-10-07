@@ -7,13 +7,16 @@ import {
   findRecordsPending,
   findRecordsSummary,
   findRecordsWithSyncFailure,
+  releaseCombustiblesOfRecord,
   releaseMancatosOfRecord,
   searchRecords,
   updateRecordById,
 } from "../models/record.model.js";
 import { findUserById, findUserLocationById } from "../models/user.model.js";
 import { purgeFilesForRecord } from "./recordFile.service.js";
-import { rematchVehicleSafe } from "./mancatoMatching.service.js";
+import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
+import { groupFuelByRecord } from "../models/combustible.model.js";
+import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
 import { geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
@@ -120,6 +123,47 @@ const stopsUnchanged = (existingStops, direcciones) =>
     (stop, i) => stop.direccion.trim().toLowerCase() === direcciones[i].trim().toLowerCase()
   );
 
+// Resumen de combustible de un servicio. En el detalle trae los comprobantes ("combustibles");
+// en los listados solo la suma y la cantidad (ver attachFuel).
+const toFuelSummary = (record) => {
+  const items = record.combustibles;
+  const receiptsCount = items ? items.length : (record.fuelCount ?? 0);
+  const receiptsTotal = items ? items.reduce((sum, c) => sum + Number(c.monto), 0) : (record.fuelSum ?? 0);
+  const manual = record.costoCombustible ?? null;
+  const { fuente, total } = effectiveFuel({ manual, receiptsTotal, receiptsCount });
+  return {
+    fuente,
+    total,
+    manual,
+    comprobantes: {
+      count: receiptsCount,
+      total: Math.round(receiptsTotal * 100) / 100,
+      items: items?.map((c) => ({
+        id: c.id,
+        monto: Number(c.monto),
+        fechaHora: c.fechaHora,
+        metodo: c.metodo,
+        asignacion: c.asignacion,
+      })),
+    },
+    // El valor a mano es casi el doble o mas de lo que suman los comprobantes: a auditar.
+    auditar: fuelNeedsAudit({ manual, receiptsTotal, receiptsCount }),
+  };
+};
+
+// Suma y cantidad de comprobantes por servicio para los listados (sin traer cada comprobante).
+const attachFuel = async (records) => {
+  if (records.length === 0) return records;
+  const groups = await groupFuelByRecord();
+  const byRecord = new Map(groups.map((g) => [g.recordId, g]));
+  for (const record of records) {
+    const group = byRecord.get(record.id);
+    record.fuelSum = Number(group?._sum.monto ?? 0);
+    record.fuelCount = group?._count._all ?? 0;
+  }
+  return records;
+};
+
 // Peajes asignados a un servicio (solo en el detalle; el listado no los trae).
 const toMancatosSummary = (mancatos) =>
   mancatos?.map((m) => ({
@@ -204,7 +248,11 @@ const toFullResponse = (record) => {
     costoHotel: record.costoHotel,
     costoOtros: record.costoOtros,
     pagoRecibido: record.pagoRecibido,
-    costoCombustible: record.costoCombustible,
+    // Combustible efectivo (comprobantes si hay, si no el valor a mano), nunca la suma de ambos.
+    // "costoCombustibleManual" es lo que se escribio en el formulario del servicio.
+    costoCombustible: toFuelSummary(record).total,
+    costoCombustibleManual: record.costoCombustible,
+    combustible: toFuelSummary(record),
     clienteConfirmado: record.clienteConfirmado,
     total,
     appsheetSyncFallido: record.appsheetSyncFallido,
@@ -306,7 +354,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
 
   // Los choferes suelen subir un peaje antes de que la oficina cargue el servicio: ahora que
   // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar.
-  await rematchVehicleSafe(record.vehicleId);
+  await rematchAssignmentsForVehicle(record.vehicleId);
 
   return toFullResponse(record);
 };
@@ -370,13 +418,15 @@ export const exportRecordsForActor = async (actor, filters) => {
     estadoValues: estados,
   });
 
-  return records.filter((r) => matchesTimeRange(r, fromTime, toTime)).map((record) => toResponse(record, actor));
+  const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
+  await attachFuel(inRange);
+  return inRange.map((record) => toResponse(record, actor));
 };
 
 export const listRecordsForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = spedizzioneFilterForActor(actor);
-  const records = await findRecords({ driverId, dateRange, spedizzioneFilter });
+  const records = await attachFuel(await findRecords({ driverId, dateRange, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -392,7 +442,7 @@ export const listPendingRecordsForActor = async (actor) => {
     .map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
   const spedizzioneFilter = spedizzioneFilterForActor(actor);
-  const records = await findRecordsPending({ driverId, gte, lt, spedizzioneFilter });
+  const records = await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -414,7 +464,7 @@ export const searchRecordsForActor = async (actor, q) => {
   if (query.length < SEARCH_MIN_LENGTH) return [];
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = spedizzioneFilterForActor(actor);
-  const records = await searchRecords({ q: query, driverId, spedizzioneFilter });
+  const records = await attachFuel(await searchRecords({ q: query, driverId, spedizzioneFilter }));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -507,8 +557,8 @@ export const updateRecordForActor = async (actor, id, data) => {
   // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
   // cambiar a que servicio pertenece un peaje.
   if (RELEVANT_FOR_MATCHING.some((key) => key in payload)) {
-    await rematchVehicleSafe(record.vehicleId);
-    if (updated.vehicleId !== record.vehicleId) await rematchVehicleSafe(updated.vehicleId);
+    await rematchAssignmentsForVehicle(record.vehicleId);
+    if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
   }
 
   return toResponse(updated, actor);
@@ -564,8 +614,9 @@ export const deleteRecord = async (actor, id) => {
   await purgeFilesForRecord(id);
   // Los peajes asignados a este servicio vuelven a esperar uno (y se re-evaluan sin el).
   await releaseMancatosOfRecord(id);
+  await releaseCombustiblesOfRecord(id);
   await deleteRecordById(id);
-  await rematchVehicleSafe(record.vehicleId);
+  await rematchAssignmentsForVehicle(record.vehicleId);
 
   // Best-effort, igual que la escritura al crear (ver createRecord): si falla (permisos,
   // red, cuota), el registro ya se borro de la app igual, no se corta el flujo por esto.

@@ -42,6 +42,11 @@ const targa = z
 
 const metodo = z.string().trim().min(1, "Indica la gasolinera").max(80);
 
+// Hora de la carga, en hora de Roma.
+const hora = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora invalida (usa HH:MM)");
+
+const ASIGNACION_VALUES = ["AUTO", "SUGERIDO", "CONFIRMADO", "MANUAL", "EN_ESPERA", "REVISAR"];
+
 const area = z.enum(AREA_VALUES, { errorMap: () => ({ message: "Elige un area valida" }) });
 
 export const createCombustibleSchema = z.object({
@@ -52,9 +57,20 @@ export const createCombustibleSchema = z.object({
   metodo,
   area,
   fecha: fechaNoFutura,
+  hora,
+  // Solo OWNER/ADMIN: registrar igual aunque parezca un duplicado.
+  forzar: z.enum(["true"]).optional(),
 });
 
 export const updateCombustibleSchema = z.object({
+  hora: hora.optional(),
+  // Solo OWNER/ADMIN: servicio elegido a mano ("" = no corresponde a ningun servicio) o confirmar
+  // el que propuso el sistema.
+  recordId: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    z.string().uuid("Servicio invalido").nullable().optional()
+  ),
+  confirmar: z.enum(["true"]).optional(),
   targa: targa.optional(),
   driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
   monto: monto.optional(),
@@ -79,6 +95,8 @@ const baseFilters = {
   targa: z.preprocess(emptyToUndefined, z.string().trim().max(20).optional()),
   area: z.preprocess(emptyToUndefined, z.enum(AREA_VALUES).optional()),
   metodo: z.preprocess(emptyToUndefined, z.string().trim().max(80).optional()),
+  // REVISAR = por confirmar + esperando servicio.
+  asignacion: z.preprocess(emptyToUndefined, z.enum(ASIGNACION_VALUES).optional()),
   q: z.preprocess(emptyToUndefined, z.string().trim().max(100).optional()),
 };
 

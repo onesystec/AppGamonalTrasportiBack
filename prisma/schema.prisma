@@ -405,8 +405,9 @@ model Record {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  files    RecordFile[]
-  mancatos MancatoPagamento[]
+  files        RecordFile[]
+  mancatos     MancatoPagamento[]
+  combustibles RegistroCombustible[]
 
   @@index([fechaServicio])
   @@index([driverId])
@@ -638,6 +639,17 @@ enum AreaCombustible {
   FARMACIA
 }
 
+// A que servicio se asigno una carga de combustible. Igual que MancatoAsignacion, pero aca
+// EN_ESPERA no vence nunca: una carga sin servicio no es urgente y se asigna sola cuando
+// aparece uno que encaje (o la oficina la deja a mano como "sin servicio").
+enum CombustibleAsignacion {
+  AUTO
+  SUGERIDO
+  CONFIRMADO
+  MANUAL
+  EN_ESPERA
+}
+
 // Carga de combustible: el chofer sube el comprobante (foto del ticket) con el monto, la
 // gasolinera ("metodo") y el area a la que se imputa el gasto. Lo registra el propio chofer
 // (o un OWNER/ADMIN a nombre de uno). createdAt es el momento real de registro (no
@@ -652,15 +664,26 @@ model RegistroCombustible {
   createdById    String?
   createdBy      User?           @relation("CombustibleCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
   fecha          DateTime        @db.Date
+  // Dia y hora exactos de la carga (hora de Roma): sirve para asignarla al servicio correcto.
+  fechaHora      DateTime?
   monto          Decimal         @db.Decimal(10, 2)
   metodo         String
   area           AreaCombustible
   comprobanteKey String?
+  // Servicio al que se imputa (ver combustibleMatching.service.js). Un comprobante pertenece a
+  // un solo servicio; el costo de combustible del servicio es la suma de sus comprobantes.
+  recordId         String?
+  record           Record?               @relation(fields: [recordId], references: [id], onDelete: SetNull)
+  asignacion       CombustibleAsignacion @default(EN_ESPERA)
+  asignacionMotivo String?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
   @@index([fecha])
   @@index([driverId, fecha])
   @@index([area, fecha])
+  @@index([recordId])
+  @@index([vehicleId, fechaHora])
+  @@index([asignacion])
   @@map("registros_combustible")
 }

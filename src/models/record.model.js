@@ -5,6 +5,11 @@ const RECORD_INCLUDE = {
   vehicle: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
   stops: { orderBy: { orden: "asc" } },
+  // Comprobantes de combustible asignados a este servicio (ver utils/fuelCost.js).
+  combustibles: {
+    orderBy: { fechaHora: "asc" },
+    select: { id: true, monto: true, fechaHora: true, metodo: true, asignacion: true },
+  },
   // Peajes (mancato pagamento) que el sistema asigno a este servicio.
   mancatos: {
     orderBy: { fechaHoraTransito: "asc" },
@@ -275,4 +280,11 @@ export const releaseMancatosOfRecord = (recordId) =>
       tramo: null,
       asignacionMotivo: "El servicio asignado se elimino.",
     },
+  });
+
+// Igual para las cargas de combustible: vuelven a esperar un servicio.
+export const releaseCombustiblesOfRecord = (recordId) =>
+  prisma.registroCombustible.updateMany({
+    where: { recordId },
+    data: { recordId: null, asignacion: "EN_ESPERA", asignacionMotivo: "El servicio asignado se elimino." },
   });

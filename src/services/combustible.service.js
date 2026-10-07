@@ -5,14 +5,23 @@ import {
   createCombustible as createCombustibleRecord,
   deleteCombustibleById,
   findCombustibleById,
+  countCombustibleByAsignacion,
   findCombustibles,
   findCombustiblesForStats,
+  findDuplicateCombustible,
   findMetodoUsage,
   findVehicleByTarga,
   sumCombustibleMonto,
   updateCombustibleById,
 } from "../models/combustible.model.js";
+import { findRecordForAssignment } from "../models/mancato.model.js";
+import {
+  listCandidatesForCombustible,
+  matchCombustible,
+  rematchAllCombustible,
+} from "./combustibleMatching.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
+import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
 import { AREA_VALUES } from "../validators/combustible.validator.js";
@@ -22,6 +31,8 @@ const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMI
 const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
+
+const DUPLICADO_VENTANA_MS = 30 * 60 * 1000;
 
 // Un nombre de gasolinera con espacios de mas no es otra gasolinera.
 const cleanMetodo = (value) => value.replace(/\s+/g, " ").trim();
@@ -35,6 +46,12 @@ const buildWhere = (actor, filters) => {
   if (filters.area) and.push({ area: filters.area });
   if (filters.targa) {
     and.push({ targa: { contains: filters.targa.replace(/\s+/g, "").toUpperCase() } });
+  }
+  if (filters.asignacion) {
+    and.push({
+      asignacion:
+        filters.asignacion === "REVISAR" ? { in: ["SUGERIDO", "EN_ESPERA"] } : filters.asignacion,
+    });
   }
   if (filters.metodo) and.push({ metodo: { equals: cleanMetodo(filters.metodo), mode: "insensitive" } });
   if (filters.from) and.push({ fecha: { gte: dayToDate(filters.from) } });
@@ -102,9 +119,30 @@ const toResponse = async (r, actor, today) => ({
   driver: person(r.driver),
   registradoPor: person(r.createdBy),
   fecha: r.fecha,
+  fechaHora: r.fechaHora,
+  horaCarga: r.fechaHora ? romeHHMM(r.fechaHora) : null,
   monto: Number(r.monto),
   metodo: r.metodo,
   area: r.area,
+  // Servicio al que se imputa esta carga (ver combustibleMatching.service.js). EN_ESPERA no
+  // vence: se asigna sola cuando aparece un servicio que encaje.
+  asignacion: r.asignacion,
+  asignacionMotivo:
+    r.asignacion === "EN_ESPERA" && !r.record
+      ? "Esperando un servicio de este vehiculo que encaje con la hora de la carga. Se asigna sola cuando se cargue."
+      : r.asignacionMotivo,
+  servicio: r.record
+    ? {
+        id: r.record.id,
+        codigo: r.record.codigo,
+        estado: r.record.estado,
+        cliente: r.record.client?.nombre ?? null,
+        destinazione: r.record.destinazione,
+        driver: person(r.record.driver),
+        fechaRetiro: r.record.fechaRetiro,
+        eta: r.record.eta,
+      }
+    : null,
   comprobante: r.comprobanteKey
     ? { url: await getSignedUrlForKey(r.comprobanteKey), esPdf: r.comprobanteKey.endsWith(".pdf") }
     : null,
@@ -114,6 +152,12 @@ const toResponse = async (r, actor, today) => ({
   // Lo calcula el backend para que el front no tenga que repetir la regla.
   editable: canModify(actor, r, today),
 });
+
+const assertNotFuture = (fechaHora, now = new Date()) => {
+  if (fechaHora.getTime() > now.getTime() + 10 * 60 * 1000) {
+    throw new AppError("La hora de la carga no puede ser futura", 400);
+  }
+};
 
 const resolveDriverId = (actor, requestedDriverId) => {
   if (!isPrivileged(actor)) return actor.id;
@@ -126,10 +170,36 @@ export const createCombustibleForActor = async (actor, data, files) => {
   if (!comprobanteFile) throw new AppError("El comprobante de pago es obligatorio", 400);
   const driverId = resolveDriverId(actor, data.driverId);
 
+  const fechaHora = romeLocalToDate(data.fecha, data.hora);
+  assertNotFuture(fechaHora);
+
+  // El mismo comprobante subido dos veces (p. ej. por el chofer y por la oficina) inflaria el
+  // gasto. El chofer no puede forzarlo; la oficina si, confirmando.
+  const duplicado = await findDuplicateCombustible({
+    targa: data.targa,
+    monto: data.monto,
+    from: new Date(fechaHora.getTime() - DUPLICADO_VENTANA_MS),
+    to: new Date(fechaHora.getTime() + DUPLICADO_VENTANA_MS),
+  });
+  if (duplicado && !(isPrivileged(actor) && data.forzar)) {
+    const quien = duplicado.driver ? ` de ${duplicado.driver.nombre} ${duplicado.driver.apellido}` : "";
+    throw new AppError(
+      `Ya existe una carga igual${quien} de las ${romeHHMM(duplicado.fechaHora)} (misma targa y monto). ` +
+        (isPrivileged(actor) ? "Si es otra carga, registrala igual." : "No la subas dos veces."),
+      409
+    );
+  }
+
   const id = randomUUID();
   const comprobanteKey = await uploadComprobante(id, comprobanteFile);
   try {
     const vehicle = await findVehicleByTarga(data.targa);
+    // A que servicio se imputa (AUTO / SUGERIDO / EN_ESPERA).
+    const assignment = await matchCombustible({
+      vehicleId: vehicle?.id ?? null,
+      driverId,
+      fechaHora,
+    });
     const created = await createCombustibleRecord({
       id,
       targa: data.targa,
@@ -137,6 +207,8 @@ export const createCombustibleForActor = async (actor, data, files) => {
       driverId,
       createdById: actor.id,
       fecha: dayToDate(data.fecha),
+      fechaHora,
+      ...assignment,
       monto: data.monto,
       metodo: cleanMetodo(data.metodo),
       area: data.area,
@@ -210,6 +282,53 @@ export const updateCombustibleForActor = async (actor, id, data, files) => {
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
   if (privileged && data.driverId) payload.driverId = data.driverId;
 
+  // Si cambia algo que decide a que servicio pertenece (dia, hora, targa o chofer) se vuelve a
+  // evaluar, salvo que la oficina ya lo haya fijado (CONFIRMADO / MANUAL).
+  if (data.fecha || data.hora || data.targa || (privileged && data.driverId)) {
+    const day = data.fecha ?? dateOnlyToDay(current.fecha);
+    const hhmm = data.hora ?? (current.fechaHora ? romeHHMM(current.fechaHora) : null);
+    if (hhmm) {
+      payload.fechaHora = romeLocalToDate(day, hhmm);
+      assertNotFuture(payload.fechaHora);
+    }
+    if (!["CONFIRMADO", "MANUAL"].includes(current.asignacion)) {
+      Object.assign(
+        payload,
+        await matchCombustible({
+          vehicleId: "vehicleId" in payload ? payload.vehicleId : current.vehicleId,
+          driverId: payload.driverId ?? current.driverId,
+          fechaHora: payload.fechaHora ?? current.fechaHora,
+        })
+      );
+    }
+  }
+
+  // Decision de la oficina: elegir el servicio a mano, dejarla "sin servicio" o confirmar el que
+  // propuso el sistema.
+  if (privileged && data.recordId !== undefined) {
+    if (data.recordId === null) {
+      Object.assign(payload, {
+        recordId: null,
+        asignacion: "MANUAL",
+        asignacionMotivo: "La oficina indico que no corresponde a ningun servicio.",
+      });
+    } else {
+      const service = await findRecordForAssignment(data.recordId);
+      if (!service) throw new AppError("Servicio no encontrado", 404);
+      Object.assign(payload, {
+        recordId: service.id,
+        asignacion: "MANUAL",
+        asignacionMotivo: `Asignada a mano al servicio ${service.codigo}.`,
+      });
+    }
+  } else if (privileged && data.confirmar) {
+    if (!current.recordId || !["SUGERIDO", "AUTO"].includes(current.asignacion)) {
+      throw new AppError("No hay una asignacion para confirmar", 400);
+    }
+    payload.asignacion = "CONFIRMADO";
+    payload.asignacionMotivo = `${current.asignacionMotivo ?? ""} Confirmada por la oficina.`.trim();
+  }
+
   let uploadedKey = null;
   try {
     if (files?.comprobante?.[0]) {
@@ -278,10 +397,13 @@ export const getCombustibleStatsForActor = async (actor, query) => {
 
   const firstOfSeries = new Date(Date.UTC(year, month0 - (SERIES_MONTHS - 1), 1)).toISOString().slice(0, 10);
   const where = buildWhere(actor, { ...query, from: firstOfSeries, to: today });
-  const [rows, totalChoferes] = await Promise.all([
+  const [rows, totalChoferes, byAsignacion] = await Promise.all([
     findCombustiblesForStats(where),
     isPrivileged(actor) ? countActiveChoferes() : Promise.resolve(null),
+    // Sin rango de fechas: una carga sin servicio no vence, queda esperando para siempre.
+    countCombustibleByAsignacion(buildWhere(actor, {})),
   ]);
+  const asignacionCount = (value) => byAsignacion.find((a) => a.asignacion === value)?._count._all ?? 0;
 
   const items = rows.map((r) => ({
     monto: Number(r.monto),
@@ -364,8 +486,23 @@ export const getCombustibleStatsForActor = async (actor, query) => {
     choferesQueCargaron: new Set(current.map((i) => i.driverId).filter(Boolean)).size,
     totalChoferes,
     gasolineraTop: gasolineraTop ? { nombre: gasolineraTop.nombre, count: gasolineraTop.count } : null,
+    asignaciones: { sugeridas: asignacionCount("SUGERIDO"), enEspera: asignacionCount("EN_ESPERA") },
     porArea,
     porChofer,
     serie,
   };
+};
+
+// Servicios del vehiculo cerca de la carga, para que la oficina elija a mano el correcto.
+export const listCombustibleCandidatesForActor = async (actor, id) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  const carga = await findCombustibleById(id);
+  if (!carga) throw new AppError("Registro de combustible no encontrado", 404);
+  return listCandidatesForCombustible(carga);
+};
+
+// Vuelve a evaluar todas las cargas que la oficina no fijo a mano.
+export const rematchCombustiblesForActor = async (actor) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  return rematchAllCombustible();
 };

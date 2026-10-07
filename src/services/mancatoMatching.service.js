@@ -56,7 +56,7 @@ export const serviceWindow = (service) => {
 export const tramoForService = (service, transitAt) =>
   tramoAt(serviceWindow(service), new Date(transitAt).getTime());
 
-const tramoAt = (window, transitMs) => (transitMs <= window.idaEnd ? "IDA" : "VUELTA");
+export const tramoAt = (window, transitMs) => (transitMs <= window.idaEnd ? "IDA" : "VUELTA");
 
 const enEspera = (asignacionMotivo) => ({
   recordId: null,
@@ -75,21 +75,31 @@ const enEspera = (asignacionMotivo) => ({
 //     subido el peaje antes de que la oficina cargue el servicio, asi que se vuelve a evaluar
 //     solo (rematchVehicle) cuando se carga o edita un servicio de ese vehiculo.
 //  4. No hay limite de peajes por servicio: todos los que caen en su ventana son suyos.
-export const evaluateMatch = ({ transitAt, driverId, candidates }) => {
+//
+// opts permite reutilizarla para otros eventos del vehiculo (ver combustibleMatching.service.js):
+//   tolBeforeMs   cuanto antes de la hora de retiro todavia cuenta para el servicio
+//   extraAfterMs  margen extra despues de la vuelta esperada
+//   noun / subject  como nombrar el evento en los motivos ("Transito" / "del mancato")
+export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) => {
+  const tolBefore = opts.tolBeforeMs ?? TOLERANCIA_ANTES_MS;
+  const extraAfter = opts.extraAfterMs ?? 0;
+  const noun = opts.noun ?? "Transito";
+  const subject = opts.subject ?? "del mancato";
+
   const transitMs = new Date(transitAt).getTime();
   const windows = candidates.map((service) => ({ service, ...serviceWindow(service) }));
 
-  const started = windows.filter((w) => w.start - TOLERANCIA_ANTES_MS <= transitMs);
+  const started = windows.filter((w) => w.start - tolBefore <= transitMs);
   if (started.length === 0) {
     return enEspera("Ningun servicio de este vehiculo habia empezado a esa hora.");
   }
 
-  const active = started.filter((w) => transitMs <= w.returnEnd);
+  const active = started.filter((w) => transitMs <= w.returnEnd + extraAfter);
   if (active.length === 0) {
     const last = [...started].sort((a, b) => b.start - a.start)[0];
     return enEspera(
       `El ultimo servicio del vehiculo (${last.service.codigo}) ya debia haber terminado y vuelto ${hoursText(
-        transitMs - last.returnEnd
+        transitMs - last.returnEnd - extraAfter
       )} antes.`
     );
   }
@@ -110,22 +120,22 @@ export const evaluateMatch = ({ transitAt, driverId, candidates }) => {
   const where = `${tramo === "IDA" ? "durante la ida" : "en la vuelta"} del servicio ${pick.service.codigo}`;
 
   let asignacion = "AUTO";
-  let motivo = `Transito ${where}.`;
+  let motivo = `${noun} ${where}.`;
   if (driverId && pick.service.driverId && pick.service.driverId !== driverId) {
     asignacion = "SUGERIDO";
-    motivo = `Transito ${where}, pero el chofer del mancato no es el del servicio.`;
+    motivo = `${noun} ${where}, pero el chofer ${subject} no es el del servicio.`;
   } else if (active.length > 1) {
     asignacion = "SUGERIDO";
     motivo = `Hay ${active.length} servicios del vehiculo en curso a esa hora; el mas probable es ${pick.service.codigo} (${tramo === "IDA" ? "ida" : "vuelta"}).`;
   } else if (pick.inferido && windows.length > 1) {
     asignacion = "SUGERIDO";
-    motivo = `Transito ${where}, pero el servicio no tiene Fecha de retiro y su horario es una estimacion.`;
+    motivo = `${noun} ${where}, pero el servicio no tiene Fecha de retiro y su horario es una estimacion.`;
   }
 
   return { recordId: pick.service.id, asignacion, tramo, asignacionMotivo: motivo };
 };
 
-const loadCandidates = (vehicleId, transitAt) => {
+export const loadCandidates = (vehicleId, transitAt) => {
   const t = new Date(transitAt).getTime();
   return findCandidateServices({
     vehicleId,

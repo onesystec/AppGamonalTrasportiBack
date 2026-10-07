@@ -1,9 +1,11 @@
 import { Router } from "express";
 import {
+  candidates,
   create,
   getById,
   list,
   metodos,
+  rematch,
   remove,
   stats,
   summary,
@@ -39,7 +41,12 @@ router.get("/stats", validate(statsCombustibleQuerySchema, "query"), stats);
 
 router.get("/metodos", metodos);
 
+// Vuelve a evaluar las cargas que la oficina no fijo a mano.
+router.post("/reasignar", rematch);
+
 router.get("/:id", validate(idParamSchema, "params"), getById);
+
+router.get("/:id/candidatos", validate(idParamSchema, "params"), candidates);
 
 router.patch("/:id", validate(idParamSchema, "params"), uploadFiles, validate(updateCombustibleSchema), update);
 

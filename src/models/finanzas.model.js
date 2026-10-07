@@ -20,6 +20,9 @@ export const findRecordsLite = ({ from, to, driverId }) =>
       vignetta: true,
       costoHotel: true,
       costoOtros: true,
+      // Combustible a mano y comprobantes asignados (ver utils/fuelCost.js).
+      costoCombustible: true,
+      combustibles: { select: { monto: true } },
     },
   });
 
@@ -65,4 +68,26 @@ export const findPendingDeductions = ({ driverId } = {}) =>
     where: { quienPaga: "A_DESCONTAR", descontado: false, ...(driverId ? { driverId } : {}) },
     _sum: { costo: true },
     _count: { _all: true },
+  });
+
+// Servicios con combustible cargado a mano Y con comprobantes asignados: los unicos donde puede
+// haber una diferencia que auditar (ver fuelNeedsAudit). Son pocos, asi que se filtran en memoria.
+export const findRecordsForFuelAudit = ({ from, to }) =>
+  prisma.record.findMany({
+    where: {
+      fechaServicio: { gte: from, lt: to },
+      costoCombustible: { gt: 0 },
+      combustibles: { some: {} },
+    },
+    orderBy: { fechaServicio: "desc" },
+    select: {
+      id: true,
+      codigo: true,
+      fechaServicio: true,
+      destinazione: true,
+      costoCombustible: true,
+      driver: { select: { nombre: true, apellido: true } },
+      client: { select: { nombre: true } },
+      combustibles: { select: { monto: true } },
+    },
   });

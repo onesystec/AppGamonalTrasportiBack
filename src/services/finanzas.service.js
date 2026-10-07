@@ -2,10 +2,13 @@ import { PAY_RATES, PAYABLE_STATUSES } from "../config/payRates.js";
 import {
   findCombustibleLite,
   findPendingDeductions,
+  findRecordsForFuelAudit,
   findRecordsDetailed,
   findRecordsLite,
 } from "../models/finanzas.model.js";
 import { AppError } from "../utils/AppError.js";
+import { countCombustibleByAsignacion } from "../models/combustible.model.js";
+import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
 
@@ -140,6 +143,37 @@ const groupByConcepto = (records) =>
     .filter((c) => c.count > 0)
     .sort((a, b) => b.total - a.total);
 
+// ---------------------------------------------------------------- combustible a auditar
+
+const fuelAuditItem = (r) => {
+  const comprobantes = r.combustibles.reduce((sum, c) => sum + Number(c.monto), 0);
+  return {
+    id: r.id,
+    codigo: r.codigo,
+    fecha: r.fechaServicio,
+    cliente: r.client?.nombre ?? null,
+    destinazione: r.destinazione,
+    driver: r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : null,
+    manual: round2(r.costoCombustible),
+    comprobantes: round2(comprobantes),
+    cargas: r.combustibles.length,
+  };
+};
+
+// Servicios cuyo combustible a mano es casi el doble (o mas) de lo que suman sus comprobantes.
+const loadFuelToAudit = async ({ from, to }) => {
+  const rows = await findRecordsForFuelAudit({ from, to });
+  return rows
+    .filter((r) =>
+      fuelNeedsAudit({
+        manual: r.costoCombustible,
+        receiptsTotal: r.combustibles.reduce((sum, c) => sum + Number(c.monto), 0),
+        receiptsCount: r.combustibles.length,
+      })
+    )
+    .map(fuelAuditItem);
+};
+
 // ---------------------------------------------------------------- resumen
 
 const monthOfRecord = (record) => romeDay(record.fechaServicio).slice(0, 7);
@@ -151,7 +185,7 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   const { from, to } = windowFor(firstMonth, month);
   const driverId = privileged ? undefined : actor.id;
 
-  const [records, fuel, mancato, multas] = await Promise.all([
+  const [records, fuel, mancato, multas, fuelAsignaciones, fuelToAudit] = await Promise.all([
     findRecordsLite({ from, to, driverId }),
     findCombustibleLite({
       from: monthStartDate(firstMonth),
@@ -160,6 +194,9 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     }),
     getMancatoStatsForActor(actor, {}),
     getMultaStatsForActor(actor, {}),
+    // Cargas esperando servicio: sin rango de fechas, no vencen.
+    countCombustibleByAsignacion(privileged ? {} : { driverId: actor.id }),
+    privileged ? loadFuelToAudit({ from, to }) : Promise.resolve([]),
   ]);
 
   const limitDay = comparisonLimitDay(month);
@@ -168,7 +205,13 @@ export const getFinanzasResumenForActor = async (actor, query) => {
 
   const buckets = new Map();
   for (let i = 0; i < SERIES_MONTHS; i += 1) {
-    buckets.set(shiftMonth(firstMonth, i), { combustible: 0, gastos: 0, pago: emptyPay(), gastosRecords: [] });
+    buckets.set(shiftMonth(firstMonth, i), {
+      combustible: 0,
+      combustibleEstimado: 0,
+      gastos: 0,
+      pago: emptyPay(),
+      gastosRecords: [],
+    });
   }
   const prevSame = { combustible: 0, gastos: 0, pago: emptyPay() };
 
@@ -179,6 +222,12 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     const gastosTotal = recordGastosTotal(r);
     bucket.gastos += gastosTotal;
     if (gastosTotal > 0) bucket.gastosRecords.push(r);
+    // Combustible cargado a mano en un servicio SIN comprobantes: cuenta como estimado (si tiene
+    // comprobantes, el gasto real ya esta en las cargas y esto no se suma otra vez). Es dato
+    // economico del servicio: el chofer no lo ve.
+    const estimado = privileged && r.combustibles.length === 0 ? numberOr0(r.costoCombustible) : 0;
+    bucket.combustibleEstimado += estimado;
+    if (day.startsWith(prevMonth) && dayOfMonth(day) <= limitDay) prevSame.combustible += estimado;
     if (isPayable(r)) addPay(bucket.pago, r, computeServicePay(r));
     if (day.startsWith(prevMonth) && dayOfMonth(day) <= limitDay) {
       prevSame.gastos += gastosTotal;
@@ -196,13 +245,14 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   const current = buckets.get(month);
   const pagoMes = finishPay(current.pago);
   const gastosMes = round2(current.gastos);
-  const combustibleMes = round2(current.combustible);
+  const combustibleEstimadoMes = round2(current.combustibleEstimado);
+  const combustibleMes = round2(current.combustible + current.combustibleEstimado);
   const cargasMes = fuel.filter((f) => f.fecha.toISOString().startsWith(month)).length;
   const prevPago = finishPay(prevSame.pago);
 
   const serie = [...buckets.entries()].map(([key, b]) => ({
     label: MONTH_LABELS[Number(key.slice(5, 7)) - 1],
-    combustible: round2(b.combustible),
+    combustible: round2(b.combustible + b.combustibleEstimado),
     gastosServicios: privileged ? round2(b.gastos) : 0,
     pagoChoferes: finishPay(b.pago).total,
   }));
@@ -216,6 +266,29 @@ export const getFinanzasResumenForActor = async (actor, query) => {
       title: `${rec.vencidos} ${rec.vencidos === 1 ? "mancato vencido" : "mancatos vencidos"}`,
       total: rec.totalVencido,
       to: "/finanzas/mancato",
+    });
+  }
+  const fuelCount = (value) => fuelAsignaciones.find((a) => a.asignacion === value)?._count._all ?? 0;
+  if (privileged && fuelToAudit.length > 0) {
+    atencion.push({
+      tone: "warning",
+      title: `${fuelToAudit.length} ${fuelToAudit.length === 1 ? "servicio con combustible" : "servicios con combustible"} a auditar`,
+      total: round2(fuelToAudit.reduce((sum, i) => sum + (i.manual - i.comprobantes), 0)),
+      to: "/finanzas/gastos",
+    });
+  }
+  if (privileged && fuelCount("SUGERIDO") > 0) {
+    atencion.push({
+      tone: "warning",
+      title: `${fuelCount("SUGERIDO")} ${fuelCount("SUGERIDO") === 1 ? "carga de combustible por confirmar" : "cargas de combustible por confirmar"} su servicio`,
+      to: "/finanzas/combustible?asignacion=SUGERIDO",
+    });
+  }
+  if (privileged && fuelCount("EN_ESPERA") > 0) {
+    atencion.push({
+      tone: "info",
+      title: `${fuelCount("EN_ESPERA")} ${fuelCount("EN_ESPERA") === 1 ? "carga de combustible espera" : "cargas de combustible esperan"} su servicio`,
+      to: "/finanzas/combustible?asignacion=EN_ESPERA",
     });
   }
   if (privileged && rec.sugeridos > 0) {
@@ -287,6 +360,8 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     mes: {
       combustible: {
         total: combustibleMes,
+        // Parte del total que sale de servicios con combustible a mano y sin comprobantes.
+        estimado: combustibleEstimadoMes,
         cargas: cargasMes,
         deltaPct: pctChange(combustibleMes, round2(prevSame.combustible)),
       },
@@ -401,7 +476,11 @@ export const getGastosServiciosForActor = async (actor, query) => {
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
 
-  const all = await findRecordsDetailed({ from, to });
+  const auditWindow = windowFor(shiftMonth(month, -(SERIES_MONTHS - 1)), month);
+  const [all, combustibleRevisar] = await Promise.all([
+    findRecordsDetailed({ from, to }),
+    loadFuelToAudit(auditWindow),
+  ]);
   const records = all.filter((r) => monthOfRecord(r) === month && recordGastosTotal(r) > 0);
 
   const items = records
@@ -428,5 +507,9 @@ export const getGastosServiciosForActor = async (actor, query) => {
     servicios: items.length,
     porConcepto: groupByConcepto(records),
     items,
+    // Servicios (de los ultimos 6 meses) donde el combustible a mano es casi el doble o mas de lo
+    // que suman los comprobantes: a revisar para detectar un gasto inflado o comprobantes que
+    // faltan.
+    combustibleRevisar,
   };
 };

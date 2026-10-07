@@ -5,7 +5,9 @@ import {
   getCombustibleStatsForActor,
   getCombustibleSummaryForActor,
   listCombustibleForActor,
+  listCombustibleCandidatesForActor,
   listMetodos,
+  rematchCombustiblesForActor,
   updateCombustibleForActor,
 } from "../services/combustible.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -48,4 +50,14 @@ export const update = asyncHandler(async (req, res) => {
 export const remove = asyncHandler(async (req, res) => {
   await deleteCombustibleForActor(req.user, req.params.id);
   res.status(204).send();
+});
+
+export const candidates = asyncHandler(async (req, res) => {
+  const items = await listCombustibleCandidatesForActor(req.user, req.params.id);
+  res.status(200).json({ success: true, data: { candidatos: items } });
+});
+
+export const rematch = asyncHandler(async (req, res) => {
+  const result = await rematchCombustiblesForActor(req.user);
+  res.status(200).json({ success: true, data: { resultado: result } });
 });
