@@ -25,11 +25,8 @@ const costo = z
   )
   .transform((value) => Math.round(value * 100) / 100);
 
-const sitioWeb = z
-  .string()
-  .trim()
-  .max(500)
-  .refine((value) => /^https?:\/\/\S+$/i.test(value), "El sitio web debe empezar con http:// o https://");
+// Texto libre (puede ser una direccion web o cualquier indicacion de donde pagar).
+const sitioWeb = z.string().trim().max(500);
 
 const targa = z
   .string()

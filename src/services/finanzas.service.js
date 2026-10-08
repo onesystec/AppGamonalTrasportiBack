@@ -329,6 +329,15 @@ export const getFinanzasResumenForActor = async (actor, query) => {
       to: "/finanzas/horas",
     });
   }
+  if (privileged && recM.comprobantesPorConfirmar > 0) {
+    atencion.push({
+      tone: "warning",
+      title: `${recM.comprobantesPorConfirmar} ${
+        recM.comprobantesPorConfirmar === 1 ? "multa con comprobante del chofer" : "multas con comprobante del chofer"
+      } por confirmar`,
+      to: "/finanzas/multas",
+    });
+  }
   if (recM.vencidas > 0) {
     atencion.push({
       tone: "danger",

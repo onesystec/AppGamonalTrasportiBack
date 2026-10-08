@@ -246,7 +246,8 @@ export const createMancatoForActor = async (actor, data, files) => {
 
   const id = randomUUID();
   const vencimiento = calcVencimiento(data.fecha);
-  const comprobanteFile = files.comprobante?.[0];
+  // El comprobante de pago lo sube solo la oficina: el chofer solo registra el aviso.
+  const comprobanteFile = isPrivileged(actor) ? files.comprobante?.[0] : undefined;
 
   const uploaded = [];
   try {
@@ -448,7 +449,7 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
       uploaded.push(payload.fotoKey);
       if (current.fotoKey) oldKeys.push(current.fotoKey);
     }
-    if (files?.comprobante?.[0]) {
+    if (privileged && files?.comprobante?.[0]) {
       payload.comprobanteKey = await uploadAttachment(id, "comprobante", files.comprobante[0]);
       uploaded.push(payload.comprobanteKey);
       if (current.comprobanteKey) oldKeys.push(current.comprobanteKey);

@@ -44,6 +44,7 @@ export const findMultasForStats = (where) =>
       pagadoAt: true,
       quienPaga: true,
       descontado: true,
+      comprobanteChoferAt: true,
       driverId: true,
       driver: { select: { nombre: true, apellido: true } },
     },

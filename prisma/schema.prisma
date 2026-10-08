@@ -723,6 +723,10 @@ model Multa {
   comentarios      String?
   multaKey         String?
   comprobanteKey   String?
+  // Comprobante que sube el chofer cuando la multa la paga el: no la deja pagada, la oficina lo
+  // confirma. comprobanteChoferAt marca "enviado y por confirmar" (se borra al confirmar o reabrir).
+  comprobanteChoferKey String?
+  comprobanteChoferAt  DateTime?
   pagado           Boolean        @default(false)
   pagadoAt         DateTime?
   createdAt        DateTime       @default(now())

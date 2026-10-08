@@ -19,6 +19,8 @@ import {
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
+import { findOwnerAndAdminUserIds } from "../models/user.model.js";
+import { sendPushToUserIds } from "./pushNotification.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Si el verbale no trae vencimiento cargado, se usa recepcion + 60 dias (lo habitual para
@@ -112,7 +114,11 @@ const attachment = async (key) =>
 // El bucket es privado: la respuesta lleva URLs firmadas frescas, nunca la key interna.
 const toResponse = async (m, today) => {
   const vencimientoDay = dateOnlyToDay(m.fechaVencimiento);
-  const [multa, comprobante] = await Promise.all([attachment(m.multaKey), attachment(m.comprobanteKey)]);
+  const [multa, comprobante, comprobanteChofer] = await Promise.all([
+    attachment(m.multaKey),
+    attachment(m.comprobanteKey),
+    attachment(m.comprobanteChoferKey),
+  ]);
   return {
     id: m.id,
     numeroVerbale: m.numeroVerbale,
@@ -130,6 +136,10 @@ const toResponse = async (m, today) => {
     comentarios: m.comentarios,
     multa,
     comprobante,
+    comprobanteChofer,
+    comprobanteChoferAt: m.comprobanteChoferAt,
+    // El chofer mando su comprobante y la oficina todavia no lo confirmo.
+    comprobantePendiente: Boolean(m.comprobanteChoferAt) && !m.pagado,
     estado: deriveEstado(m, today),
     pagado: m.pagado,
     pagadoAt: m.pagadoAt,
@@ -222,6 +232,42 @@ export const createMultaForActor = async (actor, data, files) => {
   }
 };
 
+// Lo que ve el chofer de sus multas: lo que le afecta, sin notas internas ni quien la cargo. Si la
+// paga el, ve el plazo y el estado; si la paga la empresa, solo el importe y si ya se le descuento.
+const toChoferResponse = async (m, today) => {
+  const [multa, comprobante, comprobanteChofer] = await Promise.all([
+    attachment(m.multaKey),
+    attachment(m.comprobanteKey),
+    attachment(m.comprobanteChoferKey),
+  ]);
+  const base = {
+    id: m.id,
+    numeroVerbale: m.numeroVerbale,
+    targa: m.targa,
+    fechaInfraccion: m.fechaInfraccion,
+    fechaRecepcion: m.fechaRecepcion,
+    costo: Number(m.costo),
+    quienPaga: m.quienPaga,
+    multa,
+  };
+  if (m.quienPaga === "A_DESCONTAR") {
+    return { ...base, descontado: m.descontado, descontadoAt: m.descontadoAt };
+  }
+  const vencimientoDay = dateOnlyToDay(m.fechaVencimiento);
+  return {
+    ...base,
+    fechaVencimiento: m.fechaVencimiento,
+    estado: deriveEstado(m, today),
+    pagado: m.pagado,
+    pagadoAt: m.pagadoAt,
+    diasRestantes: dayDiff(today, vencimientoDay),
+    comprobante: comprobante ?? comprobanteChofer,
+    comprobantePendiente: Boolean(m.comprobanteChoferAt) && !m.pagado,
+  };
+};
+
+const toActorResponse = (actor, m, today) => (isPrivileged(actor) ? toResponse(m, today) : toChoferResponse(m, today));
+
 const ORDER_BY_ESTADO = {
   // Lo mas urgente primero: la que vence antes (o lleva mas tiempo vencida).
   PENDIENTE: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
@@ -250,7 +296,7 @@ export const listMultasForActor = async (actor, query) => {
     findMultas({ where, orderBy: orderByFor(query), skip: (page - 1) * pageSize, take: pageSize }),
   ]);
 
-  const items = await Promise.all(rows.map((m) => toResponse(m, today)));
+  const items = await Promise.all(rows.map((m) => toActorResponse(actor, m, today)));
   return { items, total, page, pageSize };
 };
 
@@ -272,7 +318,7 @@ export const getMultaForActor = async (actor, id) => {
   const multa = await findMultaById(id);
   if (!multa) throw new AppError("Multa no encontrada", 404);
   assertAccess(actor, multa);
-  return toResponse(multa, romeDay());
+  return toActorResponse(actor, multa, romeDay());
 };
 
 export const updateMultaForActor = async (actor, id, data, files) => {
@@ -336,6 +382,8 @@ export const updateMultaForActor = async (actor, id, data, files) => {
       payload.pagado = data.pagado;
       payload.pagadoAt = data.pagado ? (current.pagadoAt ?? new Date()) : null;
     }
+    // Confirmar o reabrir resuelve el comprobante que habia mandado el chofer.
+    if (payload.pagado !== undefined && current.comprobanteChoferAt) payload.comprobanteChoferAt = null;
 
     if (Object.keys(payload).length === 0) {
       return toResponse(current, romeDay());
@@ -355,7 +403,9 @@ export const deleteMultaForActor = async (actor, id) => {
   const multa = await findMultaById(id);
   if (!multa) throw new AppError("Multa no encontrada", 404);
 
-  await Promise.all([multa.multaKey, multa.comprobanteKey].filter(Boolean).map((key) => deleteObject(key)));
+  await Promise.all(
+    [multa.multaKey, multa.comprobanteKey, multa.comprobanteChoferKey].filter(Boolean).map((key) => deleteObject(key))
+  );
   await deleteMultaById(id);
 };
 
@@ -407,12 +457,15 @@ export const getMultaStatsForActor = async (actor, query) => {
     pagadoDay: r.pagadoAt ? romeDay(r.pagadoAt) : null,
     quienPaga: r.quienPaga,
     descontado: r.descontado,
+    comprobantePendiente: Boolean(r.comprobanteChoferAt) && !r.pagado,
     driverId: r.driverId,
     driverName: r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer",
   }));
 
+  // Para el chofer, "por pagar" es solo lo que paga el (lo que paga la empresa se le descuenta aparte).
+  const payable = isPrivileged(actor) ? items : items.filter((i) => i.quienPaga === "CHOFER_PAGO");
   const openAt = (day) =>
-    items.filter((i) => i.createdDay <= day && (!i.pagado || (i.pagadoDay && i.pagadoDay > day)));
+    payable.filter((i) => i.createdDay <= day && (!i.pagado || (i.pagadoDay && i.pagadoDay > day)));
   const totalOf = (list) => round2(list.reduce((sum, i) => sum + i.costo, 0));
   const avgAge = (list, day) =>
     list.length === 0
@@ -459,7 +512,7 @@ export const getMultaStatsForActor = async (actor, query) => {
     totalPorPagar,
     totalPorPagarDeltaPct: pctChange(totalPorPagar, totalOf(openPrev)),
     multasAbiertas: open.length,
-    multasTotales: items.length,
+    multasTotales: payable.length,
     totalChoferes,
     aDescontar: { count: descuentoPendiente.length, total: totalOf(descuentoPendiente) },
     porChoferADescontar: groupByDriver(descuentoPendiente).slice(0, MAX_TOP_DESCUENTO),
@@ -475,6 +528,7 @@ export const getMultaStatsForActor = async (actor, query) => {
       totalVencido: totalOf(vencidas),
       aDescontarPendiente: descuentoPendiente.length,
       totalADescontar: totalOf(descuentoPendiente),
+      comprobantesPorConfirmar: items.filter((i) => i.comprobantePendiente).length,
     },
   };
 };
@@ -559,4 +613,38 @@ export const getMultaAlertsForActor = async (actor) => {
     porVencer: { count: porVencerCount, items: porVencerItems.map(toItem) },
     aDescontar: { count: descuentoCount, total: round2(descuentoTotal) },
   };
+};
+
+// El chofer sube el comprobante de una multa que paga el mismo. No la deja pagada: queda "por
+// confirmar" y se avisa a la oficina, que es quien la marca como pagada.
+export const uploadMyComprobanteForActor = async (actor, id, file) => {
+  const multa = await findMultaById(id);
+  if (!multa) throw new AppError("Multa no encontrada", 404);
+  if (isPrivileged(actor) || multa.driverId !== actor.id) {
+    throw new AppError("No tienes permisos para realizar esta accion", 403);
+  }
+  if (multa.quienPaga !== "CHOFER_PAGO") {
+    throw new AppError("Esta multa la paga la empresa: no hace falta subir comprobante", 400);
+  }
+  if (multa.pagado) throw new AppError("Esta multa ya figura como pagada", 400);
+  if (!file) throw new AppError("Sube la foto o el PDF del comprobante", 400);
+
+  const key = await uploadAttachment(id, "comprobante-chofer", file);
+  try {
+    const updated = await updateMultaById(id, { comprobanteChoferKey: key, comprobanteChoferAt: new Date() });
+    if (multa.comprobanteChoferKey) await deleteObject(multa.comprobanteChoferKey).catch(() => {});
+    findOwnerAndAdminUserIds()
+      .then((ids) =>
+        sendPushToUserIds(ids, {
+          title: "Comprobante de multa por confirmar",
+          body: `${actor.nombre} ${actor.apellido} subio el comprobante del verbale ${multa.numeroVerbale}.`,
+          data: { type: "multa", multaId: id },
+        })
+      )
+      .catch((err) => console.error("No se pudo avisar del comprobante de multa:", err.message));
+    return toChoferResponse(updated, romeDay());
+  } catch (err) {
+    await deleteObject(key).catch(() => {});
+    throw err;
+  }
 };

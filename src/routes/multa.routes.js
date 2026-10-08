@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { alerts, create, getById, list, remove, stats, suggestDriver, summary, update } from "../controllers/multa.controller.js";
+import { alerts, create, getById, list, remove, stats, suggestDriver, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
@@ -40,6 +40,9 @@ router.get("/sugerencia-chofer", validate(suggestDriverQuerySchema, "query"), su
 router.get("/:id", validate(idParamSchema, "params"), getById);
 
 router.patch("/:id", validate(idParamSchema, "params"), uploadFiles, validate(updateMultaSchema), update);
+
+// El chofer sube el comprobante de una multa que paga el mismo; la oficina lo confirma.
+router.post("/:id/comprobante-chofer", validate(idParamSchema, "params"), upload.single("comprobante"), uploadMyComprobante);
 
 router.delete("/:id", validate(idParamSchema, "params"), remove);
 

@@ -8,6 +8,7 @@ import {
   listMultasForActor,
   suggestDriversForActor,
   updateMultaForActor,
+  uploadMyComprobanteForActor,
 } from "../services/multa.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -54,4 +55,9 @@ export const alerts = asyncHandler(async (req, res) => {
 export const suggestDriver = asyncHandler(async (req, res) => {
   const result = await suggestDriversForActor(req.user, req.query);
   res.status(200).json({ success: true, data: { sugerencia: result } });
+});
+
+export const uploadMyComprobante = asyncHandler(async (req, res) => {
+  const multa = await uploadMyComprobanteForActor(req.user, req.params.id, req.file);
+  res.status(200).json({ success: true, data: { multa } });
 });
