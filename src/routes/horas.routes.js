@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { pendientes, recalcParadas, reception, review, submit } from "../controllers/horas.controller.js";
+import { pendientes, recalcEstimacion, recalcParadas, reception, review, submit } from "../controllers/horas.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
@@ -28,6 +28,13 @@ router.post(
   authorize("OWNER", "ADMIN"),
   validate(idParamSchema, "params"),
   recalcParadas
+);
+
+router.post(
+  "/:id/estimacion",
+  authorize("OWNER", "ADMIN"),
+  validate(idParamSchema, "params"),
+  recalcEstimacion
 );
 
 export default router;

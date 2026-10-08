@@ -16,3 +16,8 @@ export const paradasQuerySchema = z.object({
   driverId: z.string().uuid().optional(),
   recordId: z.string().uuid().optional(),
 });
+
+// Direccion de retorno por defecto. Vacia o null = quitar la configurada.
+export const retornoSchema = z.object({
+  direccion: z.string().trim().max(300).nullable().optional(),
+});

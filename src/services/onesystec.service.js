@@ -74,3 +74,34 @@ export const getVehiclePositions = async (onesystecVehicleId, fromMs, toMs) => {
     }))
     .sort((a, b) => a.at - b.at);
 };
+
+// Comprobacion barata de que la cuenta del GPS esta viva: pide la lista de vehiculos. Distingue una
+// cuenta rechazada o suspendida (401/402/403, o sin vehiculos: por ejemplo por falta de pago) de una
+// caida pasajera (error del servidor, sin conexion). Nunca lanza.
+const PROBE_TIMEOUT_MS = 10000;
+export const probeOnesystec = async () => {
+  if (!isOnesystecConfigured()) return { estado: "NO_CONFIGURADO" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${env.ONESYSTEC_BASE_URL.replace(/\/+$/, "")}/vehicles`, {
+      headers: { Authorization: `Bearer ${env.ONESYSTEC_API_KEY}` },
+      signal: controller.signal,
+    });
+    if ([401, 402, 403].includes(res.status)) {
+      return { estado: "BLOQUEADO", detalle: `La cuenta del GPS fue rechazada (HTTP ${res.status})` };
+    }
+    if (!res.ok) return { estado: "CAIDO", detalle: `El GPS respondio con error (HTTP ${res.status})` };
+    const vehicles = await res.json();
+    if (!Array.isArray(vehicles) || vehicles.length === 0) {
+      return { estado: "BLOQUEADO", detalle: "La cuenta del GPS no devuelve ningun vehiculo" };
+    }
+    vehiclesCache = vehicles;
+    vehiclesCachedAt = Date.now();
+    return { estado: "OK" };
+  } catch {
+    return { estado: "CAIDO", detalle: "No se pudo conectar con el GPS" };
+  } finally {
+    clearTimeout(timer);
+  }
+};

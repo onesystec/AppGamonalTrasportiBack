@@ -15,6 +15,7 @@ import {
   updateUser,
   uploadUserAvatar,
 } from "../services/user.service.js";
+import { getMyGpsRespaldo, recordMyBackupLocation, setMyGpsRespaldo } from "../services/gpsRespaldo.service.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { buildDateRange } from "../utils/dateRange.js";
@@ -101,4 +102,19 @@ export const getRouteHistoryHandler = asyncHandler(async (req, res) => {
 export const cleanupLocationPingsHandler = asyncHandler(async (req, res) => {
   const result = await cleanupOldLocationPings();
   res.status(200).json({ success: true, data: result });
+});
+
+// GPS de respaldo del celular (ver gpsRespaldo.service.js): autorizar, consultar si hay que enviar la
+// ubicacion y enviarla. Solo para el propio chofer.
+export const setMyGpsRespaldoHandler = asyncHandler(async (req, res) => {
+  const user = await setMyGpsRespaldo(req.user, req.body.permitido);
+  res.status(200).json({ success: true, data: { user } });
+});
+
+export const getMyGpsRespaldoHandler = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await getMyGpsRespaldo(req.user) });
+});
+
+export const postMyGpsRespaldoLocationHandler = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await recordMyBackupLocation(req.user, req.body) });
 });

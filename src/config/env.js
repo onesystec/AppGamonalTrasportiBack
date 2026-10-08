@@ -95,6 +95,19 @@ const envSchema = z.object({
   // la funcion queda apagada (el resto de la app anda igual). La clave va SOLO aca, nunca en el codigo.
   ONESYSTEC_BASE_URL: z.string().url().optional(),
   ONESYSTEC_API_KEY: z.string().min(10).optional(),
+  // Estimacion por ruta (sin GPS): tiempo que se supone en cada parada (minutos), recargo por trafico sobre el
+  // tiempo de OSRM (que no lo incluye) y descanso que se supone cada X minutos de conduccion.
+  ESTIMATE_STOP_MIN: z.coerce.number().default(10),
+  ESTIMATE_TRAFFIC_FACTOR: z.coerce.number().default(1.15),
+  ESTIMATE_BREAK_EVERY_MIN: z.coerce.number().default(270),
+  ESTIMATE_BREAK_MIN: z.coerce.number().default(30),
+  // GPS de respaldo del celular del chofer: si el GPS del vehiculo (OneSystec) esta bloqueado o caido,
+  // los choferes que lo autorizaron comparten su ubicacion SOLO durante sus servicios y las paradas se
+  // calculan con eso (ver gpsHealth.service.js y gpsRespaldo.service.js). "false" lo apaga del todo.
+  GPS_RESPALDO_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
   // Una parada se registra recien cuando el vehiculo lleva este tiempo detenido (minutos).
   STOP_MIN_MINUTES: z.coerce.number().default(5),
   // Hasta cuantos minutos una parada se considera normal (semaforo, baño, cafe) y no se revisa.

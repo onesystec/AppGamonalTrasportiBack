@@ -112,6 +112,7 @@ const RECORD_SELECT_LIST = {
   paradasCalculadasAt: true,
   finFueraDeBase: true,
   gpsFin: true,
+  estimacionRuta: true,
   comentarios: true,
   kilometrosReales: true,
   kilometros: true,

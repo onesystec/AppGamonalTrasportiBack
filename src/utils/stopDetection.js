@@ -141,3 +141,14 @@ export const lastNearPoint = (samples, points, radiusM, { fromMs, toMs }) => {
 // Estimacion de respaldo del tiempo de viaje entre dos puntos (minutos) cuando el servicio de rutas
 // no responde: distancia en linea recta x 1.35 a 45 km/h de promedio.
 export const estimateDriveMinutes = (a, b) => Math.round(((distanceMeters(a, b) * 1.35) / 1000 / 45) * 60);
+
+// Velocidad (km/h) de cada punto a partir del anterior, para posiciones que no la traen (las del celular).
+// Entre dos puntos muy seguidos (ruido) o muy separados (hueco sin datos) se deja sin velocidad.
+export const deriveSpeeds = (samples) =>
+  samples.map((sample, i) => {
+    if (i === 0) return sample;
+    const prev = samples[i - 1];
+    const hours = (sample.at.getTime() - prev.at.getTime()) / 3600000;
+    if (hours < 5 / 3600 || hours > 10 / 60) return sample;
+    return { ...sample, speed: distanceMeters(prev, sample) / 1000 / hours };
+  });

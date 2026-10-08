@@ -3,12 +3,15 @@ import {
   cleanupLocationPingsHandler,
   create,
   getById,
+  getMyGpsRespaldoHandler,
   getReturnEtaHandler,
   getRouteHistoryHandler,
   list,
   listLocations,
+  postMyGpsRespaldoLocationHandler,
   registerPushTokenHandler,
   remove,
+  setMyGpsRespaldoHandler,
   unregisterPushTokenHandler,
   update,
   updateMyLocationHandler,
@@ -22,6 +25,7 @@ import { userAvatarUpload } from "../middlewares/userAvatarUpload.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createUserSchema,
+  gpsRespaldoSchema,
   idParamSchema,
   registerPushTokenSchema,
   routeHistoryParamSchema,
@@ -51,6 +55,9 @@ router.patch(
   validate(updateReperibilidadSchema),
   updateMyReperibilidadHandler
 );
+router.get("/me/gps-respaldo", getMyGpsRespaldoHandler);
+router.patch("/me/gps-respaldo", validate(gpsRespaldoSchema), setMyGpsRespaldoHandler);
+router.post("/me/gps-respaldo/ubicacion", validate(updateLocationSchema), postMyGpsRespaldoLocationHandler);
 router.get("/ubicaciones", authorize("OWNER", "ADMIN"), listLocations);
 
 // Token de dispositivo para notificaciones push (ver pushNotification.service.js) -

@@ -5,6 +5,7 @@ import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
+import { computeEstimacionForRecord } from "./rutaEstimada.service.js";
 import { computeParadasForRecord, loadParadasForRecords, refreshParadasInBackground } from "./vehicleStops.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
@@ -227,6 +228,22 @@ const buildWarnings = (record, totalMin) => {
       );
     }
   }
+  // Sin datos de GPS (ni del vehiculo ni del celular) lo unico que se puede contrastar es la estimacion por
+  // ruta: retiro + paradas + retorno. Se compara lo declarado, sin la espera, con ese tiempo.
+  const est = record.estimacionRuta;
+  if (est && !record.paradasCalculadasAt && !Number.isNaN(declaredEnd.getTime()) && !Number.isNaN(declaredStart.getTime())) {
+    const esperaMin = record.horasDeclaradas?.esperaMin ?? Math.round((record.tiempoEspera ?? 0) * 60);
+    const declaredMin = (declaredEnd - declaredStart) / MIN_MS - esperaMin;
+    const detail = `conduccion ${hoursText(est.conduccionIdaMin + est.conduccionVueltaMin)}, paradas ${hoursText(est.paradasMin)}, descansos ${hoursText(est.descansosMin)}`;
+    if (declaredMin > est.totalMin * 1.25 + 45) {
+      warnings.push(`Sin GPS: la jornada declarada (${hoursText(declaredMin)}, sin la espera) supera lo estimado por la ruta (${hoursText(est.totalMin)}: ${detail})`);
+    } else if (declaredMin < est.totalMin * 0.75 && est.totalMin - declaredMin > 45) {
+      warnings.push(`Sin GPS: la jornada declarada (${hoursText(declaredMin)}) es menor de lo que la ruta permite (${hoursText(est.totalMin)}); revisa el inicio y el fin`);
+    }
+    if (record.finFueraDeBase && declaredEnd.getTime() > new Date(est.finEstimadoAt).getTime() + 15 * MIN_MS) {
+      warnings.push(`Sin GPS: termino sin pasar por el lugar de espera; la ruta estima el fin a las ${romeStamp(est.finEstimadoAt)} (volver a ${est.retorno.nombre}), declaro ${romeStamp(declaredEnd)}`);
+    }
+  }
   if (totalMin > 12 * 60) warnings.push("Jornada de mas de 12 horas");
   if (record.pausaMin === 0 && totalMin > 6 * 60) warnings.push("Mas de 6 horas sin ninguna pausa declarada");
   return warnings;
@@ -288,6 +305,7 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
           : null,
       finFueraDeBase: record.finFueraDeBase,
       gpsFin: record.gpsFin ?? null,
+      estimacionRuta: record.estimacionRuta ?? null,
       paradas: paradasByRecord.get(record.id) ?? [],
       paradasCalculadasAt: record.paradasCalculadasAt ?? null,
     };
@@ -301,7 +319,18 @@ export const recalcParadasForActor = async (actor, id) => {
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
-  await computeParadasForRecord(id);
+  // Si no hay datos de GPS (vehiculo ni celular) se deja la estimacion por ruta en su lugar.
+  let gpsError = null;
+  try {
+    await computeParadasForRecord(id);
+  } catch (err) {
+    gpsError = err.message;
+    try {
+      await computeEstimacionForRecord(id);
+    } catch {
+      throw err;
+    }
+  }
   const [byRecord, fresh] = [await loadParadasForRecords([id]), await findRecordById(id)];
   const totalMin =
     fresh.horaInicioReal && fresh.horaFinReal
@@ -311,8 +340,25 @@ export const recalcParadasForActor = async (actor, id) => {
     paradas: byRecord.get(id) ?? [],
     paradasCalculadasAt: fresh.paradasCalculadasAt,
     gpsFin: fresh.gpsFin ?? null,
+    estimacionRuta: fresh.estimacionRuta ?? null,
+    gpsError,
     avisos: totalMin != null ? buildWarnings(fresh, totalMin) : [],
   };
+};
+
+// Recalcula a mano la estimacion por ruta de un servicio (retiro + paradas + retorno), sin GPS.
+export const recalcEstimacionForActor = async (actor, id) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  const record = await findRecordById(id);
+  if (!record) throw new AppError("Registro no encontrado", 404);
+  assertAccess(actor, record);
+  const estimacionRuta = await computeEstimacionForRecord(id);
+  const fresh = await findRecordById(id);
+  const totalMin =
+    fresh.horaInicioReal && fresh.horaFinReal
+      ? (new Date(fresh.horaFinReal).getTime() - new Date(fresh.horaInicioReal).getTime()) / MIN_MS
+      : null;
+  return { estimacionRuta, avisos: totalMin != null ? buildWarnings(fresh, totalMin) : [] };
 };
 
 // El chofer que recibio un servicio de otro indica a que hora le dieron el paquete. Hasta entonces el

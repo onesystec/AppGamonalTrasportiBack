@@ -87,3 +87,7 @@ export const routeHistoryParamSchema = z.object({
   month: z.coerce.number().int().min(1).max(12),
   day: z.coerce.number().int().min(1).max(31),
 });
+
+export const gpsRespaldoSchema = z.object({
+  permitido: z.boolean(),
+});

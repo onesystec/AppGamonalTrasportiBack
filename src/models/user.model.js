@@ -14,6 +14,8 @@ export const SAFE_USER_SELECT = {
   numeroCelular: true,
   correoElectronico: true,
   compartirUbicacion: true,
+  gpsRespaldoPermitido: true,
+  gpsRespaldoPermitidoAt: true,
   ubicacionPermisoDenegado: true,
   reperibilidadNoDisponible: true,
   reperibilidadActualizada: true,
@@ -244,6 +246,17 @@ export const resetPasswordAndClearToken = (id, hashedPassword) =>
         resetPasswordToken: null,
         resetPasswordExpires: null,
       },
+      select: SAFE_USER_SELECT,
+    })
+  );
+
+// El chofer autoriza (o retira la autorizacion) para usar el GPS de su celular como respaldo.
+export const updateUserGpsRespaldo = (id, permitido) =>
+  invalidatingAuthCache(
+    id,
+    prisma.user.update({
+      where: { id },
+      data: { gpsRespaldoPermitido: permitido, gpsRespaldoPermitidoAt: permitido ? new Date() : null },
       select: SAFE_USER_SELECT,
     })
   );

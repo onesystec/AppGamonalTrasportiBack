@@ -73,6 +73,10 @@ model User {
   ubicacionLng         Float?
   ubicacionActualizada DateTime?
   compartirUbicacion   Boolean   @default(false)
+  // El chofer autoriza usar el GPS de su celular SOLO como respaldo cuando el GPS del vehiculo
+  // (OneSystec) esta bloqueado o caido, y solo durante sus servicios. Ver gpsRespaldo.service.js.
+  gpsRespaldoPermitido   Boolean   @default(false)
+  gpsRespaldoPermitidoAt DateTime?
   // El chofer tiene un servicio activo pero el permiso de ubicacion en segundo plano
   // del celular no esta en "Permitir todo el tiempo" (o fue revocado): el tracking en
   // vivo no va a funcionar aunque compartirUbicacion este activo. Lo reporta el propio
@@ -279,6 +283,8 @@ model ParadaVehiculo {
   clase              ParadaClase @default(EN_CURSO)
   motivo             String?
   distanciaServicioM Int?
+  // De donde salieron las posiciones: VEHICULO (OneSystec), CELULAR (respaldo) o MIXTO.
+  fuente             String      @default("VEHICULO")
   createdAt          DateTime    @default(now())
 
   @@index([vehicleId, startedAt])
@@ -465,6 +471,9 @@ model Record {
   // Lectura del GPS sobre el final de la jornada (ultimo movimiento del vehiculo, ultima entrega, tiempo
   // de vuelta al lugar de espera y tope). Solo fechas y duraciones: no guarda ubicaciones de fuera de la jornada.
   gpsFin              Json?
+  // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay
+  // datos de GPS ni del vehiculo ni del celular. Ver rutaEstimada.service.js.
+  estimacionRuta      Json?
   comentarios      String?
   kilometrosReales Float? // KM real cargado por el chofer, para comparar contra "kilometros" (planificado)
 
@@ -580,6 +589,9 @@ model LocationPing {
   lat        Float
   lng        Float
   recordedAt DateTime @default(now())
+  // true si el punto vino del GPS de respaldo (OneSystec caido): se guarda sin el filtro de "quieto"
+  // para poder medir cuanto tiempo estuvo parado.
+  respaldo   Boolean  @default(false)
 
   @@index([driverId, recordedAt])
   @@map("location_pings")

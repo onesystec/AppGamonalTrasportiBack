@@ -1,5 +1,6 @@
 import {
   listHoursForReviewForActor,
+  recalcEstimacionForActor,
   recalcParadasForActor,
   setReceptionTimeForActor,
   reviewHoursForActor,
@@ -29,5 +30,10 @@ export const recalcParadas = asyncHandler(async (req, res) => {
 
 export const reception = asyncHandler(async (req, res) => {
   const result = await setReceptionTimeForActor(req.user, req.params.id, req.body);
+  res.status(200).json({ success: true, data: result });
+});
+
+export const recalcEstimacion = asyncHandler(async (req, res) => {
+  const result = await recalcEstimacionForActor(req.user, req.params.id);
   res.status(200).json({ success: true, data: result });
 });
