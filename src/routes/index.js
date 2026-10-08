@@ -6,6 +6,7 @@ import documentRoutes from "./document.routes.js";
 import fileRoutes from "./file.routes.js";
 import finanzasRoutes from "./finanzas.routes.js";
 import horasRoutes from "./horas.routes.js";
+import permisoRoutes from "./permiso.routes.js";
 import paradaRoutes from "./parada.routes.js";
 import mancatoRoutes from "./mancato.routes.js";
 import multaRoutes from "./multa.routes.js";
@@ -30,6 +31,7 @@ router.use("/combustible", combustibleRoutes);
 router.use("/finanzas", finanzasRoutes);
 router.use("/horas", horasRoutes);
 router.use("/paradas", paradaRoutes);
+router.use("/permisos", permisoRoutes);
 router.use("/sync", syncRoutes);
 router.use("/telegram", telegramRoutes);
 

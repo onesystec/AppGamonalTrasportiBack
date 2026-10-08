@@ -13,6 +13,7 @@ import { countCombustibleByAsignacion } from "../models/combustible.model.js";
 import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
+import { getAttendanceByDriver } from "./permiso.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -477,6 +478,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     byDriver.set(r.driverId, entry);
   }
 
+  const asistencia = await getAttendanceByDriver([...byDriver.keys()], month);
   const porChofer = [...byDriver.values()]
     .map((e) => {
       const deduction = deductionByDriver.get(e.driverId) ?? { count: 0, total: 0 };
@@ -493,6 +495,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
         total: totalPago,
         aDescontar: deduction,
         neto: round2(totalPago - deduction.total),
+        // Dias del mes: trabajados, sin justificar y justificados. Informativo: no cambia el importe.
+        asistencia: asistencia.get(e.driverId) ?? null,
       };
     })
     .sort((a, b) => b.total - a.total);
