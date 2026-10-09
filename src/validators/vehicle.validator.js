@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+// Categoria de consumo (ver config/faltantes.js); un texto vacio la quita.
+const categoriaField = z.preprocess(
+  (value) => (value === "" ? null : value),
+  z.enum(["AUTO_FURGONCINO", "H1_L1", "H2_L2", "CASONATO"], { errorMap: () => ({ message: "Categoria invalida" }) })
+    .nullable()
+    .optional()
+);
+
 // SIN_ASIGNAR: vehiculos importados automaticamente desde Velocity Fleet (ver
 // syncVehiclesFromVelocityFleetForActor en vehicle.service.js) que todavia no tienen
 // area real cargada a mano.
@@ -26,6 +34,7 @@ export const createVehicleSchema = z.object({
   area: z.enum(AREA_VALUES, { errorMap: () => ({ message: "Area invalida" }) }),
   grupo: z.enum(GRUPO_VALUES, { errorMap: () => ({ message: "Grupo invalido" }) }).optional(),
   estado: z.enum(ESTADO_VEHICULO_VALUES).optional(),
+  categoria: categoriaField,
   poliza: z.coerce.date().optional(),
   rTecnica: z.coerce.date().optional(),
   kmUltimoMantenimiento: z.coerce.number().nonnegative().optional(),
@@ -39,6 +48,7 @@ export const updateVehicleSchema = z.object({
   area: z.enum(AREA_VALUES).optional(),
   grupo: z.enum(GRUPO_VALUES).optional(),
   estado: z.enum(ESTADO_VEHICULO_VALUES).optional(),
+  categoria: categoriaField,
   poliza: z.coerce.date().optional(),
   rTecnica: z.coerce.date().optional(),
   kmUltimoMantenimiento: z.coerce.number().nonnegative().optional(),

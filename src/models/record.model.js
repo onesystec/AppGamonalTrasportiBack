@@ -34,7 +34,7 @@ const TRASPASO_SELECT = {
 const RECORD_INCLUDE = {
   ...TRASPASO_SELECT,
   driver: { select: { id: true, nombre: true, apellido: true } },
-  vehicle: { select: { id: true, targa: true, modelo: true } },
+  vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
   client: { select: { id: true, nombre: true } },
   stops: { orderBy: { orden: "asc" } },
   // Comprobantes de combustible asignados a este servicio (ver utils/fuelCost.js).
@@ -59,7 +59,7 @@ const RECORD_INCLUDE = {
 
 const RECORD_RELATIONS_SELECT = {
   driver: { select: { id: true, nombre: true, apellido: true } },
-  vehicle: { select: { id: true, targa: true, modelo: true } },
+  vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
   client: { select: { id: true, nombre: true } },
 };
 
@@ -127,6 +127,9 @@ const RECORD_SELECT_LIST = {
   pagoRecibido: true,
   costoCombustible: true,
   clienteConfirmado: true,
+  sinPeajeIda: true,
+  sinPeajeVuelta: true,
+  sinCombustible: true,
   createdAt: true,
   updatedAt: true,
 };

@@ -184,6 +184,14 @@ model Documento {
   @@map("documentos")
 }
 
+// Categoria de consumo del vehiculo: con ella se estiman los litros de un servicio (ver config/faltantes.js).
+enum CategoriaVehiculo {
+  AUTO_FURGONCINO
+  H1_L1
+  H2_L2
+  CASONATO
+}
+
 enum EstadoVehiculo {
   DISPONIBLE
   EN_MANTENIMIENTO
@@ -191,17 +199,18 @@ enum EstadoVehiculo {
 }
 
 model Vehiculo {
-  id                    String         @id @default(uuid())
-  targa                 String         @unique
+  id                    String             @id @default(uuid())
+  targa                 String             @unique
   modelo                String
   imagenKey             String?
   libretoKey            String?
   assicurazioneKey      String?
   area                  Area
   grupo                 Grupo?
-  estado                EstadoVehiculo @default(DISPONIBLE)
-  poliza                DateTime?      @db.Date
-  rTecnica              DateTime?      @db.Date
+  estado                EstadoVehiculo     @default(DISPONIBLE)
+  categoria             CategoriaVehiculo?
+  poliza                DateTime?          @db.Date
+  rTecnica              DateTime?          @db.Date
   // Kilometraje para el seguimiento de Tagliando (seccion Mecanica): kmActual - kmUltimoMantenimiento
   // se compara contra el intervalo fijo de 20000km para avisar cuando se acerca o vence el service.
   kmUltimoMantenimiento Float?
@@ -209,9 +218,9 @@ model Vehiculo {
   // Permiso ZTL de Milano (electrico, discapacidad, etc.) - si esta en false (default)
   // y el GPS del vehiculo (Velocity Fleet) lo detecta dentro del poligono de Area C, se
   // dispara una alerta (ver computeAreaCAlerts en el front) para evitar una multa.
-  autorizadoAreaC       Boolean        @default(false)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
+  autorizadoAreaC       Boolean            @default(false)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   records           Record[]
   mantenimientos    MantenimientoVehiculo[]
@@ -516,6 +525,12 @@ model Record {
   pagoRecibido               Float?
   costoCombustible           Float?
   clienteConfirmado          Boolean @default(false)
+
+  // Declaraciones del chofer sobre gastos del servicio: si no uso peaje de ida/vuelta o no hizo falta
+  // cargar combustible, el servicio no queda en rojo por eso (ver utils/faltantes.js).
+  sinPeajeIda    Boolean @default(false)
+  sinPeajeVuelta Boolean @default(false)
+  sinCombustible Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

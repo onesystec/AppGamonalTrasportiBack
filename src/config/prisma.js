@@ -9,7 +9,7 @@ const base = new PrismaClient({
 // Tablas de las que dependen las respuestas cacheadas (listado de servicios con su combustible). Los
 // nombres de chofer/vehiculo/cliente tambien salen en ese listado, pero cambian poco (y esas tablas
 // se escriben seguido por la ubicacion y el GPS), asi que quedan cubiertas solo por el TTL.
-const CACHE_MODELS = new Set(["Record", "RegistroCombustible"]);
+const CACHE_MODELS = new Set(["Record", "RegistroCombustible", "MancatoPagamento"]);
 const WRITE_OPERATIONS = new Set([
   "create",
   "createMany",

@@ -155,3 +155,11 @@ export const findRecordForAssignment = (id) =>
 // Cuales de estos servicios caen en el filtro de areas de un Responsable.
 export const findRecordIdsInArea = (ids, areaWhere) =>
   prisma.record.findMany({ where: { id: { in: ids }, ...areaWhere }, select: { id: true } });
+
+// Peajes asignados a servicios, contados por servicio y tramo (para marcar los servicios a los que falta uno).
+export const groupMancatosByRecord = () =>
+  prisma.mancatoPagamento.groupBy({
+    by: ["recordId", "tramo"],
+    where: { recordId: { not: null } },
+    _count: { _all: true },
+  });

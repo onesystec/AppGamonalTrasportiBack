@@ -14,6 +14,7 @@ import {
   remove,
   search,
   update,
+  updateDeclaraciones,
 } from "../controllers/record.controller.js";
 import { create as createFile, list as listFiles } from "../controllers/recordFile.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -23,6 +24,7 @@ import { validate } from "../middlewares/validate.js";
 import {
   createRecordSchema,
   exportRecordsQuerySchema,
+  declaracionesSchema,
   idParamSchema,
   updateRecordSchema,
   yearMonthDayParamSchema,
@@ -76,6 +78,10 @@ router.get(
   validate(idParamSchema, "params"),
   getLiveEta
 );
+
+// Los switches de peajes y carburante del chofer: liviano a proposito (no sincroniza con AppSheet ni reasigna
+// peajes), asi el cambio se ve al instante.
+router.patch("/:id/declaraciones", validate(idParamSchema, "params"), validate(declaracionesSchema), updateDeclaraciones);
 
 router.patch("/:id", validate(idParamSchema, "params"), validate(updateRecordSchema), update);
 

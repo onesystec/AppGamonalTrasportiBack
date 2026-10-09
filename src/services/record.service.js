@@ -18,6 +18,8 @@ import { purgeFilesForRecord } from "./recordFile.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { syncRelevoForRecord } from "./traspaso.service.js";
 import { groupFuelByRecord } from "../models/combustible.model.js";
+import { groupMancatosByRecord } from "../models/mancato.model.js";
+import { computeFaltantes } from "../utils/faltantes.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
 import { geocodeAddress, geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
@@ -73,6 +75,9 @@ const SELF_EDITABLE_FIELDS = [
   "estado",
   "comentarios",
   "kilometrosReales",
+  "sinPeajeIda",
+  "sinPeajeVuelta",
+  "sinCombustible",
 ];
 
 // Campos de un servicio que deciden a que servicio pertenece un peaje (ver
@@ -213,17 +218,35 @@ const toFuelSummary = (record) => {
 };
 
 // Suma y cantidad de comprobantes por servicio para los listados (sin traer cada comprobante).
+// Tambien deja los peajes asignados por tramo, para saber a que servicios les falta subir uno.
 const attachFuel = async (records) => {
   if (records.length === 0) return records;
-  const groups = await groupFuelByRecord();
+  const [groups, mancatoGroups] = await Promise.all([groupFuelByRecord(), groupMancatosByRecord()]);
   const byRecord = new Map(groups.map((g) => [g.recordId, g]));
+  const mancatosByRecord = new Map();
+  for (const g of mancatoGroups) {
+    const entry = mancatosByRecord.get(g.recordId) ?? { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0 };
+    if (g.tramo === "IDA") entry.mancatoIda += g._count._all;
+    else if (g.tramo === "VUELTA") entry.mancatoVuelta += g._count._all;
+    else entry.mancatoSinTramo += g._count._all;
+    mancatosByRecord.set(g.recordId, entry);
+  }
   for (const record of records) {
     const group = byRecord.get(record.id);
     record.fuelSum = Number(group?._sum.monto ?? 0);
     record.fuelCount = group?._count._all ?? 0;
+    record.faltantesCounts = {
+      ...(mancatosByRecord.get(record.id) ?? { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0 }),
+      combustibles: record.fuelCount,
+    };
   }
   return records;
 };
+
+// Que le falta subir al servicio (peajes de ida/vuelta, combustible). Si el listado no trajo los datos para
+// saberlo, null: mejor no marcar nada que marcar en rojo por error.
+const faltantesOf = (record) =>
+  record.mancatos || record.faltantesCounts ? computeFaltantes(record, record.faltantesCounts) : null;
 
 // Peajes asignados a un servicio (solo en el detalle; el listado no los trae).
 const toMancatosSummary = (mancatos) =>
@@ -275,6 +298,7 @@ const toFullResponse = (record) => {
     eta: record.eta,
     fechaRetiro: record.fechaRetiro,
     mancatos: toMancatosSummary(record.mancatos),
+    faltantes: faltantesOf(record),
     descripcion: record.descripcion,
     codigo: record.codigo,
     destinazione: record.destinazione,
@@ -375,6 +399,7 @@ const toChoferResponse = (record) => ({
   eta: record.eta,
   fechaRetiro: record.fechaRetiro,
   mancatos: toMancatosSummary(record.mancatos),
+  faltantes: faltantesOf(record),
   descripcion: record.descripcion,
   codigo: record.codigo,
   destinazione: record.destinazione,
@@ -636,6 +661,16 @@ const applyHoursApprovalRules = (actor, record, payload) => {
       HOURS_TOTAL_FIELDS.map((key) => [key, key in payload ? payload[key] : (record[key] ?? null)])
     ),
   };
+};
+
+// Solo las declaraciones de peajes/carburante (ver utils/faltantes.js): sin la sincronizacion con AppSheet ni el
+// rematch de peajes que hace el PATCH completo, porque no cambian nada de eso.
+export const updateDeclaracionesForActor = async (actor, id, data) => {
+  const record = await findRecordById(id);
+  if (!record) throw new AppError("Registro no encontrado", 404);
+  assertAccess(actor, record);
+  const updated = await updateRecordById(id, data);
+  return toResponse(updated, actor);
 };
 
 export const updateRecordForActor = async (actor, id, data) => {

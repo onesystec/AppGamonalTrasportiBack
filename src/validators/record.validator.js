@@ -44,6 +44,10 @@ const operationalFields = {
   tiempoEspera: z.coerce.number().optional(),
   comentarios: z.string().trim().optional(),
   kilometrosReales: z.coerce.number().optional(),
+  // Declaraciones del chofer: no uso peaje de ida / de vuelta, no hizo falta combustible.
+  sinPeajeIda: z.boolean().optional(),
+  sinPeajeVuelta: z.boolean().optional(),
+  sinCombustible: z.boolean().optional(),
 };
 
 // Paradas del servicio, en orden. El deposito de partida es fijo (no se envia desde el
@@ -172,3 +176,12 @@ export const yearMonthParamSchema = yearParamSchema.extend({
 export const yearMonthDayParamSchema = yearMonthParamSchema.extend({
   day: z.coerce.number().int().min(1).max(31),
 });
+
+// Switches de peajes y carburante del servicio (chofer u oficina).
+export const declaracionesSchema = z
+  .object({
+    sinPeajeIda: z.boolean().optional(),
+    sinPeajeVuelta: z.boolean().optional(),
+    sinCombustible: z.boolean().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, { message: "Indica al menos una declaracion" });

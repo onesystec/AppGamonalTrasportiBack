@@ -10,6 +10,7 @@ import {
   listRecordsResumenForActor,
   listRecordsSummaryForActor,
   searchRecordsForActor,
+  updateDeclaracionesForActor,
   updateRecordForActor,
 } from "../services/record.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
@@ -117,6 +118,11 @@ export const getById = asyncHandler(async (req, res) => {
 
 export const update = asyncHandler(async (req, res) => {
   const record = await updateRecordForActor(req.user, req.params.id, req.body);
+  res.status(200).json({ success: true, data: { record } });
+});
+
+export const updateDeclaraciones = asyncHandler(async (req, res) => {
+  const record = await updateDeclaracionesForActor(req.user, req.params.id, req.body);
   res.status(200).json({ success: true, data: { record } });
 });
 
