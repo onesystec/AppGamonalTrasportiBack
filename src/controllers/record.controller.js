@@ -38,7 +38,7 @@ export const list = asyncHandler(async (req, res) => {
 
   // Para Admin y Responsables el listado es pesado (miles de servicios) y lo piden varias pantallas: se
   // comparte la consulta y se reutiliza hasta 60 s, o hasta que se guarde algun servicio o combustible.
-  // La clave incluye quien pregunta y sus areas, porque lo que ve depende de ellas.
+  // La clave incluye las areas de quien pregunta, porque lo que ve depende de ellas.
   const privileged = req.user.cargo === "OWNER" || req.user.cargo === "ADMIN";
   const records = privileged
     ? await cachedResponse(
@@ -47,8 +47,9 @@ export const list = asyncHandler(async (req, res) => {
           resumen ? "resumen" : "completo",
           Number.isFinite(days) ? days : "todo",
           new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" }),
-          req.user.id,
-          [...(req.user.areasPermitidas ?? [])].sort().join(","),
+          // Lo que se devuelve depende solo del cargo y de las areas (no de quien pregunta): todos los
+          // Admin comparten una consulta y los Responsables con las mismas areas, otra.
+          req.user.cargo === "OWNER" ? "todo" : [...(req.user.areasPermitidas ?? [])].sort().join(","),
         ].join("|"),
         RECORDS_CACHE_TTL_MS,
         load
