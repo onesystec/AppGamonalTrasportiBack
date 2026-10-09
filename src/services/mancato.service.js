@@ -9,6 +9,7 @@ import {
   findMancatos,
   findMancatosForStats,
   findRecordForAssignment,
+  findRecordIdsInArea,
   findVehicleByTarga,
   sumMancatosCosto,
   updateMancatoById,
@@ -22,6 +23,7 @@ import {
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
+import { canAccessRecordArea, mancatoAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -108,6 +110,10 @@ const buildWhere = (actor, filters, today) => {
   const and = [];
   if (!isPrivileged(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
+  // Un Responsable ve los mancatos de servicios de sus areas y los que cargo el; sin servicio asignado
+  // (aun en espera) solo los ven los Admin.
+  const areaWhere = mancatoAreaWhere(actor);
+  if (areaWhere) and.push({ OR: [areaWhere, { createdById: actor.id }] });
 
   if (filters.estado) and.push(estadoWhere(filters.estado, today));
   if (filters.targa) {
@@ -133,7 +139,11 @@ const buildWhere = (actor, filters, today) => {
 };
 
 const assertAccess = (actor, mancato) => {
-  if (isPrivileged(actor) || mancato.driverId === actor.id) return;
+  if (mancato.driverId === actor.id || actor.cargo === "OWNER") return;
+  if (actor.cargo === "ADMIN") {
+    const inArea = mancato.record && canAccessRecordArea(actor, mancato.record);
+    if (inArea || mancato.createdById === actor.id) return;
+  }
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -419,6 +429,9 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
     } else {
       const service = await findRecordForAssignment(changes.recordId);
       if (!service) throw new AppError("Servicio no encontrado", 404);
+      if (!canAccessRecordArea(actor, service)) {
+        throw new AppError("No tienes permisos sobre ese servicio", 403);
+      }
       const transit = payload.fechaHoraTransito ?? current.fechaHoraTransito;
       Object.assign(payload, {
         recordId: service.id,
@@ -483,6 +496,7 @@ export const deleteMancatoForActor = async (actor, id) => {
   }
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
+  assertAccess(actor, mancato);
 
   await Promise.all(
     [mancato.fotoKey, mancato.comprobanteKey].filter(Boolean).map((key) => deleteObject(key))
@@ -610,7 +624,15 @@ export const listMancatoCandidatesForActor = async (actor, id) => {
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
-  return listCandidatesForMancato(mancato);
+  assertAccess(actor, mancato);
+  const candidates = await listCandidatesForMancato(mancato);
+  const areaWhere = recordAreaWhere(actor);
+  if (!areaWhere || candidates.length === 0) return candidates;
+  // Un Responsable solo puede elegir servicios de sus areas.
+  const allowed = new Set(
+    (await findRecordIdsInArea(candidates.map((c) => c.id), areaWhere)).map((r) => r.id)
+  );
+  return candidates.filter((c) => allowed.has(c.id));
 };
 
 // Vuelve a evaluar todos los mancatos que la oficina no fijo a mano (p. ej. despues de

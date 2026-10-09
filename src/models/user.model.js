@@ -9,6 +9,9 @@ export const SAFE_USER_SELECT = {
   area: true,
   grupo: true,
   cargo: true,
+  responsableTipo: true,
+  areasPermitidas: true,
+  nivelChofer: true,
   estado: true,
   fechaNacimiento: true,
   numeroCelular: true,
@@ -87,6 +90,18 @@ export const findUserById = (id) =>
 export const findOwnerAndAdminUserIds = async () => {
   const users = await prisma.user.findMany({
     where: { cargo: { in: ["OWNER", "ADMIN"] } },
+    select: { id: true },
+  });
+  return users.map((u) => u.id);
+};
+
+// Admin y los Responsables que tienen esa area marcada (para avisos de algo que pertenece a un area).
+export const findOfficeUserIdsForArea = async (areaKey) => {
+  const users = await prisma.user.findMany({
+    where: {
+      estado: "ACTIVO",
+      OR: [{ cargo: "OWNER" }, ...(areaKey ? [{ cargo: "ADMIN", areasPermitidas: { has: areaKey } }] : [])],
+    },
     select: { id: true },
   });
   return users.map((u) => u.id);

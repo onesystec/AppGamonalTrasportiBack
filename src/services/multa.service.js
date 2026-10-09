@@ -18,8 +18,9 @@ import {
 } from "../models/multa.model.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
+import { actorAreaKeys, canAccessAreaKey, multaAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
-import { findOwnerAndAdminUserIds } from "../models/user.model.js";
+import { findOfficeUserIdsForArea } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -55,6 +56,9 @@ const buildWhere = (actor, filters, today) => {
   const and = [];
   if (!isPrivileged(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
+  // Un Responsable solo ve las multas de sus areas (las que no tienen area, solo los Admin).
+  const areaWhere = multaAreaWhere(actor);
+  if (areaWhere) and.push(areaWhere);
 
   if (filters.estado) and.push(estadoWhere(filters.estado, today));
   if (filters.targa) {
@@ -80,7 +84,8 @@ const buildWhere = (actor, filters, today) => {
 };
 
 const assertAccess = (actor, multa) => {
-  if (isPrivileged(actor) || multa.driverId === actor.id) return;
+  if (multa.driverId === actor.id) return;
+  if (isPrivileged(actor) && canAccessAreaKey(actor, multa.area)) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -131,6 +136,7 @@ const toResponse = async (m, today) => {
     fechaVencimiento: m.fechaVencimiento,
     costo: Number(m.costo),
     quienPaga: m.quienPaga,
+    area: m.area,
     descontado: m.descontado,
     descontadoAt: m.descontadoAt,
     comentarios: m.comentarios,
@@ -179,8 +185,22 @@ const resolveVencimiento = (recepcionDay, vencimientoDay) => {
   return dayToDate(vencimiento);
 };
 
+// Area a la que se imputa la multa. Un Responsable solo puede usar las suyas (y si tiene una sola, se
+// usa esa); el Admin puede dejarla vacia (queda visible solo para los Admin).
+const resolveMultaArea = (actor, requested) => {
+  const keys = actorAreaKeys(actor);
+  if (keys === null) return requested ?? null;
+  if (requested) {
+    if (!keys.includes(requested)) throw new AppError("No tienes permisos sobre esa area", 403);
+    return requested;
+  }
+  if (keys.length === 1) return keys[0];
+  throw new AppError("Elige el area de la multa", 400, { area: ["Elige el area de la multa"] });
+};
+
 export const createMultaForActor = async (actor, data, files) => {
   assertPrivileged(actor);
+  const area = resolveMultaArea(actor, data.area);
   if (!files?.multa?.[0]) {
     throw new AppError("La foto o PDF de la multa es obligatoria", 400);
   }
@@ -218,6 +238,7 @@ export const createMultaForActor = async (actor, data, files) => {
       fechaVencimiento: vencimiento,
       costo: data.costo,
       quienPaga: data.quienPaga,
+      area,
       comentarios: data.comentarios ?? null,
       multaKey,
       comprobanteKey,
@@ -325,6 +346,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   assertPrivileged(actor);
   const current = await findMultaById(id);
   if (!current) throw new AppError("Multa no encontrada", 404);
+  assertAccess(actor, current);
 
   if (data.numeroVerbale && data.numeroVerbale !== current.numeroVerbale && (await findMultaByNumero(data.numeroVerbale))) {
     throw new AppError(`Ya existe una multa con el verbale ${data.numeroVerbale}`, 409);
@@ -336,6 +358,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   }
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
   if (data.driverId) payload.driverId = data.driverId;
+  if (data.area !== undefined) payload.area = resolveMultaArea(actor, data.area);
 
   // Fechas: validar infraccion <= recepcion <= vencimiento con los valores finales.
   const recepcionDay = data.fechaRecepcion ?? dateOnlyToDay(current.fechaRecepcion);
@@ -402,6 +425,7 @@ export const deleteMultaForActor = async (actor, id) => {
   assertPrivileged(actor);
   const multa = await findMultaById(id);
   if (!multa) throw new AppError("Multa no encontrada", 404);
+  assertAccess(actor, multa);
 
   await Promise.all(
     [multa.multaKey, multa.comprobanteKey, multa.comprobanteChoferKey].filter(Boolean).map((key) => deleteObject(key))
@@ -547,7 +571,7 @@ export const suggestDriversForActor = async (actor, { targa, fecha }) => {
   const [year, month, day] = fecha.split("-").map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
   const [services, asignados] = await Promise.all([
-    findServicesByVehicleInRange(vehicle.id, gte, lt),
+    findServicesByVehicleInRange(vehicle.id, gte, lt, recordAreaWhere(actor)),
     findAssignedDrivers(vehicle.id),
   ]);
 
@@ -581,13 +605,14 @@ export const getMultaAlertsForActor = async (actor) => {
   const privileged = isPrivileged(actor);
   const limit = dayToDate(addDaysDay(today, ALERT_DAYS));
   const todayDate = dayToDate(today);
+  const areaWhere = multaAreaWhere(actor) ?? {};
   const base = privileged
-    ? { pagado: false }
+    ? { pagado: false, ...areaWhere }
     : { pagado: false, driverId: actor.id, quienPaga: "CHOFER_PAGO" };
 
   const whereVencidas = { ...base, fechaVencimiento: { lt: todayDate } };
   const wherePorVencer = { ...base, fechaVencimiento: { gte: todayDate, lte: limit } };
-  const whereDescuento = { quienPaga: "A_DESCONTAR", descontado: false };
+  const whereDescuento = { quienPaga: "A_DESCONTAR", descontado: false, ...areaWhere };
 
   const [vencidasItems, porVencerItems, vencidasCount, porVencerCount, descuentoCount, descuentoTotal] =
     await Promise.all([
@@ -633,7 +658,7 @@ export const uploadMyComprobanteForActor = async (actor, id, file) => {
   try {
     const updated = await updateMultaById(id, { comprobanteChoferKey: key, comprobanteChoferAt: new Date() });
     if (multa.comprobanteChoferKey) await deleteObject(multa.comprobanteChoferKey).catch(() => {});
-    findOwnerAndAdminUserIds()
+    findOfficeUserIdsForArea(multa.area)
       .then((ids) =>
         sendPushToUserIds(ids, {
           title: "Comprobante de multa por confirmar",

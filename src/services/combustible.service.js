@@ -14,7 +14,7 @@ import {
   sumCombustibleMonto,
   updateCombustibleById,
 } from "../models/combustible.model.js";
-import { findRecordForAssignment } from "../models/mancato.model.js";
+import { findRecordForAssignment, findRecordIdsInArea } from "../models/mancato.model.js";
 import {
   listCandidatesForCombustible,
   matchCombustible,
@@ -23,6 +23,8 @@ import {
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
+import { COMBUSTIBLE_AREA_KEY } from "../constants/areas.js";
+import { canAccessAreaKey, canAccessRecordArea, combustibleAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { AREA_VALUES } from "../validators/combustible.validator.js";
 
@@ -42,6 +44,9 @@ const buildWhere = (actor, filters) => {
   const and = [];
   if (!isPrivileged(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
+  // Un Responsable solo ve las cargas de las areas que tiene marcadas.
+  const areaWhere = combustibleAreaWhere(actor);
+  if (areaWhere) and.push(areaWhere);
 
   if (filters.area) and.push({ area: filters.area });
   if (filters.targa) {
@@ -70,8 +75,15 @@ const buildWhere = (actor, filters) => {
   return and.length > 0 ? { AND: and } : {};
 };
 
+const assertAreaAllowed = (actor, area) => {
+  if (!canAccessAreaKey(actor, COMBUSTIBLE_AREA_KEY[area])) {
+    throw new AppError("No tienes permisos sobre esa area", 403);
+  }
+};
+
 const assertAccess = (actor, registro) => {
-  if (isPrivileged(actor) || registro.driverId === actor.id) return;
+  if (registro.driverId === actor.id) return;
+  if (isPrivileged(actor) && canAccessAreaKey(actor, COMBUSTIBLE_AREA_KEY[registro.area])) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -169,6 +181,7 @@ export const createCombustibleForActor = async (actor, data, files) => {
   const comprobanteFile = files?.comprobante?.[0];
   if (!comprobanteFile) throw new AppError("El comprobante de pago es obligatorio", 400);
   const driverId = resolveDriverId(actor, data.driverId);
+  if (isPrivileged(actor)) assertAreaAllowed(actor, data.area);
 
   const fechaHora = romeLocalToDate(data.fecha, data.hora);
   assertNotFuture(fechaHora);
@@ -277,6 +290,7 @@ export const updateCombustibleForActor = async (actor, id, data, files) => {
   for (const key of ["targa", "monto", "area"]) {
     if (data[key] !== undefined) payload[key] = data[key];
   }
+  if (privileged && data.area !== undefined) assertAreaAllowed(actor, data.area);
   if (data.metodo !== undefined) payload.metodo = cleanMetodo(data.metodo);
   if (data.fecha) payload.fecha = dayToDate(data.fecha);
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
@@ -314,6 +328,9 @@ export const updateCombustibleForActor = async (actor, id, data, files) => {
       });
     } else {
       const service = await findRecordForAssignment(data.recordId);
+      if (service && !canAccessRecordArea(actor, service)) {
+        throw new AppError("No tienes permisos sobre ese servicio", 403);
+      }
       if (!service) throw new AppError("Servicio no encontrado", 404);
       Object.assign(payload, {
         recordId: service.id,
@@ -498,7 +515,13 @@ export const listCombustibleCandidatesForActor = async (actor, id) => {
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const carga = await findCombustibleById(id);
   if (!carga) throw new AppError("Registro de combustible no encontrado", 404);
-  return listCandidatesForCombustible(carga);
+  assertAccess(actor, carga);
+  const candidates = await listCandidatesForCombustible(carga);
+  const areaWhere = recordAreaWhere(actor);
+  if (!areaWhere || candidates.length === 0) return candidates;
+  // Un Responsable solo puede elegir servicios de sus areas.
+  const allowed = new Set((await findRecordIdsInArea(candidates.map((c) => c.id), areaWhere)).map((r) => r.id));
+  return candidates.filter((c) => allowed.has(c.id));
 };
 
 // Vuelve a evaluar todas las cargas que la oficina no fijo a mano.

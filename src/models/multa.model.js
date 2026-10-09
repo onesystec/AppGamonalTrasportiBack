@@ -54,9 +54,9 @@ export const countActiveChoferes = () =>
   prisma.user.count({ where: { cargo: "CHOFER", estado: "ACTIVO" } });
 
 // Servicios (no anulados) de un vehiculo dentro de un rango: para sugerir quien lo llevaba.
-export const findServicesByVehicleInRange = (vehicleId, gte, lt) =>
+export const findServicesByVehicleInRange = (vehicleId, gte, lt, areaWhere) =>
   prisma.record.findMany({
-    where: { vehicleId, fechaServicio: { gte, lt }, estado: { not: "ANNULLATO" } },
+    where: { vehicleId, fechaServicio: { gte, lt }, estado: { not: "ANNULLATO" }, ...(areaWhere ?? {}) },
     select: { fechaServicio: true, driver: { select: { id: true, nombre: true, apellido: true } } },
     orderBy: { fechaServicio: "asc" },
   });

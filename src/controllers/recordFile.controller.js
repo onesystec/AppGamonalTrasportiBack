@@ -17,7 +17,7 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const remove = asyncHandler(async (req, res) => {
-  await deleteFile(req.params.id);
+  await deleteFile(req.user, req.params.id);
   res.status(204).send();
 });
 

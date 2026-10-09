@@ -31,7 +31,7 @@ export const findFuelNear = ({ vehicleId, targa, from, to }) =>
   });
 
 // Listado para la pantalla de revision. Los filtros opcionales se suman.
-export const findParadas = ({ from, to, clases, vehicleId, driverId, recordId, limit }) =>
+export const findParadas = ({ from, to, clases, vehicleId, driverId, recordId, recordIds, limit }) =>
   prisma.paradaVehiculo.findMany({
     where: {
       startedAt: { gte: from, lt: to },
@@ -39,15 +39,17 @@ export const findParadas = ({ from, to, clases, vehicleId, driverId, recordId, l
       ...(vehicleId ? { vehicleId } : {}),
       ...(driverId ? { driverId } : {}),
       ...(recordId ? { recordId } : {}),
+      // Responsable con areas: solo paradas de servicios de sus areas.
+      ...(recordIds ? { recordId: { in: recordIds } } : {}),
     },
     orderBy: { startedAt: "desc" },
     take: limit,
   });
 
-export const groupParadasByClase = ({ from, to }) =>
+export const groupParadasByClase = ({ from, to, recordIds }) =>
   prisma.paradaVehiculo.groupBy({
     by: ["clase"],
-    where: { startedAt: { gte: from, lt: to } },
+    where: { startedAt: { gte: from, lt: to }, ...(recordIds ? { recordId: { in: recordIds } } : {}) },
     _count: { _all: true },
     _sum: { durationMin: true },
   });

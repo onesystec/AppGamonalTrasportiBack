@@ -6,6 +6,7 @@ import {
   findRecordsDetailed,
   findRecordsLite,
 } from "../models/finanzas.model.js";
+import { combustibleAreaWhere, multaAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { countRecordsByHorasEstado } from "../models/record.model.js";
 import { spedizzioneFilterForActor } from "./record.service.js";
@@ -176,8 +177,8 @@ const fuelAuditItem = (r) => {
 };
 
 // Servicios cuyo combustible a mano es casi el doble (o mas) de lo que suman sus comprobantes.
-const loadFuelToAudit = async ({ from, to }) => {
-  const rows = await findRecordsForFuelAudit({ from, to });
+const loadFuelToAudit = async ({ from, to }, areaWhere) => {
+  const rows = await findRecordsForFuelAudit({ from, to, areaWhere });
   return rows
     .filter((r) =>
       fuelNeedsAudit({
@@ -199,19 +200,23 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   const firstMonth = shiftMonth(month, -(SERIES_MONTHS - 1));
   const { from, to } = windowFor(firstMonth, month);
   const driverId = privileged ? undefined : actor.id;
+  // Un Responsable solo ve los costos de las areas que tiene marcadas.
+  const recordArea = recordAreaWhere(actor);
+  const fuelArea = combustibleAreaWhere(actor);
 
   const [records, fuel, mancato, multas, fuelAsignaciones, fuelToAudit, horasPorAprobar] = await Promise.all([
-    findRecordsLite({ from, to, driverId }),
+    findRecordsLite({ from, to, driverId, areaWhere: recordArea }),
     findCombustibleLite({
       from: monthStartDate(firstMonth),
       to: new Date(monthStartDate(shiftMonth(month, 1)).getTime() - DAY_MS),
       driverId,
+      areaWhere: fuelArea,
     }),
     getMancatoStatsForActor(actor, {}),
     getMultaStatsForActor(actor, {}),
     // Cargas esperando servicio: sin rango de fechas, no vencen.
-    countCombustibleByAsignacion(privileged ? {} : { driverId: actor.id }),
-    privileged ? loadFuelToAudit({ from, to }) : Promise.resolve([]),
+    countCombustibleByAsignacion(privileged ? { ...(fuelArea ?? {}) } : { driverId: actor.id }),
+    privileged ? loadFuelToAudit({ from, to }, recordArea) : Promise.resolve([]),
     // Horas enviadas por los choferes que esperan aprobacion (sin rango de fechas: no vencen).
     privileged ? countRecordsByHorasEstado({ estado: "PENDIENTE", spedizzioneFilter: spedizzioneFilterForActor(actor) }) : Promise.resolve(0),
   ]);
@@ -437,8 +442,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
   const driverId = privileged ? query.driverId : actor.id;
 
   const [allRecords, deductions] = await Promise.all([
-    findRecordsDetailed({ from, to, driverId }),
-    findPendingDeductions({ driverId }),
+    findRecordsDetailed({ from, to, driverId, areaWhere: recordAreaWhere(actor) }),
+    findPendingDeductions({ driverId, areaWhere: multaAreaWhere(actor) }),
   ]);
   const records = allRecords.filter((r) => monthOfRecord(r) === month && isPayable(r));
   const deductionByDriver = new Map(
@@ -533,8 +538,8 @@ export const getGastosServiciosForActor = async (actor, query) => {
 
   const auditWindow = windowFor(shiftMonth(month, -(SERIES_MONTHS - 1)), month);
   const [all, combustibleRevisar] = await Promise.all([
-    findRecordsDetailed({ from, to }),
-    loadFuelToAudit(auditWindow),
+    findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }),
+    loadFuelToAudit(auditWindow, recordAreaWhere(actor)),
   ]);
   const records = all.filter((r) => monthOfRecord(r) === month && recordGastosTotal(r) > 0);
 

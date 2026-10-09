@@ -35,6 +35,20 @@ enum Cargo {
   CHOFER
 }
 
+// Sub-rol de un Responsable (cargo ADMIN). Es la etiqueta de su equipo; lo que realmente puede
+// ver lo decide User.areasPermitidas, que el Admin marca con checkboxes.
+enum ResponsableTipo {
+  MILANO_SUD
+  MILANO_NORD
+}
+
+// Nivel de un chofer. Cada nivel tiene una meta de km mensual (ver Configuracion "metas.km").
+enum NivelChofer {
+  NOVATO
+  MASTER
+  SENIOR
+}
+
 enum Estado {
   ACTIVO
   INACTIVO
@@ -62,6 +76,12 @@ model User {
   area                 Area
   grupo                Grupo?
   cargo                Cargo     @default(CHOFER)
+  // Solo Responsables: su equipo y las areas de servicio que puede ver ("dhl-milano", "dhl-roma",
+  // "ab-service", "piazza-milano", "piazza-roma", "otros"). Admin (OWNER) ve todo.
+  responsableTipo      ResponsableTipo?
+  areasPermitidas      String[]  @default([])
+  // Nivel del chofer (cualquier usuario que maneja): fija su meta de km.
+  nivelChofer          NivelChofer?
   estado               Estado    @default(ACTIVO)
   fechaNacimiento      DateTime  @db.Date
   numeroCelular        String
@@ -727,6 +747,9 @@ model Multa {
   // confirma. comprobanteChoferAt marca "enviado y por confirmar" (se borra al confirmar o reabrir).
   comprobanteChoferKey String?
   comprobanteChoferAt  DateTime?
+  // Area de servicio a la que se imputa (misma clave que User.areasPermitidas). Sin area, solo la
+  // ven los Admin.
+  area             String?
   pagado           Boolean        @default(false)
   pagadoAt         DateTime?
   createdAt        DateTime       @default(now())

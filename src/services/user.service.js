@@ -25,13 +25,47 @@ import { purgeDocumentsForUser } from "./document.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressAvatar } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
+import { RESPONSABLE_PRESETS } from "../constants/areas.js";
 import { hashPassword } from "../utils/password.js";
 
-// Solo un OWNER puede crear o ascender a otro usuario a OWNER; evita que un ADMIN se autoascienda.
+// Solo un Admin (OWNER) puede crear o ascender a otro usuario a Admin o Responsable; evita que un
+// Responsable se autoascienda o cree otros con mas acceso.
 const assertCanAssignCargo = (actor, cargo) => {
-  if (cargo === "OWNER" && actor.cargo !== "OWNER") {
-    throw new AppError("Solo un OWNER puede asignar el cargo OWNER", 403);
+  if ((cargo === "OWNER" || cargo === "ADMIN") && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede asignar los cargos Admin o Responsable", 403);
   }
+};
+
+const sameAreas = (a = [], b = []) => a.length === b.length && a.every((key) => b.includes(key));
+
+// Sub-rol y areas de un Responsable: solo un Admin las define (aunque sea sobre si mismo). Para
+// cualquier otro cargo no aplican y quedan vacios.
+const normalizeResponsableFields = (actor, data, target) => {
+  const finalCargo = data.cargo ?? target?.cargo;
+  const becomesResponsable = finalCargo === "ADMIN" && target?.cargo !== "ADMIN";
+
+  if (finalCargo !== "ADMIN") {
+    // Solo se limpia si dejo de ser Responsable o se esta creando otro cargo.
+    if (target?.cargo === "ADMIN" || !target) return { ...data, responsableTipo: null, areasPermitidas: [] };
+    return data;
+  }
+
+  const touchesTipo = data.responsableTipo !== undefined && data.responsableTipo !== (target?.responsableTipo ?? null);
+  const touchesAreas = data.areasPermitidas !== undefined && !sameAreas(data.areasPermitidas, target?.areasPermitidas);
+  if ((touchesTipo || touchesAreas) && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede definir el sub-rol y las areas de un Responsable", 403);
+  }
+
+  // Un Responsable nuevo tiene que tener sub-rol; los que ya existian sin sub-rol se dejan como estan.
+  const tipo = data.responsableTipo ?? target?.responsableTipo ?? null;
+  if (becomesResponsable && !tipo) {
+    throw new AppError("Elige el sub-rol del Responsable (Milano Sud o Milano Nord)", 400);
+  }
+  if (becomesResponsable) {
+    // Arranca con las areas tipicas de su sub-rol, salvo que el Admin ya haya marcado otras.
+    return { ...data, responsableTipo: tipo, areasPermitidas: data.areasPermitidas ?? RESPONSABLE_PRESETS[tipo] ?? [] };
+  }
+  return data;
 };
 
 // Campos que un CHOFER puede modificar sobre si mismo; cargo/area/estado quedan fuera
@@ -72,11 +106,12 @@ export const getUserById = async (id) => {
 
 export const createUser = async (actor, data) => {
   assertCanAssignCargo(actor, data.cargo);
+  const normalized = normalizeResponsableFields(actor, data, null);
 
   const hashedPassword = await hashPassword(data.password);
 
   const user = await createUserRecord({
-    ...data,
+    ...normalized,
     estado: data.estado ?? "ACTIVO",
     password: hashedPassword,
   });
@@ -89,14 +124,26 @@ export const updateUser = async (actor, targetId, data) => {
 
   let payload = data;
 
+  const target = await findUserById(targetId);
+  if (!target) {
+    throw new AppError("Usuario no encontrado", 404);
+  }
+  // Un Responsable gestiona choferes: no toca a los Admin ni a otros Responsables.
+  if (actor.cargo === "ADMIN" && !isSelf && target.cargo !== "CHOFER") {
+    throw new AppError("No puedes modificar a un Admin ni a otro Responsable", 403);
+  }
+
   if (isSelf && !isPrivileged) {
     payload = Object.fromEntries(
       Object.entries(data).filter(([key]) => SELF_EDITABLE_FIELDS.includes(key))
     );
   }
 
-  if (payload.cargo) {
+  if (payload.cargo && payload.cargo !== target.cargo) {
     assertCanAssignCargo(actor, payload.cargo);
+  }
+  if (isPrivileged) {
+    payload = normalizeResponsableFields(actor, payload, target);
   }
 
   if (payload.password) {
@@ -109,11 +156,6 @@ export const updateUser = async (actor, targetId, data) => {
   // se marco hoy" (ver isReperibilidadNoDisponibleHoy en el frontend) nunca la toma.
   if (payload.reperibilidadNoDisponible !== undefined) {
     payload = { ...payload, reperibilidadActualizada: new Date() };
-  }
-
-  const user = await findUserById(targetId);
-  if (!user) {
-    throw new AppError("Usuario no encontrado", 404);
   }
 
   const updated = await updateUserById(targetId, payload);
@@ -339,6 +381,9 @@ export const deleteUser = async (actor, targetId) => {
   const user = await findUserById(targetId);
   if (!user) {
     throw new AppError("Usuario no encontrado", 404);
+  }
+  if (actor.cargo === "ADMIN" && user.cargo !== "CHOFER") {
+    throw new AppError("No puedes eliminar a un Admin ni a otro Responsable", 403);
   }
 
   // Se borran los objetos de R2 antes de la fila: el ON DELETE CASCADE limpia la tabla

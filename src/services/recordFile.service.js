@@ -12,12 +12,14 @@ import {
 import { env } from "../config/env.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
+import { canAccessRecordArea } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const assertRecordAccess = (actor, record) => {
-  if (isPrivileged(actor) || record.driverId === actor.id) return;
+  if (record.driverId === actor.id) return;
+  if (isPrivileged(actor) && canAccessRecordArea(actor, record)) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -75,11 +77,14 @@ export const listFilesForRecord = async (actor, recordId) => {
   return Promise.all(files.map(toResponse));
 };
 
-export const deleteFile = async (id) => {
+export const deleteFile = async (actor, id) => {
   const file = await findRecordFileById(id);
   if (!file) {
     throw new AppError("Archivo no encontrado", 404);
   }
+  // Un Responsable solo borra archivos de servicios de sus areas.
+  const record = await findRecordById(file.recordId);
+  if (record) assertRecordAccess(actor, record);
 
   await deleteObject(file.archivoKey);
   await deleteRecordFileById(id);

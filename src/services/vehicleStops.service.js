@@ -13,6 +13,7 @@ import {
 } from "../models/parada.model.js";
 import { findRespaldoPings } from "../models/gpsRespaldo.model.js";
 import { findRecordById, updateRecordById } from "../models/record.model.js";
+import { recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import {
   classifyStop,
@@ -330,6 +331,17 @@ export const listParadasForActor = async (actor, query) => {
   const from = new Date(new Date(`${fromDay}T00:00:00Z`).getTime() - DAY_MS);
   const to = new Date(new Date(`${toDay}T00:00:00Z`).getTime() + 2 * DAY_MS);
 
+  // Un Responsable solo ve las paradas de servicios de sus areas.
+  const areaWhere = recordAreaWhere(actor);
+  const scopedRecordIds = areaWhere
+    ? (
+        await prisma.record.findMany({
+          where: { ...areaWhere, fechaServicio: { gte: new Date(from.getTime() - 2 * DAY_MS), lt: new Date(to.getTime() + 2 * DAY_MS) } },
+          select: { id: true },
+        })
+      ).map((r) => r.id)
+    : undefined;
+
   const [items, groups] = await Promise.all([
     findParadas({
       from,
@@ -338,9 +350,10 @@ export const listParadasForActor = async (actor, query) => {
       vehicleId: query.vehicleId,
       driverId: query.driverId,
       recordId: query.recordId,
+      recordIds: scopedRecordIds,
       limit: 500,
     }),
-    groupParadasByClase({ from, to }),
+    groupParadasByClase({ from, to, recordIds: scopedRecordIds }),
   ]);
 
   const driverIds = [...new Set(items.map((i) => i.driverId).filter(Boolean))];

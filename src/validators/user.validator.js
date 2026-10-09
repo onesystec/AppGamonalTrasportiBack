@@ -1,9 +1,17 @@
 import { z } from "zod";
+import { AREA_KEYS } from "../constants/areas.js";
 
 const AREA_VALUES = ["EXTRAS_PIAZZA", "DHL", "FARMACIA"];
 const GRUPO_VALUES = ["SOCIEDAD", "MILANO_NORD", "MILANO_SUD", "ROMA", "FARMACIA"];
 const CARGO_VALUES = ["OWNER", "ADMIN", "CHOFER"];
 const ESTADO_VALUES = ["ACTIVO", "INACTIVO"];
+const RESPONSABLE_TIPO_VALUES = ["MILANO_SUD", "MILANO_NORD"];
+const NIVEL_CHOFER_VALUES = ["NOVATO", "MASTER", "SENIOR"];
+
+// Sub-rol del Responsable, las areas que ve y el nivel del chofer: ver user.service.js para quien puede tocarlos.
+const responsableTipo = z.enum(RESPONSABLE_TIPO_VALUES, { errorMap: () => ({ message: "Sub-rol invalido" }) });
+const areasPermitidas = z.array(z.enum(AREA_KEYS, { errorMap: () => ({ message: "Area invalida" }) })).max(AREA_KEYS.length);
+const nivelChofer = z.enum(NIVEL_CHOFER_VALUES, { errorMap: () => ({ message: "Nivel invalido" }) });
 
 const passwordSchema = z
   .string()
@@ -15,6 +23,9 @@ export const createUserSchema = z.object({
   area: z.enum(AREA_VALUES, { errorMap: () => ({ message: "Area invalida" }) }),
   grupo: z.enum(GRUPO_VALUES, { errorMap: () => ({ message: "Grupo invalido" }) }).optional(),
   cargo: z.enum(CARGO_VALUES, { errorMap: () => ({ message: "Cargo invalido" }) }),
+  responsableTipo: responsableTipo.nullable().optional(),
+  areasPermitidas: areasPermitidas.optional(),
+  nivelChofer: nivelChofer.nullable().optional(),
   estado: z.enum(ESTADO_VALUES).optional(),
   fechaNacimiento: z.coerce.date({ errorMap: () => ({ message: "Fecha de nacimiento invalida" }) }),
   numeroCelular: z.string().trim().min(6, "Numero de celular invalido"),
@@ -29,6 +40,9 @@ export const updateUserSchema = z
     area: z.enum(AREA_VALUES).optional(),
     grupo: z.enum(GRUPO_VALUES).optional(),
     cargo: z.enum(CARGO_VALUES).optional(),
+    responsableTipo: responsableTipo.nullable().optional(),
+    areasPermitidas: areasPermitidas.optional(),
+    nivelChofer: nivelChofer.nullable().optional(),
     estado: z.enum(ESTADO_VALUES).optional(),
     fechaNacimiento: z.coerce.date().optional(),
     numeroCelular: z.string().trim().min(6).optional(),

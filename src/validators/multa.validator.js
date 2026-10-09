@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AREA_KEYS } from "../constants/areas.js";
 
 const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO"];
 const QUIEN_PAGA_VALUES = ["CHOFER_PAGO", "A_DESCONTAR"];
@@ -58,6 +59,8 @@ export const createMultaSchema = z.object({
   fechaVencimiento: z.preprocess(emptyToUndefined, dateOnly.optional()),
   costo,
   quienPaga,
+  // Area de servicio a la que se imputa (ver User.areasPermitidas). Un Responsable debe indicarla.
+  area: z.preprocess(emptyToUndefined, z.enum(AREA_KEYS).optional()),
   comentarios: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
 });
 
@@ -75,6 +78,7 @@ export const updateMultaSchema = z.object({
   fechaVencimiento: z.preprocess(emptyToUndefined, dateOnly.optional()),
   costo: costo.optional(),
   quienPaga: quienPaga.optional(),
+  area: z.preprocess(emptyToNull, z.enum(AREA_KEYS).nullable().optional()),
   comentarios: z.preprocess(emptyToNull, z.string().trim().max(1000).nullable().optional()),
   pagado: boolString.optional(),
   descontado: boolString.optional(),

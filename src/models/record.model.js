@@ -184,6 +184,47 @@ export const findRecords = ({ driverId, dateRange, spedizzioneFilter } = {}) =>
     orderBy: { fechaServicio: "desc" },
   });
 
+// Version minima para el dashboard del Admin (ver toResumenResponse en record.service.js): solo lo que
+// usan sus calculos. Sin descripcion, jornada, ruta, salida ni los traspasos entre choferes (que
+// necesitan consultas extra), es mucho menos para leer y para mandar.
+const RECORD_SELECT_RESUMEN = {
+  id: true,
+  estado: true,
+  ...RECORD_RELATIONS_SELECT,
+  fechaServicio: true,
+  eta: true,
+  createdAt: true,
+  codigo: true,
+  destinazione: true,
+  spedizzione: true,
+  extrasPiazzaZona: true,
+  appsheetSyncFallido: true,
+  horasDia: true,
+  horasNoche: true,
+  kilometros: true,
+  kilometrosReales: true,
+  precioKm: true,
+  areaC: true,
+  costoEspera: true,
+  costoTraforoFrejusBrennero: true,
+  peajes: true,
+  vignetta: true,
+  costoHotel: true,
+  costoOtros: true,
+  pagoRecibido: true,
+  costoCombustible: true,
+};
+
+export const findRecordsResumen = ({ dateRange, spedizzioneFilter } = {}) =>
+  prisma.record.findMany({
+    where: {
+      ...(dateRange ? { fechaServicio: { gte: dateRange.gte, lt: dateRange.lt } } : {}),
+      ...(spedizzioneFilter ?? {}),
+    },
+    select: RECORD_SELECT_RESUMEN,
+    orderBy: { fechaServicio: "desc" },
+  });
+
 // Export CSV de Registros (ver record.service.js): mismos filtros de dateRange/
 // spedizzioneFilter (scoping del actor) que findRecords, mas driverId/clientId/
 // vehicleId/seccionWhere/zonaValues/estadoValues puntuales que el usuario elige en el

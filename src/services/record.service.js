@@ -3,6 +3,7 @@ import {
   deleteRecordById,
   findRecordById,
   findRecords,
+  findRecordsResumen,
   findRecordsForExport,
   findRecordsPending,
   findRecordsSummary,
@@ -30,29 +31,16 @@ import {
 } from "./appsheetWriteback.service.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { ORIGEN_PREFIX, toRomeParts } from "../constants/appsheetMaps.js";
+import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-// Un ADMIN "de area" (User.area) solo ve/gestiona Registros y Control economico de su
-// propia area - OWNER no tiene restriccion. Los registros historicos sin spedizzione
-// cargada se tratan como EXTRA_PIAZZA (mismo criterio que SECTIONS.matchesSpedizzione
-// en el frontend), por eso el OR con null. Un area sin mapeo (ej. FARMACIA, que hoy no
-// tiene registros propios) no matchea nada: deny-by-default en vez de ver todo.
-// EXTRAS_STEFANIA no tiene area propia - lo administra el mismo ADMIN de DHL, por eso
-// se agrega a la key DHL en vez de crear una nueva.
-const AREA_SPEDIZZIONE_WHERE = {
-  EXTRAS_PIAZZA: { OR: [{ spedizzione: "EXTRA_PIAZZA" }, { spedizzione: null }] },
-  DHL: { spedizzione: { in: ["DHL", "AB_SERVICE", "EXTRAS_STEFANIA"] } },
-};
-const AREA_SPEDIZZIONES = {
-  EXTRAS_PIAZZA: ["EXTRA_PIAZZA", null],
-  DHL: ["DHL", "AB_SERVICE", "EXTRAS_STEFANIA"],
-};
-
-export const spedizzioneFilterForActor = (actor) =>
-  actor.cargo === "ADMIN" ? (AREA_SPEDIZZIONE_WHERE[actor.area] ?? { spedizzione: { in: [] } }) : undefined;
+// Un Responsable (ADMIN) solo ve/gestiona los servicios de las areas que el Admin le marco
+// (User.areasPermitidas, ver utils/areaAccess.js); el Admin (OWNER) no tiene restriccion. Sin ninguna
+// area marcada no ve ningun servicio: deny-by-default.
+export const spedizzioneFilterForActor = (actor) => recordAreaWhere(actor);
 
 // Filtro de las listas y conteos que usa la oficina: ademas del area del actor, solo los servicios
 // originales. El segundo tramo de un traspaso entre choferes (la "continuacion") no es un servicio
@@ -62,12 +50,10 @@ const listFilterForActor = (actor) =>
     ? { ...(spedizzioneFilterForActor(actor) ?? {}), servicioOrigenId: null }
     : spedizzioneFilterForActor(actor);
 
-const canAccessSpedizzione = (actor, spedizzione) =>
-  actor.cargo !== "ADMIN" || (AREA_SPEDIZZIONES[actor.area] ?? []).includes(spedizzione ?? null);
 
 export const assertAccess = (actor, record) => {
   if (actor.cargo === "OWNER" || record.driverId === actor.id) return;
-  if (isPrivileged(actor) && canAccessSpedizzione(actor, record.spedizzione)) return;
+  if (isPrivileged(actor) && canAccessRecordArea(actor, record)) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -340,6 +326,43 @@ const toFullResponse = (record) => {
   };
 };
 
+// Version liviana para el dashboard del Admin: los mismos valores que toFullResponse para los campos que
+// el dashboard usa (verificado comparando la pantalla con ambas versiones), sin el resto.
+const toResumenResponse = (record) => {
+  const { total } = computeTotals(record);
+  const fuel = toFuelSummary(record);
+  return {
+    id: record.id,
+    estado: record.estado,
+    driver: record.driver,
+    vehicle: record.vehicle,
+    client: record.client,
+    fechaServicio: record.fechaServicio,
+    eta: record.eta,
+    codigo: record.codigo,
+    destinazione: record.destinazione,
+    spedizzione: record.spedizzione,
+    extrasPiazzaZona: record.extrasPiazzaZona,
+    horasDia: record.horasDia,
+    horasNoche: record.horasNoche,
+    kilometros: record.kilometros,
+    kilometrosReales: record.kilometrosReales,
+    areaC: record.areaC,
+    costoEspera: record.costoEspera,
+    costoTraforoFrejusBrennero: record.costoTraforoFrejusBrennero,
+    peajes: record.peajes,
+    vignetta: record.vignetta,
+    costoHotel: record.costoHotel,
+    costoOtros: record.costoOtros,
+    pagoRecibido: record.pagoRecibido,
+    costoCombustible: fuel.total,
+    combustible: fuel,
+    total,
+    appsheetSyncFallido: record.appsheetSyncFallido,
+    createdAt: record.createdAt,
+  };
+};
+
 // Vista para CHOFER: sin campos economicos, salvo "kilometros" (solo lectura, lo que se
 // planifico) y "kilometrosReales" (lo que el propio chofer carga) para que pueda compararlos.
 const toChoferResponse = (record) => ({
@@ -392,7 +415,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
 
   // actor=null (sync de AppSheet) no valida area: es un proceso de confianza que
   // importa historico de todas las areas, no una creacion manual desde la UI.
-  if (actor && !canAccessSpedizzione(actor, data.spedizzione ?? null)) {
+  if (actor && !canAccessRecordArea(actor, { spedizzione: data.spedizzione ?? null, extrasPiazzaZona: data.extrasPiazzaZona ?? null })) {
     throw new AppError("No tienes permisos para crear un registro fuera de tu area", 403);
   }
 
@@ -445,7 +468,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
 };
 
 // "Extras Piazza" en la planilla/historico no siempre tiene spedizzione cargada (ver
-// AREA_SPEDIZZIONE_WHERE arriba) - si el usuario pide esa seccion en el export, hay
+// areaAccess.js) - si el usuario pide esa seccion en el export, hay
 // que matchear tambien spedizzione null, no solo el string "EXTRA_PIAZZA".
 const seccionesToWhere = (secciones) => {
   if (!secciones?.length) return undefined;
@@ -556,6 +579,15 @@ export const searchRecordsForActor = async (actor, q) => {
 // Version liviana (id/fechaServicio/estado) para armar el acordeon de dias del
 // mes sin traer stops/ruta/economico de cada registro. No hay datos sensibles
 // aca, asi que no hace falta distinguir toFullResponse/toChoferResponse.
+// Dashboard del Admin: solo OWNER/ADMIN (el chofer usa el listado normal, que ya es chico).
+export const listRecordsResumenForActor = async (actor, dateRange) => {
+  if (!isPrivileged(actor)) return listRecordsForActor(actor, dateRange);
+  const records = await attachFuel(
+    await findRecordsResumen({ dateRange, spedizzioneFilter: listFilterForActor(actor) })
+  );
+  return records.map(toResumenResponse);
+};
+
 export const listRecordsSummaryForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
@@ -613,7 +645,14 @@ export const updateRecordForActor = async (actor, id, data) => {
   }
   assertAccess(actor, record);
 
-  if (actor.cargo === "ADMIN" && "spedizzione" in data && !canAccessSpedizzione(actor, data.spedizzione)) {
+  if (
+    actor.cargo === "ADMIN" &&
+    ("spedizzione" in data || "extrasPiazzaZona" in data) &&
+    !canAccessRecordArea(actor, {
+      spedizzione: "spedizzione" in data ? data.spedizzione : record.spedizzione,
+      extrasPiazzaZona: "extrasPiazzaZona" in data ? data.extrasPiazzaZona : record.extrasPiazzaZona,
+    })
+  ) {
     throw new AppError("No tienes permisos para mover este registro fuera de tu area", 403);
   }
 
@@ -731,11 +770,12 @@ export const updateRecordForActor = async (actor, id, data) => {
 // para todos los servicios activos (eso saldria caro corriendolo cada 20s de mas).
 // Best-effort: si el servicio ya no esta en camino, la ubicacion del chofer no esta
 // fresca, o no hay parada geocodificada, se devuelve null y el mapa muestra "no disponible".
-export const getLiveEtaForRecord = async (id) => {
+export const getLiveEtaForRecord = async (actor, id) => {
   const record = await findRecordById(id);
   if (!record) {
     throw new AppError("Registro no encontrado", 404);
   }
+  assertAccess(actor, record);
   if (record.estado !== "IN_CONSEGNA") return null;
 
   // Posicion de origen: el GPS del vehiculo del servicio (o, si no tiene, el asignado al

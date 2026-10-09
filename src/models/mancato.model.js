@@ -10,6 +10,8 @@ const SERVICE_SELECT = {
     fechaRetiro: true,
     eta: true,
     driverId: true,
+    spedizzione: true,
+    extrasPiazzaZona: true,
     client: { select: { nombre: true } },
     driver: PERSON_SELECT,
   },
@@ -145,5 +147,11 @@ export const findRecordForAssignment = (id) =>
       fechaRetiro: true,
       eta: true,
       rutaDuracionMin: true,
+      spedizzione: true,
+      extrasPiazzaZona: true,
     },
   });
+
+// Cuales de estos servicios caen en el filtro de areas de un Responsable.
+export const findRecordIdsInArea = (ids, areaWhere) =>
+  prisma.record.findMany({ where: { id: { in: ids }, ...areaWhere }, select: { id: true } });

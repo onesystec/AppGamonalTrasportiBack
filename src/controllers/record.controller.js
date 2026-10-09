@@ -7,12 +7,16 @@ import {
   listAppsheetSyncFailuresForActor,
   listPendingRecordsForActor,
   listRecordsForActor,
+  listRecordsResumenForActor,
   listRecordsSummaryForActor,
   searchRecordsForActor,
   updateRecordForActor,
 } from "../services/record.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { cachedResponse } from "../utils/responseCache.js";
+
+const RECORDS_CACHE_TTL_MS = 60 * 1000;
 
 export const create = asyncHandler(async (req, res) => {
   const record = await createRecord(req.body, { actor: req.user });
@@ -28,7 +32,28 @@ export const list = asyncHandler(async (req, res) => {
     Number.isFinite(days) && days > 0
       ? { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000), lt: new Date(Date.now() + 24 * 60 * 60 * 1000) }
       : undefined;
-  const records = await listRecordsForActor(req.user, dateRange);
+  // ?vista=resumen: version liviana para el dashboard del Admin (ver listRecordsResumenForActor).
+  const resumen = req.query.vista === "resumen";
+  const load = () => (resumen ? listRecordsResumenForActor(req.user, dateRange) : listRecordsForActor(req.user, dateRange));
+
+  // Para Admin y Responsables el listado es pesado (miles de servicios) y lo piden varias pantallas: se
+  // comparte la consulta y se reutiliza hasta 60 s, o hasta que se guarde algun servicio o combustible.
+  // La clave incluye quien pregunta y sus areas, porque lo que ve depende de ellas.
+  const privileged = req.user.cargo === "OWNER" || req.user.cargo === "ADMIN";
+  const records = privileged
+    ? await cachedResponse(
+        [
+          "records",
+          resumen ? "resumen" : "completo",
+          Number.isFinite(days) ? days : "todo",
+          new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" }),
+          req.user.id,
+          [...(req.user.areasPermitidas ?? [])].sort().join(","),
+        ].join("|"),
+        RECORDS_CACHE_TTL_MS,
+        load
+      )
+    : await load();
   res.status(200).json({ success: true, data: { records } });
 });
 
@@ -102,6 +127,6 @@ export const remove = asyncHandler(async (req, res) => {
 // A demanda desde el mapa: solo se pide para el servicio que el OWNER/ADMIN tiene
 // abierto/seleccionado en ese momento, no para todos los servicios activos.
 export const getLiveEta = asyncHandler(async (req, res) => {
-  const eta = await getLiveEtaForRecord(req.params.id);
+  const eta = await getLiveEtaForRecord(req.user, req.params.id);
   res.status(200).json({ success: true, data: { eta } });
 });
