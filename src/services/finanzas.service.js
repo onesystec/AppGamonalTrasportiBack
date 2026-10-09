@@ -1,4 +1,4 @@
-import { PAY_RATES, PAYABLE_STATUSES } from "../config/payRates.js";
+import { PAYABLE_STATUSES, tariffForDisplay, tariffForMonth } from "../config/payRates.js";
 import {
   findCombustibleLite,
   findPendingDeductions,
@@ -12,6 +12,9 @@ import { countRecordsByHorasEstado } from "../models/record.model.js";
 import { spedizzioneFilterForActor } from "./record.service.js";
 import { countCombustibleByAsignacion } from "../models/combustible.model.js";
 import { fuelNeedsAudit } from "../utils/fuelCost.js";
+import { esFestivoIT } from "../utils/feriadosIt.js";
+import { romeHHMM } from "../utils/romeTime.js";
+import { computeShiftHours, isDayTime } from "../utils/workHours.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
 import { getAttendanceByDriver } from "./permiso.service.js";
@@ -52,24 +55,58 @@ const comparisonLimitDay = (month) => (month === romeDay().slice(0, 7) ? Number(
 
 const numberOr0 = (value) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
-// Pago de UN servicio. Con horas APROBADAS por el responsable se paga por hora, de dia o de
-// noche segun la tarifa; sin horas aprobadas (el chofer no las cargo, estan pendientes de
-// revision o fueron devueltas) se paga por defecto por distancia, proporcional a cada 100 km.
-// La espera solo se suma cuando las horas estan aprobadas. Distancia: la que reporto el chofer
-// si la cargo, si no la del servicio y, de ultima, la de la ruta calculada.
+const ROME_WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+const romeWeekday = (date) =>
+  ROME_WEEKDAYS[new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date(date))];
+
+// Redondea al multiplo mas cercano (0 = no redondea).
+const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : value);
+
+// Pago de UN servicio, con la tarifa vigente el mes en que se hizo (config/payRates.js).
+//  - Con horas APROBADAS por el responsable se paga por hora, de dia o de noche; sin horas aprobadas
+//    (no las cargo, estan pendientes o fueron devueltas) se paga por distancia: cada bloque de km (85)
+//    vale lo de una hora, de dia o de noche segun la hora de salida.
+//  - La espera solo se suma con horas aprobadas.
+//  - Reperibilidad: si el servicio SALE fuera del horario laboral (fin de semana o festivo) se suma el extra,
+//    con cualquiera de las dos modalidades.
+// Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
 export const computeServicePay = (record) => {
+  const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
   const aprobadas = record.horasEstado === "APROBADAS";
-  const horasDia = numberOr0(record.horasDia);
-  const horasNoche = numberOr0(record.horasNoche);
+
+  // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
+  // si no, se usan las guardadas al cargar la jornada.
+  let horasDia = numberOr0(record.horasDia);
+  let horasNoche = numberOr0(record.horasNoche);
+  let esperaBruta = numberOr0(record.tiempoEspera);
+  if (tariff.jornadaDesdeInicioFin && record.horaInicioReal && record.horaFinReal) {
+    const shift = computeShiftHours({
+      inicio: record.horaInicioReal,
+      fin: record.horaFinReal,
+      esperaMin: Math.round(esperaBruta * 60),
+      pausaMin: record.pausaMin ?? 0,
+    });
+    if (!shift.error) {
+      horasDia = shift.horasDia;
+      horasNoche = shift.horasNoche;
+      esperaBruta = shift.tiempoEspera;
+    }
+  }
+  horasDia = roundTo(horasDia, tariff.redondeoHoras);
+  horasNoche = roundTo(horasNoche, tariff.redondeoHoras);
   const horas = horasDia + horasNoche;
-  const esperaHoras = aprobadas ? numberOr0(record.tiempoEspera) : 0;
+  const esperaHoras = aprobadas ? roundTo(esperaBruta, tariff.redondeoHoras) : 0;
+
+  // Hora de salida del servicio: la jornada real si existe, si no la que cargo la oficina.
+  const salida = record.horaInicioReal ?? record.fechaRetiro ?? record.fechaServicio;
 
   let modo = "HORAS";
   let km = null;
   let kmFuente = null;
+  let franja = null;
   let pagoBase;
   if (aprobadas && horas > 0) {
-    pagoBase = horasDia * PAY_RATES.horaDiaEur + horasNoche * PAY_RATES.horaNocheEur;
+    pagoBase = horasDia * tariff.horaDiaEur + horasNoche * tariff.horaNocheEur;
   } else {
     modo = "KM";
     if (numberOr0(record.kilometrosReales) > 0) {
@@ -85,12 +122,23 @@ export const computeServicePay = (record) => {
       km = 0;
       kmFuente = "SIN_DATO";
     }
-    pagoBase = (km / 100) * PAY_RATES.cada100KmEur;
+    franja = isDayTime(romeHHMM(salida), tariff.banda) ? "DIA" : "NOCHE";
+    pagoBase = (km / tariff.kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
   }
-  const pagoEspera = esperaHoras * PAY_RATES.esperaHoraEur;
+  const pagoEspera = esperaHoras * tariff.esperaHoraEur;
+
+  let reperibilidad = null;
+  let pagoReperibilidad = 0;
+  if (tariff.reperibilidad) {
+    const day = romeDay(new Date(salida));
+    if (tariff.reperibilidad.festivosCuentan && esFestivoIT(day)) reperibilidad = "FESTIVO";
+    else if (!tariff.reperibilidad.diasLaborales.includes(romeWeekday(salida))) reperibilidad = "FIN_DE_SEMANA";
+    if (reperibilidad) pagoReperibilidad = tariff.reperibilidad.extraEur;
+  }
 
   return {
     modo,
+    franja,
     horasEstado: record.horasEstado ?? null,
     horas: round2(modo === "HORAS" ? horas : 0),
     horasDia: round2(modo === "HORAS" ? horasDia : 0),
@@ -98,9 +146,11 @@ export const computeServicePay = (record) => {
     km: km == null ? null : round2(km),
     kmFuente,
     esperaHoras: round2(esperaHoras),
+    reperibilidad,
     pagoBase: round2(pagoBase),
     pagoEspera: round2(pagoEspera),
-    total: round2(pagoBase + pagoEspera),
+    pagoReperibilidad: round2(pagoReperibilidad),
+    total: round2(pagoBase + pagoEspera + pagoReperibilidad),
   };
 };
 
@@ -111,11 +161,13 @@ export const computePayIfApproved = (record) =>
 
 const isPayable = (record) => PAYABLE_STATUSES.includes(record.estado);
 
-const emptyPay = () => ({ total: 0, base: 0, espera: 0, servicios: 0, choferes: new Set() });
+const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, servicios: 0, choferes: new Set() });
 const addPay = (acc, record, pay) => {
   acc.total += pay.total;
   acc.base += pay.pagoBase;
   acc.espera += pay.pagoEspera;
+  acc.reperibilidad += pay.pagoReperibilidad;
+  if (pay.reperibilidad) acc.salidas += 1;
   acc.servicios += 1;
   acc.choferes.add(record.driverId);
 };
@@ -123,6 +175,8 @@ const finishPay = (acc) => ({
   total: round2(acc.total),
   base: round2(acc.base),
   espera: round2(acc.espera),
+  reperibilidad: round2(acc.reperibilidad),
+  salidasReperibilidad: acc.salidas,
   servicios: acc.servicios,
   choferes: acc.choferes.size,
 });
@@ -472,6 +526,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
         horasSinCargar: 0,
         pagoBase: 0,
         pagoEspera: 0,
+        pagoReperibilidad: 0,
+        salidasReperibilidad: 0,
         total: 0,
         serviciosSinDato: 0,
       };
@@ -487,6 +543,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.esperaHoras += pay.esperaHoras;
     entry.pagoBase += pay.pagoBase;
     entry.pagoEspera += pay.pagoEspera;
+    entry.pagoReperibilidad += pay.pagoReperibilidad;
+    if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     entry.total += pay.total;
     if (pay.kmFuente === "SIN_DATO") entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
@@ -506,6 +564,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
         esperaHoras: round2(e.esperaHoras),
         pagoBase: round2(e.pagoBase),
         pagoEspera: round2(e.pagoEspera),
+        pagoReperibilidad: round2(e.pagoReperibilidad),
         total: totalPago,
         aDescontar: deduction,
         neto: round2(totalPago - deduction.total),
@@ -519,7 +578,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
   return {
     month,
     mesLabel: monthLabel(month),
-    reglas: PAY_RATES,
+    reglas: tariffForDisplay(month),
     total: finishPay(total),
     porChofer,
     servicios: showItems

@@ -1,4 +1,4 @@
-import { DAY_BAND } from "../config/payRates.js";
+import { tariffForMonth } from "../config/payRates.js";
 import { romeHHMM, romeLocalToDate } from "./romeTime.js";
 
 const MIN_MS = 60000;
@@ -8,32 +8,36 @@ export const MAX_SHIFT_MIN = 24 * 60;
 
 const romeDayOf = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
-// Instantes (ms) de cada cambio de banda (07:00 y 19:00 de Roma) entre dos instantes.
-const bandBoundaries = (fromMs, toMs) => {
+// La banda de dia/noche es la de la tarifa vigente el mes en que empieza la jornada (ver config/payRates.js).
+export const bandFor = (date) => tariffForMonth(romeDayOf(new Date(date)).slice(0, 7)).banda;
+
+// Instantes (ms) de cada cambio de banda (p. ej. 06:30 y 22:00 de Roma) entre dos instantes.
+const bandBoundaries = (fromMs, toMs, band) => {
   const out = [];
   for (let t = fromMs - DAY_MS; t <= toMs + DAY_MS; t += DAY_MS) {
     const day = romeDayOf(new Date(t));
-    out.push(romeLocalToDate(day, DAY_BAND.start).getTime(), romeLocalToDate(day, DAY_BAND.end).getTime());
+    out.push(romeLocalToDate(day, band.diaInicio).getTime(), romeLocalToDate(day, band.nocheInicio).getTime());
   }
   return [...new Set(out)].sort((a, b) => a - b);
 };
 
-const isDayMoment = (ms) => {
-  const hhmm = romeHHMM(new Date(ms));
-  return hhmm >= DAY_BAND.start && hhmm < DAY_BAND.end;
-};
+// "HH:MM" de Roma -> true si cae de dia segun la banda.
+export const isDayTime = (hhmm, band) => hhmm >= band.diaInicio && hhmm < band.nocheInicio;
+
+const isDayMoment = (ms, band) => isDayTime(romeHHMM(new Date(ms)), band);
 
 // Minutos de [inicio, fin) que caen en banda diurna y nocturna, en hora de Roma (respeta el
 // cambio de hora). Un tramo se clasifica por su punto medio: los limites son exactos.
 export const splitDayNightMinutes = (inicio, fin) => {
   const startMs = new Date(inicio).getTime();
   const endMs = new Date(fin).getTime();
-  const cuts = [startMs, ...bandBoundaries(startMs, endMs).filter((b) => b > startMs && b < endMs), endMs];
+  const band = bandFor(startMs);
+  const cuts = [startMs, ...bandBoundaries(startMs, endMs, band).filter((b) => b > startMs && b < endMs), endMs];
   let diaMin = 0;
   let nocheMin = 0;
   for (let i = 0; i < cuts.length - 1; i += 1) {
     const minutes = (cuts[i + 1] - cuts[i]) / MIN_MS;
-    if (isDayMoment((cuts[i] + cuts[i + 1]) / 2)) diaMin += minutes;
+    if (isDayMoment((cuts[i] + cuts[i + 1]) / 2, band)) diaMin += minutes;
     else nocheMin += minutes;
   }
   return { diaMin, nocheMin };
