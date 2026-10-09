@@ -39,7 +39,7 @@ export const PAY_TARIFFS = [
     kmBloqueNocheEur: 12,
     esperaHoraEur: 7,
     banda: { diaInicio: "06:30", nocheInicio: "22:00" },
-    redondeoHoras: 0.25,
+    redondeoHoras: 0, // sin redondeo: se paga minuto a minuto lo que se declara
     reperibilidad: { extraEur: 10, diasLaborales: [1, 2, 3, 4, 5], festivosCuentan: true },
     jornadaDesdeInicioFin: true,
   },
