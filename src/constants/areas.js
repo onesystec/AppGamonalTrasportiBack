@@ -12,10 +12,10 @@ export const AREA_LABELS = {
 };
 
 // Areas que trae marcadas cada sub-rol al crear al Responsable. Son solo el punto de partida: el
-// Admin las cambia con los checkboxes. Milano Nord queda vacio hasta que se defina.
+// Admin las cambia con los checkboxes.
 export const RESPONSABLE_PRESETS = {
   MILANO_SUD: ["dhl-milano", "ab-service", "otros"],
-  MILANO_NORD: [],
+  MILANO_NORD: ["dhl-roma", "piazza-milano", "piazza-roma"],
 };
 
 // El combustible ya guarda su area; "Farmacia" no tiene servicios propios y cae en "Otros".

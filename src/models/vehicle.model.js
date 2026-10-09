@@ -22,6 +22,15 @@ export const findVehiclesWithDrivers = () =>
 export const findVehicleIdsAndTargas = () =>
   prisma.vehiculo.findMany({ select: { id: true, targa: true, autorizadoAreaC: true } });
 
+// El chofer solo puede ver la ficha de su vehiculo habitual o de uno que use en alguno de sus servicios.
+export const driverCanSeeVehicle = async (driverId, vehicleId) => {
+  const [assigned, used] = await Promise.all([
+    prisma.user.count({ where: { id: driverId, vehiculoAsignadoId: vehicleId } }),
+    prisma.record.count({ where: { driverId, vehicleId } }),
+  ]);
+  return assigned > 0 || used > 0;
+};
+
 export const updateVehicleById = (id, data) => prisma.vehiculo.update({ where: { id }, data });
 
 export const deleteVehicleById = (id) => prisma.vehiculo.delete({ where: { id } });

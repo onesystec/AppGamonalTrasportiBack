@@ -9,7 +9,8 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get("/", list);
+// El chofer no necesita la lista de clientes.
+router.get("/", authorize("OWNER", "ADMIN"), list);
 router.post("/", authorize("OWNER", "ADMIN"), validate(createClientSchema), create);
 router.patch(
   "/:id",

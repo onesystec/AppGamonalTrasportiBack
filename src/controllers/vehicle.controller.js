@@ -29,7 +29,7 @@ export const create = asyncHandler(async (req, res) => {
 });
 
 export const list = asyncHandler(async (req, res) => {
-  const vehicles = await listVehiclesForActor();
+  const vehicles = await listVehiclesForActor(req.user);
   res.status(200).json({ success: true, data: { vehicles } });
 });
 
@@ -122,7 +122,7 @@ export const cleanupSpeedingEvents = asyncHandler(async (req, res) => {
 });
 
 export const getById = asyncHandler(async (req, res) => {
-  const vehicle = await getVehicleByIdForActor(req.params.id);
+  const vehicle = await getVehicleByIdForActor(req.params.id, req.user);
   res.status(200).json({ success: true, data: { vehicle } });
 });
 

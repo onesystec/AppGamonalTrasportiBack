@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   createVehicle as createVehicleRecord,
   deleteVehicleById,
+  driverCanSeeVehicle,
   findVehicleById,
   findVehicleIdsAndTargas,
   findVehiclesWithDrivers,
@@ -129,15 +130,23 @@ export const createVehicleRecordForActor = async (data, files) => {
   return toResponse(vehicle);
 };
 
-export const listVehiclesForActor = async () => {
+// El chofer solo necesita elegir la targa en los formularios: no recibe estado, kilometraje,
+// documentos ni choferes asignados de toda la flota.
+export const listVehiclesForActor = async (actor) => {
   const vehicles = await findVehiclesWithDrivers();
+  if (actor?.cargo === "CHOFER") {
+    return vehicles.map((v) => ({ id: v.id, targa: v.targa, modelo: v.modelo }));
+  }
   return Promise.all(vehicles.map(toResponse));
 };
 
-export const getVehicleByIdForActor = async (id) => {
+export const getVehicleByIdForActor = async (id, actor) => {
   const vehicle = await findVehicleById(id);
   if (!vehicle) {
     throw new AppError("Vehiculo no encontrado", 404);
+  }
+  if (actor?.cargo === "CHOFER" && !(await driverCanSeeVehicle(actor.id, id))) {
+    throw new AppError("No tienes permisos para ver este vehiculo", 403);
   }
   return toResponse(vehicle);
 };

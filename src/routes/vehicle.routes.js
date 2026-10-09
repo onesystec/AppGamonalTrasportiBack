@@ -48,11 +48,12 @@ const uploadVehicleFiles = vehicleUpload.fields([
 
 router.use(authenticate);
 
-// Lectura: cualquier usuario autenticado (OWNER, ADMIN o CHOFER).
+// Lista: el chofer recibe solo id/targa/modelo (para los formularios), la oficina la ficha completa.
 router.get("/", list);
 // "live-positions" no matchea el UUID de "/:id" de abajo, pero igual va antes por
 // las dudas (mismo criterio que "/pending"/"/search" en record.routes.js).
-router.get("/live-positions", listLivePositions);
+// Posicion en vivo de toda la flota: solo oficina.
+router.get("/live-positions", authorize("OWNER", "ADMIN"), listLivePositions);
 // Monitoreo de uso/costos de Velocity Fleet: solo OWNER/ADMIN (info interna, no un
 // dato operativo que necesite ver un chofer).
 router.get("/velocity-fleet-usage", authorize("OWNER", "ADMIN"), getVelocityFleetUsage);
@@ -103,6 +104,7 @@ router.post("/speeding-events/cleanup", authorize("OWNER"), cleanupSpeedingEvent
 // no una alerta descartable, y no queremos que un ADMIN "de area" importe vehiculos
 // fuera de su area sin querer.
 router.post("/sync-from-velocity-fleet", authorize("OWNER"), syncVehiclesFromVelocityFleet);
+// El chofer solo ve la ficha de su vehiculo (se controla en el servicio).
 router.get("/:id", validate(idParamSchema, "params"), getById);
 
 // Escritura: solo OWNER/ADMIN.
@@ -120,7 +122,7 @@ router.patch(
 router.delete("/:id", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), remove);
 
 // Seccion Mecanica: registro de KM (deja historial) y su consulta.
-router.get("/:id/mantenimiento", validate(idParamSchema, "params"), listMantenimientos);
+router.get("/:id/mantenimiento", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), listMantenimientos);
 router.post(
   "/:id/mantenimiento",
   authorize("OWNER", "ADMIN"),
