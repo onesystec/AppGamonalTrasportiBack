@@ -4,9 +4,9 @@ export const createDocument = (data) => prisma.documento.create({ data });
 
 export const findDocumentById = (id) => prisma.documento.findUnique({ where: { id } });
 
-export const findDocuments = (usuarioId) =>
+export const findDocuments = (usuarioId, { soloChoferes = false } = {}) =>
   prisma.documento.findMany({
-    where: usuarioId ? { usuarioId } : undefined,
+    where: { ...(usuarioId ? { usuarioId } : {}), ...(soloChoferes ? { usuario: { cargo: "CHOFER" } } : {}) },
     orderBy: { createdAt: "desc" },
   });
 

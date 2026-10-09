@@ -8,12 +8,21 @@ import {
 } from "../models/document.model.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
+import { findUserById } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
+// Admin y Responsables ven los documentos de todos; Recursos Humanos, solo los de los choferes.
+const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN" || actor.cargo === "RRHH";
 
-const assertAccess = (actor, document) => {
-  if (isPrivileged(actor) || document.usuarioId === actor.id) return;
+const assertChofer = async (usuarioId) => {
+  const owner = await findUserById(usuarioId);
+  if (owner?.cargo !== "CHOFER") throw new AppError("Recursos Humanos solo gestiona documentos de choferes", 403);
+};
+
+const assertAccess = async (actor, document) => {
+  if (document.usuarioId === actor.id) return;
+  if (actor.cargo === "OWNER" || actor.cargo === "ADMIN") return;
+  if (actor.cargo === "RRHH") return assertChofer(document.usuarioId);
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -52,6 +61,7 @@ export const createDocumentForUser = async (actor, file, data) => {
       throw new AppError("usuarioId es obligatorio para OWNER/ADMIN", 400);
     }
     targetUsuarioId = data.usuarioId;
+    if (actor.cargo === "RRHH") await assertChofer(targetUsuarioId);
   }
 
   const { buffer, mimeType, ext } = await processFile(file);
@@ -72,7 +82,8 @@ export const createDocumentForUser = async (actor, file, data) => {
 
 export const listDocumentsForActor = async (actor, queryUsuarioId) => {
   const usuarioId = isPrivileged(actor) ? queryUsuarioId : actor.id;
-  const documents = await findDocuments(usuarioId);
+  if (actor.cargo === "RRHH" && usuarioId) await assertChofer(usuarioId);
+  const documents = await findDocuments(usuarioId, { soloChoferes: actor.cargo === "RRHH" });
   return Promise.all(documents.map(toResponse));
 };
 
@@ -81,7 +92,7 @@ export const getDocumentByIdForActor = async (actor, id) => {
   if (!document) {
     throw new AppError("Documento no encontrado", 404);
   }
-  assertAccess(actor, document);
+  await assertAccess(actor, document);
   return toResponse(document);
 };
 
@@ -90,7 +101,7 @@ export const updateDocumentForActor = async (actor, id, data, file) => {
   if (!document) {
     throw new AppError("Documento no encontrado", 404);
   }
-  assertAccess(actor, document);
+  await assertAccess(actor, document);
 
   const payload = { ...data };
 
@@ -112,7 +123,7 @@ export const deleteDocumentForActor = async (actor, id) => {
   if (!document) {
     throw new AppError("Documento no encontrado", 404);
   }
-  assertAccess(actor, document);
+  await assertAccess(actor, document);
 
   await deleteObject(document.archivoKey);
   await deleteDocumentById(id);

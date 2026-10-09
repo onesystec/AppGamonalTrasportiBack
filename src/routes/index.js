@@ -1,5 +1,7 @@
 import { Router } from "express";
 import authRoutes from "./auth.routes.js";
+import bustaPagaRoutes from "./bustaPaga.routes.js";
+import { rrhhGate } from "../middlewares/rrhhGate.js";
 import clientRoutes from "./client.routes.js";
 import combustibleRoutes from "./combustible.routes.js";
 import documentRoutes from "./document.routes.js";
@@ -20,6 +22,9 @@ import vehicleRoutes from "./vehicle.routes.js";
 
 const router = Router();
 
+// Recursos Humanos solo entra a lo suyo, decidido aca y no ruta por ruta (ver middlewares/rrhhGate.js).
+router.use(rrhhGate);
+
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/documents", documentRoutes);
@@ -30,6 +35,7 @@ router.use("/files", fileRoutes);
 router.use("/mancato-pagamentos", mancatoRoutes);
 router.use("/multas", multaRoutes);
 router.use("/metas", metaRoutes);
+router.use("/busta-paga", bustaPagaRoutes);
 router.use("/combustible", combustibleRoutes);
 router.use("/finanzas", finanzasRoutes);
 router.use("/gps", gpsRoutes);

@@ -21,12 +21,12 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { buildDateRange } from "../utils/dateRange.js";
 
 export const list = asyncHandler(async (req, res) => {
-  const users = await listUsers();
+  const users = await listUsers(req.user);
   res.status(200).json({ success: true, data: { users } });
 });
 
 export const getById = asyncHandler(async (req, res) => {
-  const user = await getUserById(req.params.id);
+  const user = await getUserById(req.user, req.params.id);
   res.status(200).json({ success: true, data: { user } });
 });
 
@@ -49,7 +49,7 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
   if (!req.file) {
     throw new AppError("Debes seleccionar una imagen", 400);
   }
-  const user = await uploadUserAvatar(req.params.id, req.file);
+  const user = await uploadUserAvatar(req.user, req.params.id, req.file);
   res.status(200).json({ success: true, data: { user } });
 });
 

@@ -108,11 +108,11 @@ router.post("/sync-from-velocity-fleet", authorize("OWNER"), syncVehiclesFromVel
 router.get("/:id", validate(idParamSchema, "params"), getById);
 
 // Escritura: solo OWNER/ADMIN.
-router.post("/", authorize("OWNER", "ADMIN"), uploadVehicleFiles, validate(createVehicleSchema), create);
+router.post("/", authorize("OWNER", "ADMIN", "RRHH"), uploadVehicleFiles, validate(createVehicleSchema), create);
 
 router.patch(
   "/:id",
-  authorize("OWNER", "ADMIN"),
+  authorize("OWNER", "ADMIN", "RRHH"),
   validate(idParamSchema, "params"),
   uploadVehicleFiles,
   validate(updateVehicleSchema),

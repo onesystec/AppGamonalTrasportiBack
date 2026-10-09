@@ -33,6 +33,8 @@ enum Cargo {
   OWNER
   ADMIN
   CHOFER
+  // Recursos Humanos: solo gestiona choferes, vehiculos y busta paga; sin acceso a lo financiero.
+  RRHH
 }
 
 // Sub-rol de un Responsable (cargo ADMIN). Es la etiqueta de su equipo; lo que realmente puede
@@ -69,81 +71,83 @@ enum TipoDocumento {
 }
 
 model User {
-  id                   String    @id @default(uuid())
-  nombre               String
-  apellido             String
-  imagenPerfilKey      String?
-  area                 Area
-  grupo                Grupo?
-  cargo                Cargo     @default(CHOFER)
+  id                           String           @id @default(uuid())
+  nombre                       String
+  apellido                     String
+  imagenPerfilKey              String?
+  area                         Area
+  grupo                        Grupo?
+  cargo                        Cargo            @default(CHOFER)
   // Solo Responsables: su equipo y las areas de servicio que puede ver ("dhl-milano", "dhl-roma",
   // "ab-service", "piazza-milano", "piazza-roma", "otros"). Admin (OWNER) ve todo.
-  responsableTipo      ResponsableTipo?
-  areasPermitidas      String[]  @default([])
+  responsableTipo              ResponsableTipo?
+  areasPermitidas              String[]         @default([])
   // Nivel del chofer (cualquier usuario que maneja): fija su meta de km.
-  nivelChofer          NivelChofer?
-  estado               Estado    @default(ACTIVO)
-  fechaNacimiento      DateTime  @db.Date
-  numeroCelular        String
-  correoElectronico    String    @unique
-  password             String
-  resetPasswordToken   String?
-  resetPasswordExpires DateTime?
-  ubicacionLat         Float?
-  ubicacionLng         Float?
-  ubicacionActualizada DateTime?
-  compartirUbicacion   Boolean   @default(false)
+  nivelChofer                  NivelChofer?
+  estado                       Estado           @default(ACTIVO)
+  fechaNacimiento              DateTime         @db.Date
+  numeroCelular                String
+  correoElectronico            String           @unique
+  password                     String
+  resetPasswordToken           String?
+  resetPasswordExpires         DateTime?
+  ubicacionLat                 Float?
+  ubicacionLng                 Float?
+  ubicacionActualizada         DateTime?
+  compartirUbicacion           Boolean          @default(false)
   // El chofer autoriza usar el GPS de su celular SOLO como respaldo cuando el GPS del vehiculo
   // (OneSystec) esta bloqueado o caido, y solo durante sus servicios. Ver gpsRespaldo.service.js.
-  gpsRespaldoPermitido   Boolean   @default(false)
-  gpsRespaldoPermitidoAt DateTime?
+  gpsRespaldoPermitido         Boolean          @default(false)
+  gpsRespaldoPermitidoAt       DateTime?
   // El chofer tiene un servicio activo pero el permiso de ubicacion en segundo plano
   // del celular no esta en "Permitir todo el tiempo" (o fue revocado): el tracking en
   // vivo no va a funcionar aunque compartirUbicacion este activo. Lo reporta el propio
   // celular via useLocationSharing cuando el watcher nativo devuelve NOT_AUTHORIZED.
-  ubicacionPermisoDenegado    Boolean   @default(false)
-  ubicacionPermisoActualizada DateTime?
+  ubicacionPermisoDenegado     Boolean          @default(false)
+  ubicacionPermisoActualizada  DateTime?
   // Reperibilita (choferes Extras Piazza): el chofer se marca "no disponible" para la
   // noche si no quiere aparecer en el listado aunque este libre. Se lee junto con la
   // fecha - si reperibilidadActualizada no es de hoy, el flag quedo de un dia anterior
   // y se ignora (vuelve a "disponible" solo, sin necesidad de un cron que lo resetee).
-  reperibilidadNoDisponible   Boolean   @default(false)
-  reperibilidadActualizada    DateTime?
+  reperibilidadNoDisponible    Boolean          @default(false)
+  reperibilidadActualizada     DateTime?
   // Vehiculo "habitual" del chofer (lo carga OWNER/ADMIN desde la ficha del chofer) -
   // independiente del vehicleId de cada Record puntual, que sigue siendo el vehiculo
   // real usado en ESE servicio. Sirve para mostrar de un vistazo con que vehiculo sale
   // cada chofer (ver "Reperibilita" en Resumen), sin tener que cruzar dos listas.
-  vehiculoAsignadoId   String?
-  vehiculoAsignado     Vehiculo? @relation(fields: [vehiculoAsignadoId], references: [id])
+  vehiculoAsignadoId           String?
+  vehiculoAsignado             Vehiculo?        @relation(fields: [vehiculoAsignadoId], references: [id])
   // Nota manual de un servicio futuro para este chofer (cualquier area) - lo carga
   // OWNER/ADMIN desde "Agregar chofer" en Resumen > Reperibilita, para avisar al equipo
   // antes de que exista un Registro formal (cliente/destino) para esa fecha. Un solo
   // plan activo por chofer, se pisa si se carga uno nuevo; se limpia a mano con
   // "Quitar" una vez que ya no aplica.
-  proximoServicioFecha DateTime? @db.Date
-  proximoServicioNota  String?
+  proximoServicioFecha         DateTime?        @db.Date
+  proximoServicioNota          String?
   // Datos de contacto que el propio usuario completa desde "Mi perfil" (opcionales).
   direccion                    String?
   contactoEmergenciaNombre     String?
   contactoEmergenciaParentesco String?
   contactoEmergenciaTelefono   String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
 
-  documentos Documento[]
-  mancatosComoChofer MancatoPagamento[] @relation("MancatoChofer")
-  mancatosCreados    MancatoPagamento[] @relation("MancatoCreadoPor")
-  multasComoChofer   Multa[]            @relation("MultaChofer")
-  multasCreadas      Multa[]            @relation("MultaCreadaPor")
-  combustiblesComoChofer RegistroCombustible[] @relation("CombustibleChofer")
-  combustiblesCreados    RegistroCombustible[] @relation("CombustibleCreadoPor")
-  records    Record[]
+  documentos                Documento[]
+  bustasPaga                BustaPaga[]             @relation("BustaPagaChofer")
+  bustasPagaSubidas         BustaPaga[]             @relation("BustaPagaSubidaPor")
+  mancatosComoChofer        MancatoPagamento[]      @relation("MancatoChofer")
+  mancatosCreados           MancatoPagamento[]      @relation("MancatoCreadoPor")
+  multasComoChofer          Multa[]                 @relation("MultaChofer")
+  multasCreadas             Multa[]                 @relation("MultaCreadaPor")
+  combustiblesComoChofer    RegistroCombustible[]   @relation("CombustibleChofer")
+  combustiblesCreados       RegistroCombustible[]   @relation("CombustibleCreadoPor")
+  records                   Record[]
   mantenimientosRegistrados MantenimientoVehiculo[]
-  locationPings LocationPing[]
-  pushTokens PushToken[]
-  permisosComoChofer Permiso[] @relation("PermisoChofer")
-  permisosCreados    Permiso[] @relation("PermisoCreadoPor")
-  permisosRevisados  Permiso[] @relation("PermisoRevisadoPor")
+  locationPings             LocationPing[]
+  pushTokens                PushToken[]
+  permisosComoChofer        Permiso[]               @relation("PermisoChofer")
+  permisosCreados           Permiso[]               @relation("PermisoCreadoPor")
+  permisosRevisados         Permiso[]               @relation("PermisoRevisadoPor")
 
   @@map("users")
 }
@@ -187,17 +191,17 @@ enum EstadoVehiculo {
 }
 
 model Vehiculo {
-  id               String         @id @default(uuid())
-  targa            String         @unique
-  modelo           String
-  imagenKey        String?
-  libretoKey       String?
-  assicurazioneKey String?
-  area             Area
-  grupo            Grupo?
-  estado           EstadoVehiculo @default(DISPONIBLE)
-  poliza           DateTime?      @db.Date
-  rTecnica         DateTime?      @db.Date
+  id                    String         @id @default(uuid())
+  targa                 String         @unique
+  modelo                String
+  imagenKey             String?
+  libretoKey            String?
+  assicurazioneKey      String?
+  area                  Area
+  grupo                 Grupo?
+  estado                EstadoVehiculo @default(DISPONIBLE)
+  poliza                DateTime?      @db.Date
+  rTecnica              DateTime?      @db.Date
   // Kilometraje para el seguimiento de Tagliando (seccion Mecanica): kmActual - kmUltimoMantenimiento
   // se compara contra el intervalo fijo de 20000km para avisar cuando se acerca o vence el service.
   kmUltimoMantenimiento Float?
@@ -205,21 +209,21 @@ model Vehiculo {
   // Permiso ZTL de Milano (electrico, discapacidad, etc.) - si esta en false (default)
   // y el GPS del vehiculo (Velocity Fleet) lo detecta dentro del poligono de Area C, se
   // dispara una alerta (ver computeAreaCAlerts en el front) para evitar una multa.
-  autorizadoAreaC  Boolean        @default(false)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  autorizadoAreaC       Boolean        @default(false)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
 
-  records        Record[]
-  mantenimientos MantenimientoVehiculo[]
+  records           Record[]
+  mantenimientos    MantenimientoVehiculo[]
   choferesAsignados User[]
   areaCEntries      AreaCEntry[]
   speedingEvents    SpeedingEvent[]
   paradas           ParadaVehiculo[]
+  mancatos          MancatoPagamento[]
+  multas            Multa[]
+  combustibles      RegistroCombustible[]
 
   @@map("vehiculos")
-  mancatos MancatoPagamento[]
-  multas   Multa[]
-  combustibles RegistroCombustible[]
 }
 
 // Un registro liviano por CADA DIA que un vehiculo sin autorizadoAreaC entra al
@@ -433,17 +437,17 @@ model Record {
   // momento dado (ver mancatoMatching.service.js). Null en los servicios historicos.
   fechaRetiro   DateTime?
 
-  descripcion  String
-  codigo       String       @unique
-  destinazione String
-  ciudad       String?
-  aplicativo   Aplicativo?
-  spedizzione  Spedizzione?
+  descripcion      String
+  codigo           String            @unique
+  destinazione     String
+  ciudad           String?
+  aplicativo       Aplicativo?
+  spedizzione      Spedizzione?
   extrasPiazzaZona ExtrasPiazzaZona?
 
   // Clave del sistema origen (ej. fila de una hoja de calculo sincronizada), para
   // poder re-sincronizar sin crear duplicados. Null en servicios cargados a mano.
-  origenExternoId String? @unique
+  origenExternoId     String? @unique
   // true si el ultimo intento de escritura/actualizacion en AppSheet (best-effort,
   // ver appsheetWriteback.service.js) fallo. Separado de origenExternoId==null porque
   // ese null tambien es el estado normal de servicios historicos que nunca debieron
@@ -465,9 +469,9 @@ model Record {
   rutaCalculadaAt DateTime?
 
   // Operativo: visible y editable por el propio CHOFER
-  horasDia         Float?
-  horasNoche       Float?
-  tiempoEspera     Float?
+  horasDia            Float?
+  horasNoche          Float?
+  tiempoEspera        Float?
   // Jornada que declara el chofer al cerrar el servicio (ver utils/workHours.js): de
   // inicio/fin/espera/pausa salen horasDia, horasNoche y tiempoEspera. Solo cuentan para el
   // pago cuando el responsable las aprueba (horasEstado = APROBADAS); si no hay horas
@@ -487,15 +491,15 @@ model Record {
   paradasCalculadasAt DateTime?
   // El chofer termino sin pasar por el lugar de espera (por ejemplo fue directo a casa): su fin es la
   // hora de llegada. La regla de pago lo topea a lo que habria tardado en volver desde su ultima entrega.
-  finFueraDeBase      Boolean   @default(false)
+  finFueraDeBase      Boolean      @default(false)
   // Lectura del GPS sobre el final de la jornada (ultimo movimiento del vehiculo, ultima entrega, tiempo
   // de vuelta al lugar de espera y tope). Solo fechas y duraciones: no guarda ubicaciones de fuera de la jornada.
   gpsFin              Json?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay
   // datos de GPS ni del vehiculo ni del celular. Ver rutaEstimada.service.js.
   estimacionRuta      Json?
-  comentarios      String?
-  kilometrosReales Float? // KM real cargado por el chofer, para comparar contra "kilometros" (planificado)
+  comentarios         String?
+  kilometrosReales    Float? // KM real cargado por el chofer, para comparar contra "kilometros" (planificado)
 
   // Economico: oculto para CHOFER, solo OWNER/ADMIN lo ven/editan
   kilometros                 Float?
@@ -521,8 +525,8 @@ model Record {
   // al servicio original. La continuacion no se factura ni cuenta como servicio nuevo: la plata del
   // cliente sigue en el original. traspasoHora = cuando el segundo chofer recibio el paquete.
   servicioOrigenId String?
-  servicioOrigen   Record?  @relation("Traspaso", fields: [servicioOrigenId], references: [id], onDelete: Cascade)
-  continuaciones   Record[] @relation("Traspaso")
+  servicioOrigen   Record?   @relation("Traspaso", fields: [servicioOrigenId], references: [id], onDelete: Cascade)
+  continuaciones   Record[]  @relation("Traspaso")
   traspasoHora     DateTime?
 
   files        RecordFile[]
@@ -624,19 +628,19 @@ model LocationPing {
 // solo, el grupo privado configurado en TELEGRAM_ALLOWED_CHAT_ID); se borra sola al
 // completarse o cancelarse el servicio, asi el proximo mensaje arranca de cero.
 model TelegramDraft {
-  id        String   @id @default(uuid())
-  chatId    String   @unique
+  id                   String   @id @default(uuid())
+  chatId               String   @unique
   // Historial de la conversacion para este borrador: [{role: "user"|"assistant", content}]
   // - se le reenvia entero a Claude en cada mensaje nuevo para que tenga el contexto
   // completo (paradas ya mencionadas, correcciones, etc.), no hace falta parsear "que
   // se sabe hasta ahora" a mano.
-  messages  Json
+  messages             Json
   // Si esta seteado, el servicio ya se creo y esta esperando UNICAMENTE el precio por
   // km como proximo mensaje (no pasa por Claude, se parsea como numero directo) - ver
   // handleIncomingTelegramMessage. Null en el resto de los casos (conversacion normal).
   pendingPriceRecordId String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
   @@map("telegram_drafts")
 }
@@ -670,36 +674,36 @@ enum MancatoTramo {
 // momento real en que se subio al sistema (no editable) y fueraDePlazo queda fijo al
 // crear: se subio cuando el plazo ya habia vencido.
 model MancatoPagamento {
-  id               String    @id @default(uuid())
-  numero           String    @unique
-  targa            String
-  vehicleId        String?
-  vehicle          Vehiculo? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  driverId         String?
-  driver           User?     @relation("MancatoChofer", fields: [driverId], references: [id], onDelete: SetNull)
-  createdById      String?
-  createdBy        User?     @relation("MancatoCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
-  fecha            DateTime  @db.Date
+  id                String            @id @default(uuid())
+  numero            String            @unique
+  targa             String
+  vehicleId         String?
+  vehicle           Vehiculo?         @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId          String?
+  driver            User?             @relation("MancatoChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById       String?
+  createdBy         User?             @relation("MancatoCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
+  fecha             DateTime          @db.Date
   // Dia y hora exactos del transito (los dice el aviso). "fecha" sigue siendo la que cuenta
   // para el plazo de pago; esta sirve para asignar el mancato al servicio correcto.
   fechaHoraTransito DateTime?
-  fechaVencimiento DateTime  @db.Date
-  costo            Decimal   @db.Decimal(10, 2)
-  sitioWeb         String?
-  fotoKey          String?
-  comprobanteKey   String?
-  comentarios      String?
-  pagado           Boolean   @default(false)
-  pagadoAt         DateTime?
-  fueraDePlazo     Boolean   @default(false)
+  fechaVencimiento  DateTime          @db.Date
+  costo             Decimal           @db.Decimal(10, 2)
+  sitioWeb          String?
+  fotoKey           String?
+  comprobanteKey    String?
+  comentarios       String?
+  pagado            Boolean           @default(false)
+  pagadoAt          DateTime?
+  fueraDePlazo      Boolean           @default(false)
   // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
   recordId          String?
   record            Record?           @relation(fields: [recordId], references: [id], onDelete: SetNull)
   asignacion        MancatoAsignacion @default(EN_ESPERA)
   tramo             MancatoTramo?
   asignacionMotivo  String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   @@index([pagado, fechaVencimiento])
   @@index([driverId])
@@ -722,38 +726,38 @@ enum QuienPagaMulta {
 // carga a mano; por defecto recepcion + 60 dias). quienPaga dice si el chofer pago la multa
 // el mismo o si la pago la empresa y hay que descontarsela (descontado marca que ya se hizo).
 model Multa {
-  id               String         @id @default(uuid())
-  numeroVerbale    String         @unique
-  targa            String
-  vehicleId        String?
-  vehicle          Vehiculo?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  driverId         String?
-  driver           User?          @relation("MultaChofer", fields: [driverId], references: [id], onDelete: SetNull)
-  createdById      String?
-  createdBy        User?          @relation("MultaCreadaPor", fields: [createdById], references: [id], onDelete: SetNull)
+  id                   String         @id @default(uuid())
+  numeroVerbale        String         @unique
+  targa                String
+  vehicleId            String?
+  vehicle              Vehiculo?      @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId             String?
+  driver               User?          @relation("MultaChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById          String?
+  createdBy            User?          @relation("MultaCreadaPor", fields: [createdById], references: [id], onDelete: SetNull)
   // Dia en que se cometio la infraccion (opcional): sirve para saber quien llevaba el
   // vehiculo ese dia, cruzando con Registros.
-  fechaInfraccion  DateTime?      @db.Date
-  fechaRecepcion   DateTime       @db.Date
-  fechaVencimiento DateTime       @db.Date
-  costo            Decimal        @db.Decimal(10, 2)
-  quienPaga        QuienPagaMulta
-  descontado       Boolean        @default(false)
-  descontadoAt     DateTime?
-  comentarios      String?
-  multaKey         String?
-  comprobanteKey   String?
+  fechaInfraccion      DateTime?      @db.Date
+  fechaRecepcion       DateTime       @db.Date
+  fechaVencimiento     DateTime       @db.Date
+  costo                Decimal        @db.Decimal(10, 2)
+  quienPaga            QuienPagaMulta
+  descontado           Boolean        @default(false)
+  descontadoAt         DateTime?
+  comentarios          String?
+  multaKey             String?
+  comprobanteKey       String?
   // Comprobante que sube el chofer cuando la multa la paga el: no la deja pagada, la oficina lo
   // confirma. comprobanteChoferAt marca "enviado y por confirmar" (se borra al confirmar o reabrir).
   comprobanteChoferKey String?
   comprobanteChoferAt  DateTime?
   // Area de servicio a la que se imputa (misma clave que User.areasPermitidas). Sin area, solo la
   // ven los Admin.
-  area             String?
-  pagado           Boolean        @default(false)
-  pagadoAt         DateTime?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
+  area                 String?
+  pagado               Boolean        @default(false)
+  pagadoAt             DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 
   @@index([pagado, fechaVencimiento])
   @@index([driverId])
@@ -787,29 +791,29 @@ enum CombustibleAsignacion {
 // (o un OWNER/ADMIN a nombre de uno). createdAt es el momento real de registro (no
 // editable) y marca la ventana en la que el chofer todavia puede corregirlo.
 model RegistroCombustible {
-  id             String          @id @default(uuid())
-  targa          String
-  vehicleId      String?
-  vehicle        Vehiculo?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  driverId       String?
-  driver         User?           @relation("CombustibleChofer", fields: [driverId], references: [id], onDelete: SetNull)
-  createdById    String?
-  createdBy      User?           @relation("CombustibleCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
-  fecha          DateTime        @db.Date
+  id               String                @id @default(uuid())
+  targa            String
+  vehicleId        String?
+  vehicle          Vehiculo?             @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  driverId         String?
+  driver           User?                 @relation("CombustibleChofer", fields: [driverId], references: [id], onDelete: SetNull)
+  createdById      String?
+  createdBy        User?                 @relation("CombustibleCreadoPor", fields: [createdById], references: [id], onDelete: SetNull)
+  fecha            DateTime              @db.Date
   // Dia y hora exactos de la carga (hora de Roma): sirve para asignarla al servicio correcto.
-  fechaHora      DateTime?
-  monto          Decimal         @db.Decimal(10, 2)
-  metodo         String
-  area           AreaCombustible
-  comprobanteKey String?
+  fechaHora        DateTime?
+  monto            Decimal               @db.Decimal(10, 2)
+  metodo           String
+  area             AreaCombustible
+  comprobanteKey   String?
   // Servicio al que se imputa (ver combustibleMatching.service.js). Un comprobante pertenece a
   // un solo servicio; el costo de combustible del servicio es la suma de sus comprobantes.
   recordId         String?
   record           Record?               @relation(fields: [recordId], references: [id], onDelete: SetNull)
   asignacion       CombustibleAsignacion @default(EN_ESPERA)
   asignacionMotivo String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([fecha])
   @@index([driverId, fecha])
@@ -844,11 +848,11 @@ model Permiso {
   driverId String
   driver   User   @relation("PermisoChofer", fields: [driverId], references: [id], onDelete: Cascade)
 
-  tipo        PermisoTipo   @default(PERMISO)
-  fechaDesde  DateTime      @db.Date
-  fechaHasta  DateTime      @db.Date
-  motivo      String
-  estado      PermisoEstado @default(PENDIENTE)
+  tipo       PermisoTipo   @default(PERMISO)
+  fechaDesde DateTime      @db.Date
+  fechaHasta DateTime      @db.Date
+  motivo     String
+  estado     PermisoEstado @default(PENDIENTE)
 
   // Fecha y hora exactas de la solicitud: la pone el servidor, nunca se edita (para cambiar algo
   // se cancela y se pide de nuevo). Con esto se sabe si el permiso se aviso con anticipacion.
@@ -875,4 +879,48 @@ model Configuracion {
   updatedAt DateTime @updatedAt
 
   @@map("configuracion")
+}
+
+// Busta paga (recibo de sueldo) de un chofer, cargada por Recursos Humanos. El PDF vive en el bucket
+// privado y solo se abre con URL firmada corta. Para verla, el chofer firma a mano en el celular: la
+// firma, la hora del servidor, el dispositivo y la huella (SHA-256) del archivo quedan como comprobante
+// de recepcion. Una por chofer y mes; una vez firmada ya no se puede reemplazar.
+model BustaPaga {
+  id               String    @id @default(uuid())
+  choferId         String
+  chofer           User      @relation("BustaPagaChofer", fields: [choferId], references: [id], onDelete: Restrict)
+  anio             Int
+  mes              Int
+  archivoKey       String
+  archivoHash      String
+  nombreArchivo    String?
+  subidaPorId      String
+  subidaPor        User      @relation("BustaPagaSubidaPor", fields: [subidaPorId], references: [id], onDelete: Restrict)
+  firmadaAt        DateTime?
+  firmaKey         String?
+  firmaIp          String?
+  firmaDispositivo String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  accesos BustaPagaAcceso[]
+
+  @@unique([choferId, anio, mes])
+  @@index([choferId, anio, mes])
+  @@map("busta_paga")
+}
+
+// Registro de quien hizo que con cada busta paga (subida, firma, vista, descarga, reemplazo).
+model BustaPagaAcceso {
+  id          String    @id @default(uuid())
+  bustaPagaId String
+  bustaPaga   BustaPaga @relation(fields: [bustaPagaId], references: [id], onDelete: Cascade)
+  usuarioId   String
+  accion      String
+  ip          String?
+  dispositivo String?
+  createdAt   DateTime  @default(now())
+
+  @@index([bustaPagaId, createdAt])
+  @@map("busta_paga_accesos")
 }

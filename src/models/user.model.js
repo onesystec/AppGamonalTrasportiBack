@@ -75,8 +75,9 @@ export const findUserByIdForAuth = async (id) => {
   return user ? { ...user } : user;
 };
 
-export const findAllUsers = () =>
+export const findAllUsers = (cargo) =>
   prisma.user.findMany({
+    where: cargo ? { cargo } : undefined,
     select: SAFE_USER_SELECT,
     orderBy: { createdAt: "desc" },
   });

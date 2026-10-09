@@ -40,7 +40,7 @@ const router = Router();
 
 router.use(authenticate);
 
-router.get("/", authorize("OWNER", "ADMIN"), list);
+router.get("/", authorize("OWNER", "ADMIN", "RRHH"), list);
 
 // Rutas especificas de ubicacion: deben ir antes de "/:id" para que Express no las
 // confunda con el parametro dinamico (ej. GET /ubicaciones no debe matchear GET /:id).
@@ -75,7 +75,7 @@ router.post("/location-pings/cleanup", authorize("OWNER"), cleanupLocationPingsH
 router.get(
   "/:id",
   validate(idParamSchema, "params"),
-  authorizeSelfOrRoles("OWNER", "ADMIN"),
+  authorizeSelfOrRoles("OWNER", "ADMIN", "RRHH"),
   getById
 );
 
@@ -96,12 +96,12 @@ router.get(
   getRouteHistoryHandler
 );
 
-router.post("/", authorize("OWNER", "ADMIN"), validate(createUserSchema), create);
+router.post("/", authorize("OWNER", "ADMIN", "RRHH"), validate(createUserSchema), create);
 
 router.patch(
   "/:id",
   validate(idParamSchema, "params"),
-  authorizeSelfOrRoles("OWNER", "ADMIN"),
+  authorizeSelfOrRoles("OWNER", "ADMIN", "RRHH"),
   validate(updateUserSchema),
   update
 );
@@ -116,7 +116,7 @@ router.delete(
 router.post(
   "/:id/avatar",
   validate(idParamSchema, "params"),
-  authorizeSelfOrRoles("OWNER", "ADMIN"),
+  authorizeSelfOrRoles("OWNER", "ADMIN", "RRHH"),
   userAvatarUpload.single("imagen"),
   uploadAvatar
 );

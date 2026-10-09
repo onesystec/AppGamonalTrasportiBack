@@ -27,14 +27,31 @@ import { compressAvatar } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
 import { RESPONSABLE_PRESETS } from "../constants/areas.js";
 import { hashPassword } from "../utils/password.js";
+import { hasBustasPaga } from "./bustaPaga.service.js";
 
 // Solo un Admin (OWNER) puede crear o ascender a otro usuario a Admin o Responsable; evita que un
 // Responsable se autoascienda o cree otros con mas acceso.
 const assertCanAssignCargo = (actor, cargo) => {
-  if ((cargo === "OWNER" || cargo === "ADMIN") && actor.cargo !== "OWNER") {
-    throw new AppError("Solo un Admin puede asignar los cargos Admin o Responsable", 403);
+  if ((cargo === "OWNER" || cargo === "ADMIN" || cargo === "RRHH") && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede asignar los cargos Admin, Responsable o Recursos Humanos", 403);
   }
 };
+
+// Recursos Humanos gestiona la ficha de los choferes (datos personales, estado, vehiculo asignado),
+// pero no su cargo, nivel, areas, contrasena ni nada operativo.
+const RRHH_EDITABLE_FIELDS = [
+  "nombre",
+  "apellido",
+  "fechaNacimiento",
+  "numeroCelular",
+  "correoElectronico",
+  "direccion",
+  "contactoEmergenciaNombre",
+  "contactoEmergenciaParentesco",
+  "contactoEmergenciaTelefono",
+  "estado",
+  "vehiculoAsignadoId",
+];
 
 const sameAreas = (a = [], b = []) => a.length === b.length && a.every((key) => b.includes(key));
 
@@ -91,20 +108,27 @@ export const toUserResponse = async (user) => {
   };
 };
 
-export const listUsers = async () => {
-  const users = await findAllUsers();
+export const listUsers = async (actor) => {
+  // Recursos Humanos solo ve a los choferes.
+  const users = await findAllUsers(actor?.cargo === "RRHH" ? "CHOFER" : undefined);
   return Promise.all(users.map(toUserResponse));
 };
 
-export const getUserById = async (id) => {
+export const getUserById = async (actor, id) => {
   const user = await findUserById(id);
   if (!user) {
     throw new AppError("Usuario no encontrado", 404);
+  }
+  if (actor?.cargo === "RRHH" && actor.id !== id && user.cargo !== "CHOFER") {
+    throw new AppError("No tienes permisos para realizar esta accion", 403);
   }
   return toUserResponse(user);
 };
 
 export const createUser = async (actor, data) => {
+  if (actor.cargo === "RRHH" && data.cargo !== "CHOFER") {
+    throw new AppError("Recursos Humanos solo puede dar de alta choferes", 403);
+  }
   assertCanAssignCargo(actor, data.cargo);
   const normalized = normalizeResponsableFields(actor, data, null);
 
@@ -131,6 +155,16 @@ export const updateUser = async (actor, targetId, data) => {
   // Un Responsable gestiona choferes: no toca a los Admin ni a otros Responsables.
   if (actor.cargo === "ADMIN" && !isSelf && target.cargo !== "CHOFER") {
     throw new AppError("No puedes modificar a un Admin ni a otro Responsable", 403);
+  }
+
+  if (actor.cargo === "RRHH" && !isSelf) {
+    if (target.cargo !== "CHOFER") {
+      throw new AppError("Recursos Humanos solo puede modificar choferes", 403);
+    }
+    const forbidden = Object.keys(data).filter((key) => !RRHH_EDITABLE_FIELDS.includes(key));
+    if (forbidden.length > 0) {
+      throw new AppError(`Recursos Humanos no puede modificar: ${forbidden.join(", ")}`, 403);
+    }
   }
 
   if (isSelf && !isPrivileged) {
@@ -162,10 +196,13 @@ export const updateUser = async (actor, targetId, data) => {
   return toUserResponse(updated);
 };
 
-export const uploadUserAvatar = async (targetId, file) => {
+export const uploadUserAvatar = async (actor, targetId, file) => {
   const user = await findUserById(targetId);
   if (!user) {
     throw new AppError("Usuario no encontrado", 404);
+  }
+  if (actor.cargo === "RRHH" && actor.id !== targetId && user.cargo !== "CHOFER") {
+    throw new AppError("No tienes permisos para realizar esta accion", 403);
   }
 
   const buffer = await compressAvatar(file.buffer);
@@ -384,6 +421,10 @@ export const deleteUser = async (actor, targetId) => {
   }
   if (actor.cargo === "ADMIN" && user.cargo !== "CHOFER") {
     throw new AppError("No puedes eliminar a un Admin ni a otro Responsable", 403);
+  }
+  // Las busta paga se conservan: un chofer que tiene alguna no se elimina, se desactiva.
+  if (await hasBustasPaga(targetId)) {
+    throw new AppError("Este chofer tiene busta paga guardadas y no se puede eliminar. Desactivalo en su lugar", 409);
   }
 
   // Se borran los objetos de R2 antes de la fila: el ON DELETE CASCADE limpia la tabla
