@@ -1,3 +1,4 @@
+import { VIAJES_DESDE_DATE } from "../config/viajes.js";
 import { prisma } from "../config/prisma.js";
 
 // Servicios que todavia se pueden compactar en un viaje: abiertos (aun no terminados).
@@ -8,7 +9,12 @@ export const findCompactableRecords = ({ spedizzioneFilter, limit = 60 } = {}) =
   prisma.record.findMany({
     // Incluye la continuacion de un traspaso (el servicio que recibe otro chofer): se puede llevar junto con
     // los servicios propios de ese chofer.
-    where: { estado: { in: OPEN_STATES }, compactadoId: null, ...(spedizzioneFilter ?? {}) },
+    where: {
+      estado: { in: OPEN_STATES },
+      compactadoId: null,
+      fechaServicio: { gte: VIAJES_DESDE_DATE },
+      ...(spedizzioneFilter ?? {}),
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
     select: {
@@ -39,6 +45,7 @@ export const findRecordsForCompact = (ids) =>
       codigo: true,
       estado: true,
       eta: true,
+      fechaServicio: true,
       driverId: true,
       vehicleId: true,
       spedizzione: true,

@@ -7,6 +7,7 @@ import {
   findGroupMembers,
   findRecordsForCompact,
 } from "../models/compactado.model.js";
+import { VIAJES_DESDE, viajesAplican } from "../config/viajes.js";
 import { AppError } from "../utils/AppError.js";
 import { toServicio } from "./compactadoView.service.js";
 import { spedizzioneFilterForActor, assertAccess } from "./record.service.js";
@@ -60,6 +61,9 @@ const loadForCompact = async (actor, ids, groupId = null) => {
 
   for (const r of ordered) {
     assertAccess(actor, r);
+    if (!viajesAplican(r.fechaServicio)) {
+      throw new AppError(`${r.codigo}: los viajes compactos aplican a servicios desde el ${VIAJES_DESDE.split("-").reverse().join("/")}`, 409);
+    }
     if (!OPEN_STATES.includes(r.estado)) {
       throw new AppError(`${r.codigo}: solo se pueden compactar servicios abiertos (en suspenso, en camino o retirado)`, 409);
     }

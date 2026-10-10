@@ -1,3 +1,4 @@
+import { viajesAplican } from "../config/viajes.js";
 import { PAYABLE_STATUSES, tariffForDisplay, tariffForMonth } from "../config/payRates.js";
 import {
   findCombustibleLite,
@@ -58,7 +59,8 @@ const numberOr0 = (value) => (typeof value === "number" && Number.isFinite(value
 // Servicio que cambio de manos (traspaso entre choferes): el que entrego su paquete a otro chofer o el que lo recibio.
 // Sus km planificados o los de su ruta son los del servicio ENTERO (por ejemplo Milano - Napoli), no los que
 // hizo cada chofer.
-const enTraspaso = (record) => Boolean(record.servicioOrigenId) || (record._count?.continuaciones ?? 0) > 0;
+const enTraspaso = (record) =>
+  viajesAplican(record.fechaServicio) && (Boolean(record.servicioOrigenId) || (record._count?.continuaciones ?? 0) > 0);
 
 const ROME_WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 const romeWeekday = (date) =>
@@ -189,7 +191,7 @@ const kmOfRecord = (r) =>
 export const buildViajeContext = (records) => {
   const byGroup = new Map();
   for (const r of records) {
-    if (!r.compactadoId) continue;
+    if (!r.compactadoId || !viajesAplican(r.fechaServicio)) continue;
     if (!byGroup.has(r.compactadoId)) byGroup.set(r.compactadoId, []);
     byGroup.get(r.compactadoId).push(r);
   }
