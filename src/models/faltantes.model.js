@@ -58,3 +58,37 @@ export const findRecordsToRemind = ({ gte, lt }) =>
 
 export const markRemindedByIds = (ids) =>
   prisma.record.updateMany({ where: { id: { in: ids } }, data: { faltantesAvisadoAt: new Date() } });
+
+// Servicios terminados de uno o de todos los choferes activos desde una fecha, con lo necesario para saber que peajes
+// o combustible les falta sustentar (ver countUnsupported en faltantes.service.js).
+export const findRecordsForUnsupported = ({ gte, lt, driverId }) =>
+  prisma.record.findMany({
+    where: {
+      estado: { in: FALTANTES_ESTADOS },
+      fechaServicio: { gte, lt },
+      faltantesExcepcion: false,
+      ...(driverId ? { driverId } : { driver: { estado: "ACTIVO" } }),
+    },
+    select: {
+      id: true,
+      codigo: true,
+      driverId: true,
+      estado: true,
+      fechaServicio: true,
+      horaFinReal: true,
+      eta: true,
+      kilometrosReales: true,
+      kilometros: true,
+      spedizzione: true,
+      rutaDistanciaKm: true,
+      sinPeajeIda: true,
+      sinPeajeVuelta: true,
+      sinCombustible: true,
+      vehicleId: true,
+      compactadoId: true,
+      compactadoOrden: true,
+      vehicle: { select: { categoria: true } },
+      mancatos: { select: { tramo: true } },
+      combustibles: { select: { id: true } },
+    },
+  });

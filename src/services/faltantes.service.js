@@ -1,5 +1,5 @@
 import { FALTANTES_DESDE } from "../config/faltantes.js";
-import { findFinishedForVehicles, findFuelForVehicles, findRecordsToRemind, markRemindedByIds } from "../models/faltantes.model.js";
+import { findFinishedForVehicles, findFuelForVehicles, findRecordsForUnsupported } from "../models/faltantes.model.js";
 import { groupMancatosByRecord } from "../models/mancato.model.js";
 import { attachCompactados } from "./compactadoView.service.js";
 import { computeFaltantes, estimateLiters, isEvaluable, romeDay } from "../utils/faltantes.js";
@@ -78,36 +78,52 @@ export const attachFaltantes = async (records) => {
   return records;
 };
 
-// ---------------------------------------------------------------- aviso al chofer
+// ---------------------------------------------------------------- registros sin sustentar
 
-const REMIND_AFTER_MS = 24 * 60 * 60 * 1000;
-
-// Un servicio terminado que lleva mas de 24 horas con faltantes: se avisa una sola vez por servicio, con
-// un solo mensaje por chofer. Devuelve cuantos servicios y choferes se avisaron.
-export const remindDriversOfFaltantes = async () => {
+// Registros que le faltan sustentar a cada chofer: los peajes de ida y de vuelta y el combustible de sus servicios ya
+// hechos que nadie subio ni declaro ("no tuve mancato", "no fue necesario"). Cuenta cada uno de esos faltantes; en un
+// viaje compacto los lleva el servicio principal. `olderThanMs` deja afuera lo muy reciente (para el aviso push).
+// Devuelve Map(driverId -> { registros, servicios }).
+export const countUnsupported = async ({ driverId, olderThanMs = 0 } = {}) => {
   const since = new Date(`${FALTANTES_DESDE}T00:00:00Z`);
-  const records = await findRecordsToRemind({ gte: new Date(since.getTime() - DAY_MS), lt: new Date(Date.now() + DAY_MS) });
+  const records = await findRecordsForUnsupported({
+    gte: new Date(since.getTime() - DAY_MS),
+    lt: new Date(Date.now() + DAY_MS),
+    driverId,
+  });
   await attachFaltantes(records);
 
   const byDriver = new Map();
   for (const record of records) {
     const endedAt = new Date(record.horaFinReal ?? record.eta ?? record.fechaServicio).getTime();
-    if (Date.now() - endedAt < REMIND_AFTER_MS) continue;
-    const faltantes = computeFaltantes(record, record.faltantesCounts, record.faltantesDay);
-    if (faltantes.pendientes === 0) continue;
-    const list = byDriver.get(record.driverId) ?? [];
-    list.push(record);
-    byDriver.set(record.driverId, list);
+    if (Date.now() - endedAt < olderThanMs) continue;
+    const { pendientes } = computeFaltantes(record, record.faltantesCounts, record.faltantesDay);
+    if (pendientes === 0) continue;
+    const entry = byDriver.get(record.driverId) ?? { registros: 0, servicios: 0 };
+    entry.registros += pendientes;
+    entry.servicios += 1;
+    byDriver.set(record.driverId, entry);
   }
+  return byDriver;
+};
 
-  for (const [driverId, list] of byDriver) {
-    const n = list.length;
+export const countUnsupportedForDriver = async (driverId) =>
+  (await countUnsupported({ driverId })).get(driverId) ?? { registros: 0, servicios: 0 };
+
+// ---------------------------------------------------------------- aviso al chofer
+
+const REMIND_AFTER_MS = 24 * 60 * 60 * 1000;
+
+// Aviso push a cada chofer con registros sin sustentar de servicios que terminaron hace mas de un dia: cuantos le
+// faltan y que, si no los sustenta, puede haber descuentos no esperados en su pago mensual. Un solo mensaje por chofer.
+export const remindDriversOfFaltantes = async () => {
+  const byDriver = await countUnsupported({ olderThanMs: REMIND_AFTER_MS });
+  for (const [driverId, { registros }] of byDriver) {
     await sendPushToUserIds([driverId], {
-      title: "Servicios con peajes o carburante sin declarar",
-      body: `Tienes ${n} servicio${n === 1 ? "" : "s"} sin declarar peajes o carburante. Subelos o activa el switch si no hubo.`,
+      title: `Te ${registros === 1 ? "falta 1 registro" : `faltan ${registros} registros`} por sustentar`,
+      body: `Tienes ${registros} ${registros === 1 ? "registro" : "registros"} de peajes o carburante sin sustentar. Sube el comprobante o activa el switch si no hubo. Si no los sustentas, pueden aparecer descuentos no esperados en tu pago mensual.`,
       data: { type: "faltantes" },
     }).catch(() => {});
-    await markRemindedByIds(list.map((r) => r.id));
   }
-  return { servicios: [...byDriver.values()].reduce((sum, l) => sum + l.length, 0), choferes: byDriver.size };
+  return { choferes: byDriver.size, registros: [...byDriver.values()].reduce((sum, e) => sum + e.registros, 0) };
 };

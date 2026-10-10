@@ -56,19 +56,22 @@ export const startRetentionScheduler = () => {
   setInterval(tick, CHECK_EVERY_MS).unref();
 };
 
-// Recordatorio a los choferes con servicios que llevan mas de un dia sin declarar peajes o carburante. Una vez
-// por hora en horario de trabajo (8 a 19, hora de Roma); cada servicio se avisa una sola vez. Como la limpieza,
-// no corre en desarrollo para no mandar avisos reales desde un servidor local.
+// Aviso diario a los choferes con registros sin sustentar (peajes o carburante de servicios que terminaron hace mas de
+// un dia): cuantos les faltan y que pueden haber descuentos en el pago mensual. Una vez al dia, a las 12:00 de Roma. Como
+// la limpieza, no corre en desarrollo para no mandar avisos reales desde un servidor local.
 export const startFaltantesReminder = () => {
   if (env.NODE_ENV !== "production") return;
 
+  let lastRunAt = 0;
+
   const tick = async () => {
-    const hour = romeHour();
-    if (hour < 8 || hour >= 19) return;
+    if (romeHour() !== RUN_HOUR_ROME) return;
+    if (Date.now() - lastRunAt < MIN_GAP_MS) return;
+    lastRunAt = Date.now();
     try {
       const result = await remindDriversOfFaltantes();
       if (result.choferes > 0) {
-        console.log(`[faltantes] avisos enviados: ${result.choferes} choferes, ${result.servicios} servicios`);
+        console.log(`[faltantes] avisos enviados: ${result.choferes} choferes, ${result.registros} registros sin sustentar`);
       }
     } catch (err) {
       console.error("[faltantes] fallo el recordatorio:", err.message);

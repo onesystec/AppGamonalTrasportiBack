@@ -20,6 +20,7 @@ import {
   updateDeclaracionesForActor,
   updateRecordForActor,
 } from "../services/record.service.js";
+import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { cachedResponse } from "../utils/responseCache.js";
@@ -149,6 +150,12 @@ export const compactar = asyncHandler(async (req, res) => {
 export const reordenarCompactado = asyncHandler(async (req, res) => {
   const viaje = await reordenarForActor(req.user, req.params.compactadoId, req.body.recordIds);
   res.status(200).json({ success: true, data: { viaje } });
+});
+
+// Registros sin sustentar del propio chofer (peajes y carburante de sus servicios hechos): para el dashboard.
+export const sinSustentar = asyncHandler(async (req, res) => {
+  const { registros, servicios } = await countUnsupportedForDriver(req.user.id);
+  res.status(200).json({ success: true, data: { registros, servicios } });
 });
 
 export const ajustarKmViaje = asyncHandler(async (req, res) => {

@@ -210,7 +210,13 @@ export const buildViajeContext = (records) => {
       sinReparto && numberOr0(principal.kilometrosReales) > 0
         ? principal.kilometrosReales
         : members.reduce((sum, m) => sum + (typeof m.kilometrosReales === "number" ? m.kilometrosReales : kmOfRecord(m)), 0);
-    ctx.set(principal.compactadoId, { principalId: principal.id, principalCodigo: principal.codigo, km, servicios: members.length });
+    ctx.set(principal.compactadoId, {
+      principalId: principal.id,
+      principalCodigo: principal.codigo,
+      principalHorasEstado: principal.horasEstado ?? null,
+      km,
+      servicios: members.length,
+    });
   }
   return ctx;
 };
@@ -232,6 +238,9 @@ const includedPay = (record, viaje) => ({
   total: 0,
   incluidoEnViaje: true,
   viajeCodigo: viaje.principalCodigo,
+  // Las horas del viaje viven en el servicio principal: su id y el estado de esas horas.
+  viajeId: viaje.principalId,
+  viajeHorasEstado: viaje.principalHorasEstado,
 });
 
 // Pago de un servicio teniendo en cuenta su viaje compacto (si lo tiene).
@@ -414,7 +423,8 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     label: MONTH_LABELS[Number(key.slice(5, 7)) - 1],
     combustible: round2(b.combustible + b.combustibleEstimado),
     gastosServicios: privileged ? round2(b.gastos) : 0,
-    pagoChoferes: finishPay(b.pago).total,
+    // El chofer no ve importes de pago (ver redactPagosForChofer).
+    pagoChoferes: privileged ? finishPay(b.pago).total : null,
   }));
 
   const rec = mancato.recomendacion;
@@ -549,7 +559,9 @@ export const getFinanzasResumenForActor = async (actor, query) => {
             deltaPct: pctChange(gastosMes, round2(prevSame.gastos)),
           }
         : null,
-      pagoChoferes: { ...pagoMes, deltaPct: pctChange(pagoMes.total, prevPago.total) },
+      pagoChoferes: privileged
+        ? { ...pagoMes, deltaPct: pctChange(pagoMes.total, prevPago.total) }
+        : { servicios: pagoMes.servicios },
     },
     serie,
     atencion,
@@ -573,6 +585,20 @@ const serviceItem = (record, pay) => ({
   incluidoEnViaje: pay.incluidoEnViaje ?? false,
   viajeCodigo: pay.viajeCodigo ?? null,
   viajeServicios: pay.viajeServicios ?? null,
+});
+
+// El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
+// los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
+const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto"];
+const withoutMoney = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
+const redactPagosForChofer = (result) => ({
+  month: result.month,
+  mesLabel: result.mesLabel,
+  // Solo lo que hace falta para repartir una jornada entre horas de dia y de noche, sin tarifas.
+  reglas: { banda: result.reglas.banda, redondeoHoras: result.reglas.redondeoHoras },
+  total: { servicios: result.total.servicios, choferes: result.total.choferes },
+  porChofer: result.porChofer.map(withoutMoney),
+  servicios: result.servicios?.map(withoutMoney) ?? null,
 });
 
 export const getPagosChoferesForActor = async (actor, query) => {
@@ -666,7 +692,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     .sort((a, b) => b.total - a.total);
 
   const showItems = !privileged || Boolean(driverId);
-  return {
+  const result = {
     month,
     mesLabel: monthLabel(month),
     reglas: tariffForDisplay(month),
@@ -676,6 +702,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
       ? records.map((r) => serviceItem(r, payOf(r, viajes))).sort((a, b) => b.fecha - a.fecha)
       : null,
   };
+  return privileged ? result : redactPagosForChofer(result);
 };
 
 // ---------------------------------------------------------------- detalle: gastos de servicios

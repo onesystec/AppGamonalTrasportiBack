@@ -13,6 +13,7 @@ import {
   listSummaryByMonth,
   listByYear,
   ajustarKmViaje,
+  sinSustentar,
   listCompactables,
   listSyncFailures,
   remove,
@@ -53,6 +54,7 @@ router.get("/", list);
 // igual deben registrarse antes de "/:id" (mas abajo) para no chocar con el UUID.
 router.get("/pending", listPending);
 router.get("/search", search);
+router.get("/sin-sustentar", sinSustentar);
 // Servicios compactados (varios servicios de un chofer en un solo viaje): solo Admin/Responsable.
 router.get("/sync-fallidos", authorize("OWNER", "ADMIN"), listSyncFailures);
 router.get("/compactar/sugerencias", authorize("OWNER", "ADMIN"), listCompactables);
