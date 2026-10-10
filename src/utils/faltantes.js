@@ -5,11 +5,15 @@ import {
   LITROS_MINIMOS_PARA_EXIGIR_COMBUSTIBLE,
 } from "../config/faltantes.js";
 
-const romeDay = (date) => new Date(date).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+export const romeDay = (date) => new Date(date).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const round1 = (value) => Math.round(value * 10) / 10;
 
 // Km del servicio: los que reporto el chofer, si no los del servicio y, de ultima, los de la ruta.
-const serviceKm = (record) => record.kilometrosReales || record.kilometros || record.rutaDistanciaKm || 0;
+export const serviceKm = (record) => record.kilometrosReales || record.kilometros || record.rutaDistanciaKm || 0;
+
+// El servicio se evalua solo cuando ya termino y es de la fecha de corte en adelante.
+export const isEvaluable = (record) =>
+  FALTANTES_ESTADOS.includes(record.estado) && romeDay(record.fechaServicio) >= FALTANTES_DESDE;
 
 // Litros estimados para los km del servicio (rango minimo-maximo y medio) segun la categoria del vehiculo.
 export const estimateLiters = (record) => {
@@ -24,7 +28,12 @@ export const estimateLiters = (record) => {
 // Un servicio sin peaje de un tramo / sin combustible esta "pendiente" hasta que haya un registro asignado
 // o el chofer declare que no corresponde. "counts" trae los registros asignados cuando el servicio viene de
 // un listado (sin las listas completas): { mancatoIda, mancatoVuelta, mancatoSinTramo, combustibles }.
-export const computeFaltantes = (record, counts = {}) => {
+//
+// El combustible se evalua por vehiculo y dia ("day"): se suman los litros estimados de todos los servicios
+// que el vehiculo hizo ese dia, y basta UN comprobante del vehiculo ese dia, o UNA declaracion "no fue
+// necesario" en cualquiera de sus servicios, para que ninguno quede pendiente. Sin "day" (contexto no
+// cargado) se evalua solo el servicio.
+export const computeFaltantes = (record, counts = {}, day = null) => {
   const mancatos = record.mancatos;
   let ida = mancatos ? mancatos.filter((m) => m.tramo === "IDA").length : (counts.mancatoIda ?? 0);
   let vuelta = mancatos ? mancatos.filter((m) => m.tramo === "VUELTA").length : (counts.mancatoVuelta ?? 0);
@@ -35,15 +44,22 @@ export const computeFaltantes = (record, counts = {}) => {
     else vuelta += 1;
     sinTramo -= 1;
   }
-  const fuelCount = record.combustibles ? record.combustibles.length : (counts.combustibles ?? record.fuelCount ?? 0);
+  const ownFuel = record.combustibles ? record.combustibles.length : (counts.combustibles ?? record.fuelCount ?? 0);
 
-  const aplica = FALTANTES_ESTADOS.includes(record.estado) && romeDay(record.fechaServicio) >= FALTANTES_DESDE;
-  const litros = estimateLiters(record);
-  const exigeCombustible = Boolean(litros && litros.medio >= LITROS_MINIMOS_PARA_EXIGIR_COMBUSTIBLE);
+  const aplica = isEvaluable(record);
+  const own = estimateLiters(record);
+  const dayLiters = day ? day.litros : (own?.medio ?? 0);
+  const exigeCombustible = dayLiters >= LITROS_MINIMOS_PARA_EXIGIR_COMBUSTIBLE;
+  const combustibleCubierto = ownFuel > 0 || (day?.comprobantes ?? 0) > 0 || Boolean(record.sinCombustible) || Boolean(day?.declarado);
 
-  const faltaIda = aplica && ida === 0 && !record.sinPeajeIda;
-  const faltaVuelta = aplica && vuelta === 0 && !record.sinPeajeVuelta;
-  const faltaCombustible = aplica && exigeCombustible && fuelCount === 0 && !record.sinCombustible;
+  const excepcion = record.faltantesExcepcion
+    ? { nota: record.faltantesExcepcionNota ?? "", por: record.faltantesExcepcionPor ?? null, at: record.faltantesExcepcionAt ?? null }
+    : null;
+
+  const exigible = aplica && !excepcion;
+  const faltaIda = exigible && ida === 0 && !record.sinPeajeIda;
+  const faltaVuelta = exigible && vuelta === 0 && !record.sinPeajeVuelta;
+  const faltaCombustible = exigible && exigeCombustible && !combustibleCubierto;
 
   return {
     aplica,
@@ -51,9 +67,13 @@ export const computeFaltantes = (record, counts = {}) => {
     vuelta: faltaVuelta,
     combustible: faltaCombustible,
     pendientes: [faltaIda, faltaVuelta, faltaCombustible].filter(Boolean).length,
-    // Datos para mostrar por que se exige (o no) el combustible.
     exigeCombustible,
-    litrosEstimados: litros,
+    litrosEstimados: own,
+    // Lo que se suma entre todos los servicios del vehiculo ese dia (null si no se pudo cargar).
+    combustibleDia: day
+      ? { litros: round1(day.litros), servicios: day.servicios, comprobantes: day.comprobantes, declarado: day.declarado }
+      : null,
+    excepcion,
     declarado: {
       sinPeajeIda: Boolean(record.sinPeajeIda),
       sinPeajeVuelta: Boolean(record.sinPeajeVuelta),

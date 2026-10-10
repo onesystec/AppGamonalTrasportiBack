@@ -528,9 +528,16 @@ model Record {
 
   // Declaraciones del chofer sobre gastos del servicio: si no uso peaje de ida/vuelta o no hizo falta
   // cargar combustible, el servicio no queda en rojo por eso (ver utils/faltantes.js).
-  sinPeajeIda    Boolean @default(false)
-  sinPeajeVuelta Boolean @default(false)
-  sinCombustible Boolean @default(false)
+  sinPeajeIda            Boolean   @default(false)
+  sinPeajeVuelta         Boolean   @default(false)
+  sinCombustible         Boolean   @default(false)
+  // Aviso push al chofer cuando el servicio sigue con faltantes pasadas 24 horas (una sola vez).
+  faltantesAvisadoAt     DateTime?
+  // Excepcion de la oficina: a este servicio no se le exige nada (con el motivo y quien la puso).
+  faltantesExcepcion     Boolean   @default(false)
+  faltantesExcepcionNota String?
+  faltantesExcepcionPor  String?
+  faltantesExcepcionAt   DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

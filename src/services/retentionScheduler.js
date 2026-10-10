@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { deleteParadasOlderThan } from "../models/parada.model.js";
 import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
+import { remindDriversOfFaltantes } from "./faltantes.service.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
 // Antes los jobs de limpieza dependian de un scheduler externo porque Render free se
@@ -49,6 +50,28 @@ export const startRetentionScheduler = () => {
       if (count > 0) console.log(`[retencion] paradas de vehiculo viejas borradas: ${count}`);
     } catch (err) {
       console.error("[retencion] fallo la limpieza de paradas:", err.message);
+    }
+  };
+
+  setInterval(tick, CHECK_EVERY_MS).unref();
+};
+
+// Recordatorio a los choferes con servicios que llevan mas de un dia sin declarar peajes o carburante. Una vez
+// por hora en horario de trabajo (8 a 19, hora de Roma); cada servicio se avisa una sola vez. Como la limpieza,
+// no corre en desarrollo para no mandar avisos reales desde un servidor local.
+export const startFaltantesReminder = () => {
+  if (env.NODE_ENV !== "production") return;
+
+  const tick = async () => {
+    const hour = romeHour();
+    if (hour < 8 || hour >= 19) return;
+    try {
+      const result = await remindDriversOfFaltantes();
+      if (result.choferes > 0) {
+        console.log(`[faltantes] avisos enviados: ${result.choferes} choferes, ${result.servicios} servicios`);
+      }
+    } catch (err) {
+      console.error("[faltantes] fallo el recordatorio:", err.message);
     }
   };
 

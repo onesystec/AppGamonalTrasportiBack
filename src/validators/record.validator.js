@@ -185,3 +185,14 @@ export const declaracionesSchema = z
     sinCombustible: z.boolean().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, { message: "Indica al menos una declaracion" });
+
+// Excepcion de la oficina: al aplicarla el motivo es obligatorio.
+export const excepcionSchema = z
+  .object({
+    aplicar: z.boolean(),
+    nota: z.string().trim().max(300).optional(),
+  })
+  .refine((data) => !data.aplicar || (data.nota && data.nota.length >= 3), {
+    message: "Explica el motivo de la excepcion",
+    path: ["nota"],
+  });

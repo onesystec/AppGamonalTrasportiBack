@@ -18,8 +18,8 @@ import { purgeFilesForRecord } from "./recordFile.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { syncRelevoForRecord } from "./traspaso.service.js";
 import { groupFuelByRecord } from "../models/combustible.model.js";
-import { groupMancatosByRecord } from "../models/mancato.model.js";
 import { computeFaltantes } from "../utils/faltantes.js";
+import { attachFaltantes } from "./faltantes.service.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
 import { geocodeAddress, geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
@@ -218,27 +218,14 @@ const toFuelSummary = (record) => {
 };
 
 // Suma y cantidad de comprobantes por servicio para los listados (sin traer cada comprobante).
-// Tambien deja los peajes asignados por tramo, para saber a que servicios les falta subir uno.
 const attachFuel = async (records) => {
   if (records.length === 0) return records;
-  const [groups, mancatoGroups] = await Promise.all([groupFuelByRecord(), groupMancatosByRecord()]);
+  const groups = await groupFuelByRecord();
   const byRecord = new Map(groups.map((g) => [g.recordId, g]));
-  const mancatosByRecord = new Map();
-  for (const g of mancatoGroups) {
-    const entry = mancatosByRecord.get(g.recordId) ?? { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0 };
-    if (g.tramo === "IDA") entry.mancatoIda += g._count._all;
-    else if (g.tramo === "VUELTA") entry.mancatoVuelta += g._count._all;
-    else entry.mancatoSinTramo += g._count._all;
-    mancatosByRecord.set(g.recordId, entry);
-  }
   for (const record of records) {
     const group = byRecord.get(record.id);
     record.fuelSum = Number(group?._sum.monto ?? 0);
     record.fuelCount = group?._count._all ?? 0;
-    record.faltantesCounts = {
-      ...(mancatosByRecord.get(record.id) ?? { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0 }),
-      combustibles: record.fuelCount,
-    };
   }
   return records;
 };
@@ -246,7 +233,7 @@ const attachFuel = async (records) => {
 // Que le falta subir al servicio (peajes de ida/vuelta, combustible). Si el listado no trajo los datos para
 // saberlo, null: mejor no marcar nada que marcar en rojo por error.
 const faltantesOf = (record) =>
-  record.mancatos || record.faltantesCounts ? computeFaltantes(record, record.faltantesCounts) : null;
+  record.mancatos || record.faltantesCounts ? computeFaltantes(record, record.faltantesCounts, record.faltantesDay) : null;
 
 // Peajes asignados a un servicio (solo en el detalle; el listado no los trae).
 const toMancatosSummary = (mancatos) =>
@@ -552,14 +539,14 @@ export const exportRecordsForActor = async (actor, filters) => {
   });
 
   const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
-  await attachFuel(inRange);
+  await attachFaltantes(await attachFuel(inRange));
   return inRange.map((record) => toResponse(record, actor));
 };
 
 export const listRecordsForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
-  const records = await attachFuel(await findRecords({ driverId, dateRange, spedizzioneFilter }));
+  const records = await attachFaltantes(await attachFuel(await findRecords({ driverId, dateRange, spedizzioneFilter })));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -575,7 +562,7 @@ export const listPendingRecordsForActor = async (actor) => {
     .map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
   const spedizzioneFilter = listFilterForActor(actor);
-  const records = await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter }));
+  const records = await attachFaltantes(await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter })));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -597,7 +584,7 @@ export const searchRecordsForActor = async (actor, q) => {
   if (query.length < SEARCH_MIN_LENGTH) return [];
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
-  const records = await attachFuel(await searchRecords({ q: query, driverId, spedizzioneFilter }));
+  const records = await attachFaltantes(await attachFuel(await searchRecords({ q: query, driverId, spedizzioneFilter })));
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -616,7 +603,19 @@ export const listRecordsResumenForActor = async (actor, dateRange) => {
 export const listRecordsSummaryForActor = async (actor, dateRange) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
-  return findRecordsSummary({ driverId, dateRange, spedizzioneFilter });
+  const records = await findRecordsSummary({ driverId, dateRange, spedizzioneFilter });
+  // Cada fila lleva "faltante": true si ese servicio terminado tiene algo sin subir (la lista marca el dia).
+  await attachFuel(records);
+  await attachFaltantes(records);
+  return records.map(({ vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelSum, fuelCount, faltantesCounts, faltantesDay, ...row }) => ({
+    ...row,
+    faltante:
+      computeFaltantes(
+        { ...row, vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelCount },
+        faltantesCounts,
+        faltantesDay
+      ).pendientes > 0,
+  }));
 };
 
 export const getRecordByIdForActor = async (actor, id) => {
@@ -625,6 +624,7 @@ export const getRecordByIdForActor = async (actor, id) => {
     throw new AppError("Registro no encontrado", 404);
   }
   assertAccess(actor, record);
+  await attachFaltantes([record]);
   return toResponse(record, actor);
 };
 
@@ -670,6 +670,26 @@ export const updateDeclaracionesForActor = async (actor, id, data) => {
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
   const updated = await updateRecordById(id, data);
+  await attachFaltantes([updated]);
+  return toResponse(updated, actor);
+};
+
+// Excepcion de la oficina: al servicio no se le exige nada mas (peajes ni combustible), con un motivo obligatorio.
+export const setFaltantesExcepcionForActor = async (actor, id, { aplicar, nota }) => {
+  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  const record = await findRecordById(id);
+  if (!record) throw new AppError("Registro no encontrado", 404);
+  assertAccess(actor, record);
+  const data = aplicar
+    ? {
+        faltantesExcepcion: true,
+        faltantesExcepcionNota: nota,
+        faltantesExcepcionPor: `${actor.nombre} ${actor.apellido}`.trim(),
+        faltantesExcepcionAt: new Date(),
+      }
+    : { faltantesExcepcion: false, faltantesExcepcionNota: null, faltantesExcepcionPor: null, faltantesExcepcionAt: null };
+  const updated = await updateRecordById(id, data);
+  await attachFaltantes([updated]);
   return toResponse(updated, actor);
 };
 
@@ -796,6 +816,7 @@ export const updateRecordForActor = async (actor, id, data) => {
     if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
   }
 
+  await attachFaltantes([updated]);
   return toResponse(updated, actor);
 };
 

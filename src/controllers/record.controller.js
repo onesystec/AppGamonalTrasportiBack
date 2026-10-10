@@ -10,6 +10,7 @@ import {
   listRecordsResumenForActor,
   listRecordsSummaryForActor,
   searchRecordsForActor,
+  setFaltantesExcepcionForActor,
   updateDeclaracionesForActor,
   updateRecordForActor,
 } from "../services/record.service.js";
@@ -123,6 +124,11 @@ export const update = asyncHandler(async (req, res) => {
 
 export const updateDeclaraciones = asyncHandler(async (req, res) => {
   const record = await updateDeclaracionesForActor(req.user, req.params.id, req.body);
+  res.status(200).json({ success: true, data: { record } });
+});
+
+export const setExcepcion = asyncHandler(async (req, res) => {
+  const record = await setFaltantesExcepcionForActor(req.user, req.params.id, req.body);
   res.status(200).json({ success: true, data: { record } });
 });
 

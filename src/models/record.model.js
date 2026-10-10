@@ -130,6 +130,10 @@ const RECORD_SELECT_LIST = {
   sinPeajeIda: true,
   sinPeajeVuelta: true,
   sinCombustible: true,
+  faltantesExcepcion: true,
+  faltantesExcepcionNota: true,
+  faltantesExcepcionPor: true,
+  faltantesExcepcionAt: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -336,6 +340,14 @@ export const findRecordsSummary = ({ driverId, dateRange, spedizzioneFilter } = 
       extrasPiazzaZona: true,
       kilometros: true,
       kilometrosReales: true,
+      // Para marcar los dias con servicios a los que les falta algo (ver utils/faltantes.js).
+      rutaDistanciaKm: true,
+      vehicleId: true,
+      vehicle: { select: { categoria: true } },
+      sinPeajeIda: true,
+      sinPeajeVuelta: true,
+      sinCombustible: true,
+      faltantesExcepcion: true,
     },
     orderBy: { fechaServicio: "desc" },
   });

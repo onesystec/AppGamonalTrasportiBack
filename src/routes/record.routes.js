@@ -13,6 +13,7 @@ import {
   listByYear,
   remove,
   search,
+  setExcepcion,
   update,
   updateDeclaraciones,
 } from "../controllers/record.controller.js";
@@ -25,6 +26,7 @@ import {
   createRecordSchema,
   exportRecordsQuerySchema,
   declaracionesSchema,
+  excepcionSchema,
   idParamSchema,
   updateRecordSchema,
   yearMonthDayParamSchema,
@@ -82,6 +84,9 @@ router.get(
 // Los switches de peajes y carburante del chofer: liviano a proposito (no sincroniza con AppSheet ni reasigna
 // peajes), asi el cambio se ve al instante.
 router.patch("/:id/declaraciones", validate(idParamSchema, "params"), validate(declaracionesSchema), updateDeclaraciones);
+
+// Excepcion de la oficina: al servicio no se le exigen peajes ni combustible (con motivo).
+router.patch("/:id/excepcion", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(excepcionSchema), setExcepcion);
 
 router.patch("/:id", validate(idParamSchema, "params"), validate(updateRecordSchema), update);
 
