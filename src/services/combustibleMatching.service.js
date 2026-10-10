@@ -11,7 +11,10 @@ const DAY = 24 * HOUR;
 // Una carga se imputa al servicio que tenia el vehiculo a esa hora (el mismo criterio que los
 // peajes de mancato pagamento: ver mancatoMatching.service.js). Se cargan combustible antes de
 // salir (por eso una tolerancia mayor antes del retiro) y al volver (margen extra al final).
-const OPTS = { tolBeforeMs: 3 * HOUR, extraAfterMs: 2 * HOUR, noun: "Carga", subject: "de la carga" };
+// Igual que los peajes: se asigna directo al servicio mas probable (sin pedir confirmacion; las dudas quedan en el
+// motivo) y un viaje compacto cuenta como un solo recorrido (antes de salir o a mitad de camino va a la proxima
+// entrega; al volver, al ultimo servicio del viaje).
+const OPTS = { tolBeforeMs: 3 * HOUR, extraAfterMs: 2 * HOUR, noun: "Carga", subject: "de la carga", viajes: true, directo: true };
 
 // A diferencia de un mancato, una carga sin servicio NO vence: queda EN_ESPERA hasta que
 // aparezca uno que encaje. Por eso se re-evaluan todas las no fijadas, sin limite de edad

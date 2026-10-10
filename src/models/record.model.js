@@ -115,6 +115,7 @@ const RECORD_SELECT_LIST = {
   estimacionRuta: true,
   comentarios: true,
   kilometrosReales: true,
+  circuito: true,
   kilometros: true,
   precioKm: true,
   areaC: true,

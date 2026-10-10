@@ -509,6 +509,10 @@ model Record {
   // Viaje compacto, en el servicio principal: como se repartieron los km reales entre sus servicios
   // ({ origen: AUTO|CHOFER|ADMIN, total, planificado, extra, servicioIds, nota, por, at }).
   kmReparto           Json?
+  // Circuito planificado (lugar de espera -> retiro -> paradas -> lugar de espera) del servicio o, en el servicio
+  // principal de un viaje compacto, de todo el viaje: { km, idaKm, idaMin, vueltaKm, vueltaMin, base, retiros, paradas,
+  // firma, fuente, calculadaAt }. Ver ensureCircuit en rutaEstimada.service.js.
+  circuito            Json?
   estiloManejo        Json?
   estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay

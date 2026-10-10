@@ -1,3 +1,4 @@
+import { kmFacturables } from "./kmFacturables.js";
 import { KM_EXTRA_UMBRAL_KM, KM_EXTRA_UMBRAL_PCT, viajesAplican } from "../config/viajes.js";
 
 const round1 = (value) => Math.round(value * 10) / 10;
@@ -7,7 +8,21 @@ const num = (value) => (typeof value === "number" && Number.isFinite(value) ? va
 // los del servicio ENTERO, no los de este chofer: no cuentan.
 export const kmPlanificado = (m) => {
   const traspaso = viajesAplican(m.fechaServicio) && (Boolean(m.servicioOrigenId) || (m.continuaciones?.length ?? 0) > 0);
-  return traspaso ? 0 : num(m.kilometros) || num(m.rutaDistanciaKm);
+  // Sin circuito, los km planificados (los del cliente x2 en DHL / AB Service) o los de la ruta.
+  return traspaso ? 0 : kmFacturables(m) || num(m.rutaDistanciaKm);
+};
+
+// Km planificados de un viaje compacto y de cada uno de sus servicios (en el orden de `members`). Si el viaje tiene su
+// circuito calculado (lugar de espera -> retiros -> paradas en orden -> lugar de espera, ver ensureCircuit), ese es el
+// total y se reparte entre los servicios en proporcion a su propio recorrido; si no, vale la suma de lo que
+// planificó cada uno por separado.
+export const planesDelViaje = (members) => {
+  const own = members.map(kmPlanificado);
+  const ownTotal = own.reduce((sum, v) => sum + v, 0);
+  const circuito = members[0]?.circuito?.km;
+  if (!(circuito > 0)) return { total: round1(ownTotal), planes: own, circuito: false };
+  const planes = ownTotal > 0 ? own.map((v) => (circuito * v) / ownTotal) : members.map(() => circuito / members.length);
+  return { total: round1(circuito), planes, circuito: true };
 };
 
 // Con tantos km de mas hay que preguntarle al chofer en que servicio fueron.

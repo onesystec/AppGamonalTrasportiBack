@@ -272,11 +272,13 @@ const inFlight = new Set();
 // abrir la cola de aprobacion varias veces no tiene que repetir consultas que van a volver a fallar.
 const RETRY_AFTER_FAILURE_MS = 30 * MIN_MS;
 const lastFailureAt = new Map();
+// Devuelve una promesa que se resuelve cuando termina (o enseguida, si no hay nada que calcular) para quien quiera
+// seguir con algo despues (como la aprobacion automatica de horas); quien no la necesita la ignora.
 export const refreshParadasInBackground = (recordId) => {
-  if (inFlight.has(recordId)) return;
-  if (Date.now() - (lastFailureAt.get(recordId) ?? 0) < RETRY_AFTER_FAILURE_MS) return;
+  if (inFlight.has(recordId)) return Promise.resolve();
+  if (Date.now() - (lastFailureAt.get(recordId) ?? 0) < RETRY_AFTER_FAILURE_MS) return Promise.resolve();
   inFlight.add(recordId);
-  computeParadasForRecord(recordId)
+  return computeParadasForRecord(recordId)
     .then(() => lastFailureAt.delete(recordId))
     .catch((err) => {
       lastFailureAt.set(recordId, Date.now());

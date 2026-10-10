@@ -2,13 +2,14 @@ import { findGroupMembers, markGroupDelivered, setGroupKm } from "../models/comp
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
 import { computeShiftHours } from "../utils/workHours.js";
-import { kmPlanificado, repartirKm, repartoMeta } from "../utils/kmReparto.js";
+import { viajesAplican } from "../config/viajes.js";
+import { planesDelViaje, repartirKm, repartoMeta } from "../utils/kmReparto.js";
 import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
 import { attachCompactados } from "./compactadoView.service.js";
-import { computeEstimacionForRecord } from "./rutaEstimada.service.js";
+import { computeEstimacionForRecord, ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { refreshEstiloInBackground } from "./drivingStyle.service.js";
 import { computeParadasForRecord, loadParadasForRecords, refreshParadasInBackground } from "./vehicleStops.service.js";
 
@@ -102,9 +103,13 @@ export const submitHoursForActor = async (actor, id, body) => {
     if (extraIds.some((extraId) => !tripMembers.some((m) => m.id === extraId))) {
       throw new AppError("Elegiste un servicio que no es de este viaje", 400);
     }
+    // El circuito del viaje tiene que estar al dia (puede haber cambiado alguna parada) antes de repartir.
+    await ensureCircuitSafe(tripMembers[0].id);
+    const members = await findGroupMembers(record.compactadoId);
+    const { planes } = planesDelViaje(members);
     const reparto = repartirKm({
       total: body.kilometrosReales,
-      servicios: tripMembers.map((m) => ({ id: m.id, plan: kmPlanificado(m) })),
+      servicios: members.map((m, i) => ({ id: m.id, plan: planes[i] })),
       extraIds,
     });
     const origen = reparto.servicioIds.length > 0 || body.kmExtra?.nota ? "CHOFER" : "AUTO";
@@ -145,6 +150,8 @@ export const submitHoursForActor = async (actor, id, body) => {
       pausaMin: shift.pausaMin,
       horasDia: shift.horasDia,
       horasNoche: shift.horasNoche,
+      // Si la oficina las habia devuelto, las revisa una persona otra vez (no se aprueban solas).
+      reenvio: record.horasEstado === "DEVUELTAS" || Boolean(record.horasDeclaradas?.reenvio),
     };
   }
 
@@ -159,9 +166,56 @@ export const submitHoursForActor = async (actor, id, body) => {
   // Terminar el viaje compacto entrega todos sus servicios.
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
   // Las paradas del vehiculo durante la jornada se calculan aparte, sin hacer esperar al chofer.
-  refreshParadasInBackground(id);
+  const paradas = refreshParadasInBackground(id);
   refreshEstiloInBackground(id, { force: true });
+  // Si lo que declaro el chofer esta dentro de lo planificado, se aprueba solo (cuando ya hay con que comparar).
+  if (!privileged) paradas.then(() => autoApproveIfOk(id)).catch((err) => console.error("[horas] aprobacion automatica:", err.message));
   return { jornada: toJornada(updated), pago: computePayPreview(updated) };
+};
+
+// Aprobacion automatica: las horas que envia el chofer se aprueban solas si todo queda dentro de lo planificado, es
+// decir, si el revisor no tendria nada que mirar. Se evalua en segundo plano cuando ya estan las paradas del GPS o,
+// sin GPS, la estimacion por ruta. Quedan para una persona:
+//  - los servicios anteriores a la fecha de corte de las funciones nuevas y los traspasos entre choferes,
+//  - las horas que la oficina ya devolvio una vez, las de quien termino fuera del lugar de espera,
+//  - cualquier caso con avisos (jornada o km fuera de lo razonable, GPS que no coincide, jornada larga sin pausa...),
+//  - los que no traen km reales o no tienen circuito planificado: no hay con que comparar los km.
+export const autoApproveIfOk = async (id) => {
+  let record = await findRecordById(id);
+  if (!record || record.horasEstado !== "PENDIENTE") return false;
+  if (!viajesAplican(record.fechaServicio)) return false;
+  if (record.servicioOrigenId || record.continuaciones?.length) return false;
+  if (record.finFueraDeBase || record.horasDeclaradas?.reenvio) return false;
+  if (!record.horaInicioReal || !record.horaFinReal) return false;
+
+  // Con que comparar: el GPS del vehiculo o la estimacion por ruta, y el circuito para los km.
+  if (!record.paradasCalculadasAt && !record.estimacionRuta) {
+    await computeEstimacionForRecord(id).catch(() => {});
+  }
+  await ensureCircuitSafe(id);
+  record = await findRecordById(id);
+  if (!record || record.horasEstado !== "PENDIENTE") return false;
+  if (!record.paradasCalculadasAt && !record.estimacionRuta) return false;
+  await attachCompactados([record]);
+
+  const viajeKm = record.compactado?.km;
+  const kmReal = record.compactadoId ? viajeKm?.real : record.kilometrosReales;
+  const kmPlan = record.compactadoId ? (viajeKm?.circuito ? viajeKm.planificado : null) : record.circuito?.km;
+  if (!(kmReal > 0) || !(kmPlan > 0)) return false;
+
+  const totalMin = (new Date(record.horaFinReal).getTime() - new Date(record.horaInicioReal).getTime()) / MIN_MS;
+  if (buildWarnings(record, totalMin).length > 0) return false;
+
+  const now = new Date();
+  const updated = await updateRecordById(id, {
+    horasEstado: "APROBADAS",
+    horasRevisadasAt: now,
+    horasRevisadaPorId: null,
+    horasNota: null,
+    horasDeclaradas: { ...(record.horasDeclaradas ?? {}), autoAprobada: true },
+  });
+  notify(updated, "Horas aprobadas", `${updated.codigo}: tus horas quedaron aprobadas`);
+  return true;
 };
 
 // Aprobar (tal cual o ajustando la jornada) o devolver con una nota al chofer.
@@ -235,8 +289,10 @@ const computePayPreview = (record) => {
 const buildWarnings = (record, totalMin) => {
   const warnings = [];
   const plannedStart = record.fechaRetiro ?? record.fechaServicio;
-  if (plannedStart && record.eta) {
-    const plannedMin = (new Date(record.eta).getTime() - new Date(plannedStart).getTime()) / MIN_MS;
+  // Un viaje compacto termina con la ETA de su ultimo servicio.
+  const plannedEnd = record.compactado?.servicios?.length ? record.compactado.servicios.at(-1).eta : record.eta;
+  if (plannedStart && plannedEnd) {
+    const plannedMin = (new Date(plannedEnd).getTime() - new Date(plannedStart).getTime()) / MIN_MS;
     if (plannedMin > 0 && totalMin > plannedMin * 1.5 + 60) {
       warnings.push(`La jornada declarada (${hoursText(totalMin)}) supera bastante la planificada (${hoursText(plannedMin)})`);
     }
@@ -302,6 +358,20 @@ const buildWarnings = (record, totalMin) => {
       warnings.push(`Sin GPS: termino sin pasar por el lugar de espera; la ruta estima el fin a las ${romeStamp(est.finEstimadoAt)} (volver a ${est.retorno.nombre}), declaro ${romeStamp(declaredEnd)}`);
     }
   }
+  // Km declarados contra el circuito planificado (lugar de espera -> retiro -> paradas -> lugar de espera; en un viaje
+  // compacto, el de todo el viaje).
+  const viajeKm = record.compactado?.km;
+  const enViaje = Boolean(record.compactadoId);
+  const kmPlan = enViaje ? viajeKm?.planificado : record.circuito?.km;
+  const kmReal = enViaje ? viajeKm?.real : record.kilometrosReales;
+  if (kmPlan > 0 && kmReal > 0 && (!enViaje || viajeKm?.circuito)) {
+    const circuito = `${kmPlan} km del circuito`;
+    if (kmReal > kmPlan * 1.25 + 5) {
+      warnings.push(`Km declarados (${kmReal}) superan lo planificado (${circuito}) por ${round1(kmReal - kmPlan)} km`);
+    } else if (kmReal < kmPlan * 0.7 - 2) {
+      warnings.push(`Km declarados (${kmReal}) son bastante menos que lo planificado (${circuito})`);
+    }
+  }
   if (totalMin > 12 * 60) warnings.push("Jornada de mas de 12 horas");
   if (record.pausaMin === 0 && totalMin > 6 * 60) warnings.push("Mas de 6 horas sin ninguna pausa declarada");
   return warnings;
@@ -313,6 +383,16 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
   const estados = estado === "TODAS" ? ["PENDIENTE", "DEVUELTAS"] : [estado];
   const records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });
   const paradasByRecord = await loadParadasForRecords(records.map((r) => r.id));
+  // El circuito de cada servicio o viaje (para validar km y horas): se calcula la primera vez, de a pocos por vez.
+  for (let i = 0; i < records.length; i += 4) {
+    await Promise.all(
+      records.slice(i, i + 4).map(async (r) => {
+        if (!viajesAplican(r.fechaServicio)) return;
+        const circuito = await ensureCircuitSafe(r.id);
+        if (circuito) r.circuito = circuito;
+      })
+    );
+  }
   await attachCompactados(records);
 
   // Al abrir la aprobacion se calculan, en segundo plano, las paradas de las jornadas que todavia no
@@ -343,6 +423,7 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
       kilometrosReales: record.kilometrosReales,
       rutaDistanciaKm: record.rutaDistanciaKm,
       // Viaje compacto: km de todo el viaje y como se repartieron (el principal es el que se aprueba).
+      circuito: record.circuito ?? null,
       viaje: record.compactado
         ? { total: record.compactado.total, principal: record.compactado.principal, km: record.compactado.km, servicios: record.compactado.servicios }
         : null,

@@ -3,6 +3,7 @@ import {
   getGastosServiciosForActor,
   getPagosChoferesForActor,
 } from "../services/finanzas.service.js";
+import { getTarifasKm, setTarifasKm } from "../services/tarifas.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const resumen = asyncHandler(async (req, res) => {
@@ -18,4 +19,12 @@ export const pagos = asyncHandler(async (req, res) => {
 export const gastosServicios = asyncHandler(async (req, res) => {
   const result = await getGastosServiciosForActor(req.user, req.query);
   res.status(200).json({ success: true, data: { gastos: result } });
+});
+
+export const getTarifas = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: { tarifas: await getTarifasKm() } });
+});
+
+export const putTarifas = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: { tarifas: await setTarifasKm(req.body) } });
 });

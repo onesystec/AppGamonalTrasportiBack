@@ -58,6 +58,57 @@ export const tramoForService = (service, transitAt) =>
 
 export const tramoAt = (window, transitMs) => (transitMs <= window.idaEnd ? "IDA" : "VUELTA");
 
+// Un viaje compacto es UN recorrido del vehiculo (sale, entrega sus servicios en orden y vuelve): sus servicios no
+// compiten entre si por un peaje. Cada viaje se junta en una sola ventana:
+//   start      cuando sale el primero
+//   idaEnd     la ultima entrega estimada (hasta ahi es "ida"; despues, la vuelta)
+//   returnEnd  el fin de la vuelta mas tardia
+//   llegadas   la hora estimada de llegada a cada parada, en orden y sin retroceder
+const collapseViajes = (windows) => {
+  const out = [];
+  const groups = new Map();
+  for (const w of windows) {
+    const id = w.service.compactadoId;
+    if (!id) {
+      out.push(w);
+      continue;
+    }
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(w);
+  }
+  for (const members of groups.values()) {
+    if (members.length === 1) {
+      out.push(members[0]);
+      continue;
+    }
+    members.sort((a, b) => (a.service.compactadoOrden ?? 0) - (b.service.compactadoOrden ?? 0));
+    let latest = 0;
+    const llegadas = members.map((m) => {
+      latest = Math.max(latest, m.idaEnd);
+      return latest;
+    });
+    out.push({
+      service: members[0].service,
+      start: Math.min(...members.map((m) => m.start)),
+      idaEnd: latest,
+      returnEnd: Math.max(...members.map((m) => m.returnEnd)),
+      inferido: members.every((m) => m.inferido),
+      viaje: { members, llegadas },
+    });
+  }
+  return out;
+};
+
+// Servicio del viaje al que se carga el peaje: en la ida, la proxima entrega (la parada mas cercana por delante);
+// en la vuelta, el ultimo servicio del viaje (de ahi sale el regreso).
+const memberForTransit = (pick, transitMs) => {
+  if (!pick.viaje) return pick.service;
+  const { members, llegadas } = pick.viaje;
+  if (transitMs > pick.idaEnd) return members[members.length - 1].service;
+  const next = llegadas.findIndex((arrival) => arrival >= transitMs);
+  return members[next === -1 ? members.length - 1 : next].service;
+};
+
 const enEspera = (asignacionMotivo) => ({
   recordId: null,
   asignacion: "EN_ESPERA",
@@ -80,6 +131,8 @@ const enEspera = (asignacionMotivo) => ({
 //   tolBeforeMs   cuanto antes de la hora de retiro todavia cuenta para el servicio
 //   extraAfterMs  margen extra despues de la vuelta esperada
 //   noun / subject  como nombrar el evento en los motivos ("Transito" / "del mancato")
+//   viajes        los servicios de un viaje compacto cuentan como un solo recorrido (ver collapseViajes)
+//   directo       nunca queda SUGERIDO: se asigna (AUTO) al servicio mas probable y las dudas quedan en el motivo
 export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) => {
   const tolBefore = opts.tolBeforeMs ?? TOLERANCIA_ANTES_MS;
   const extraAfter = opts.extraAfterMs ?? 0;
@@ -87,7 +140,8 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
   const subject = opts.subject ?? "del mancato";
 
   const transitMs = new Date(transitAt).getTime();
-  const windows = candidates.map((service) => ({ service, ...serviceWindow(service) }));
+  const base = candidates.map((service) => ({ service, ...serviceWindow(service) }));
+  const windows = opts.viajes ? collapseViajes(base) : base;
 
   const started = windows.filter((w) => w.start - tolBefore <= transitMs);
   if (started.length === 0) {
@@ -117,7 +171,26 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
   });
   const pick = sorted[0];
   const tramo = tramoAt(pick, transitMs);
-  const where = `${tramo === "IDA" ? "durante la ida" : "en la vuelta"} del servicio ${pick.service.codigo}`;
+  const chosen = memberForTransit(pick, transitMs);
+  const viaje = pick.viaje ? ` del viaje compacto (${pick.viaje.members.map((m) => m.service.codigo).join(", ")})` : "";
+  const where = pick.viaje
+    ? `${tramo === "IDA" ? "durante la ida" : "en la vuelta"}${viaje}, asignado a ${chosen.codigo} (${
+        tramo === "IDA" ? "la proxima entrega" : "el ultimo servicio del viaje"
+      })`
+    : `${tramo === "IDA" ? "durante la ida" : "en la vuelta"} del servicio ${chosen.codigo}`;
+
+  // Lo que deja alguna duda sobre la asignacion.
+  const dudas = [];
+  if (driverId && pick.service.driverId && pick.service.driverId !== driverId) {
+    dudas.push(`el chofer ${subject} no es el del servicio`);
+  }
+  if (active.length > 1) dudas.push(`habia ${active.length} servicios del vehiculo en curso a esa hora`);
+  if (pick.inferido && windows.length > 1) dudas.push("el servicio no tiene Fecha de retiro y su horario es una estimacion");
+
+  if (opts.directo) {
+    const motivo = `${noun} ${where}.${dudas.length ? ` Se eligio el mas probable (${dudas.join("; ")}).` : ""}`;
+    return { recordId: chosen.id, asignacion: "AUTO", tramo, asignacionMotivo: motivo };
+  }
 
   let asignacion = "AUTO";
   let motivo = `${noun} ${where}.`;
@@ -126,13 +199,13 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
     motivo = `${noun} ${where}, pero el chofer ${subject} no es el del servicio.`;
   } else if (active.length > 1) {
     asignacion = "SUGERIDO";
-    motivo = `Hay ${active.length} servicios del vehiculo en curso a esa hora; el mas probable es ${pick.service.codigo} (${tramo === "IDA" ? "ida" : "vuelta"}).`;
+    motivo = `Hay ${active.length} servicios del vehiculo en curso a esa hora; el mas probable es ${chosen.codigo} (${tramo === "IDA" ? "ida" : "vuelta"}).`;
   } else if (pick.inferido && windows.length > 1) {
     asignacion = "SUGERIDO";
     motivo = `${noun} ${where}, pero el servicio no tiene Fecha de retiro y su horario es una estimacion.`;
   }
 
-  return { recordId: pick.service.id, asignacion, tramo, asignacionMotivo: motivo };
+  return { recordId: chosen.id, asignacion, tramo, asignacionMotivo: motivo };
 };
 
 export const loadCandidates = (vehicleId, transitAt) => {
@@ -149,7 +222,9 @@ export const matchMancato = async ({ vehicleId, driverId, fechaHoraTransito }) =
   if (!fechaHoraTransito) return enEspera("El mancato no tiene hora de transito.");
   if (!vehicleId) return enEspera("La targa no esta registrada en Vehiculos.");
   const candidates = await loadCandidates(vehicleId, fechaHoraTransito);
-  return evaluateMatch({ transitAt: fechaHoraTransito, driverId, candidates });
+  // Los peajes se asignan directo al servicio mas probable (sin pedir confirmacion) y un viaje compacto cuenta como
+  // un solo recorrido.
+  return evaluateMatch({ transitAt: fechaHoraTransito, driverId, candidates, opts: { viajes: true, directo: true } });
 };
 
 // Servicios del vehiculo cerca del transito, para que la oficina elija a mano. Incluye el tramo

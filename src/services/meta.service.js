@@ -1,5 +1,6 @@
 import { getConfig, setConfig } from "../models/permiso.model.js";
 import { findDoneRecordsForKm, findDrivingUsers } from "../models/meta.model.js";
+import { kmRecorrido } from "../utils/kmFacturables.js";
 import { AppError } from "../utils/AppError.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -24,7 +25,7 @@ export const setMetasConfig = async (values) => {
 };
 
 // Mismo criterio de km que el pago: lo que reporto el chofer, si no el del servicio y, de ultima, el de la ruta.
-const kmOf = (r) => num(r.kilometrosReales) || num(r.kilometros) || num(r.rutaDistanciaKm);
+const kmOf = (r) => kmRecorrido(r);
 
 const resolveMonth = (month) => month ?? romeDay().slice(0, 7);
 

@@ -22,6 +22,9 @@ import { attachFaltantes } from "./faltantes.service.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
 import { effectiveTolls } from "../utils/tollCost.js";
 import { sumMancatosByRecord } from "../models/mancato.model.js";
+import { findVehicleById } from "../models/vehicle.model.js";
+import { kmFacturables } from "../utils/kmFacturables.js";
+import { precioKmAutomatico } from "./tarifas.service.js";
 import { geocodeAddress, geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
@@ -31,6 +34,7 @@ import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { toRomeParts } from "../constants/appsheetMaps.js";
 import { OPEN_STATES, setGroupOpenEstado } from "../models/compactado.model.js";
 import { viajesAplican } from "../config/viajes.js";
+import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
@@ -189,6 +193,8 @@ export const toJornada = (record) => ({
   nota: record.horasNota ?? null,
   declaradas: record.horasDeclaradas ?? null,
   finFueraDeBase: record.finFueraDeBase ?? false,
+  // Aprobadas solas por el sistema porque quedaron dentro de lo planificado (sin pasar por la cola de aprobacion).
+  auto: Boolean(record.horasDeclaradas?.autoAprobada),
 });
 
 // Resumen de combustible de un servicio. En el detalle trae los comprobantes ("combustibles");
@@ -266,9 +272,9 @@ const toMancatosSummary = (mancatos) =>
   }));
 
 const computeTotals = (record) => {
-  const kilometros = record.kilometros ?? 0;
+  // Km facturables (en DHL y AB Service los km del cliente son de ida: se cuentan x2) por el precio por km.
   const precioKm = record.precioKm ?? 0;
-  const totalKm = kilometros * precioKm;
+  const totalKm = kmFacturables(record) * precioKm;
 
   // costoCombustible y pagoRecibido quedan fuera del total a proposito.
   const total =
@@ -288,8 +294,18 @@ const computeTotals = (record) => {
 // OWNER/ADMIN puedan detectar desvios. null si todavia no hay dato real cargado.
 const computeKmDiff = (record) =>
   record.kilometrosReales != null && record.kilometros != null
-    ? record.kilometrosReales - record.kilometros
+    ? Math.round((record.kilometrosReales - kmFacturables(record)) * 10) / 10
     : null;
+
+const toFacturacion = (record, totalKm) => {
+  const esperado = Math.round(totalKm * 100) / 100;
+  const recibido = record.pagoRecibido ?? null;
+  return {
+    esperado,
+    recibido,
+    diferencia: recibido != null && record.precioKm != null ? Math.round((recibido - esperado) * 100) / 100 : null,
+  };
+};
 
 const toFullResponse = (record) => {
   const { totalKm, total } = computeTotals(record);
@@ -305,6 +321,7 @@ const toFullResponse = (record) => {
     mancatos: toMancatosSummary(record.mancatos),
     faltantes: faltantesOf(record),
     compactado: record.compactado ?? null,
+    circuito: record.circuito ?? null,
     descripcion: record.descripcion,
     codigo: record.codigo,
     destinazione: record.destinazione,
@@ -331,10 +348,15 @@ const toFullResponse = (record) => {
     traspasoHora: record.traspasoHora ?? null,
     comentarios: record.comentarios,
     kilometros: record.kilometros,
+    // Km planificados contados para facturar y comparar (DHL / AB Service: los del cliente x2).
+    kmFacturables: kmFacturables(record),
     kilometrosReales: record.kilometrosReales,
     diferenciaKm: computeKmDiff(record),
     precioKm: record.precioKm,
     totalKm,
+    // Lo que deberia cobrarse (km facturables x precio por km) contra lo que se recibio (se carga a mano segun los
+    // correos de los clientes).
+    facturacion: toFacturacion(record, totalKm),
     areaC: record.areaC,
     costoEspera: record.costoEspera,
     costoTraforoFrejusBrennero: record.costoTraforoFrejusBrennero,
@@ -380,7 +402,9 @@ const toResumenResponse = (record) => {
     horasDia: record.horasDia,
     horasNoche: record.horasNoche,
     kilometros: record.kilometros,
+    kmFacturables: kmFacturables(record),
     kilometrosReales: record.kilometrosReales,
+    precioKm: record.precioKm,
     areaC: record.areaC,
     costoEspera: record.costoEspera,
     costoTraforoFrejusBrennero: record.costoTraforoFrejusBrennero,
@@ -411,6 +435,7 @@ const toChoferResponse = (record) => ({
   mancatos: toMancatosSummary(record.mancatos),
   faltantes: faltantesOf(record),
   compactado: record.compactado ?? null,
+  circuito: record.circuito ?? null,
   descripcion: record.descripcion,
   codigo: record.codigo,
   destinazione: record.destinazione,
@@ -456,6 +481,13 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   }
 
   const { stops: direcciones, salida: salidaInput, ...rest } = data;
+  // Precio por km automatico (tarifa de DHL/AB Service, o la de la categoria del vehiculo en Extras Piazza) si la
+  // oficina no escribio uno. Queda grabado en el servicio: cambiar la tarifa despues no toca los ya creados.
+  if (rest.precioKm == null && !skipActiveCheck) {
+    const vehicle = await findVehicleById(data.vehicleId);
+    const precio = await precioKmAutomatico({ spedizzione: data.spedizzione, categoria: vehicle?.categoria });
+    if (precio != null) rest.precioKm = precio;
+  }
   const salida = await resolveSalida(salidaInput);
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
     await buildStopsPipeline(direcciones, data.ciudad, salida ?? DEPOT_ORIGIN);
@@ -617,6 +649,12 @@ export const getRecordByIdForActor = async (actor, id) => {
     throw new AppError("Registro no encontrado", 404);
   }
   assertAccess(actor, record);
+  // Circuito planificado (lugar de espera -> retiro -> paradas -> lugar de espera) para validar los km: se calcula la
+  // primera vez y cuando cambian las paradas.
+  if (viajesAplican(record.fechaServicio)) {
+    const circuito = await ensureCircuitSafe(id);
+    if (circuito && !record.compactadoId) record.circuito = circuito;
+  }
   await attachFaltantes([record]);
   return toResponse(record, actor);
 };
@@ -801,6 +839,19 @@ export const updateRecordForActor = async (actor, id, data) => {
     const { choferRelevoId, ...rest } = payload;
     payload = rest;
     await syncRelevoForRecord(record, choferRelevoId);
+  }
+
+  // Si cambia el vehiculo (otra categoria) o el tipo de servicio y el precio por km era el automatico, se recalcula.
+  if (isPrivileged(actor) && !("precioKm" in payload) && ("vehicleId" in payload || "spedizzione" in payload)) {
+    const previo = await precioKmAutomatico({ spedizzione: record.spedizzione, categoria: record.vehicle?.categoria });
+    if (record.precioKm == null || record.precioKm === previo) {
+      const vehicle = "vehicleId" in payload ? await findVehicleById(payload.vehicleId) : record.vehicle;
+      const nuevo = await precioKmAutomatico({
+        spedizzione: "spedizzione" in payload ? payload.spedizzione : record.spedizzione,
+        categoria: vehicle?.categoria,
+      });
+      if (nuevo != null) payload = { ...payload, precioKm: nuevo };
+    }
   }
 
   const viaje = applyViajeRules(actor, record, payload);

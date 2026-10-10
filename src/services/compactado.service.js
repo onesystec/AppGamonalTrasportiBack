@@ -9,9 +9,10 @@ import {
   setGroupKm,
 } from "../models/compactado.model.js";
 import { VIAJES_DESDE, viajesAplican } from "../config/viajes.js";
+import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { AppError } from "../utils/AppError.js";
-import { kmDelViaje, toServicio } from "./compactadoView.service.js";
-import { kmPlanificado, repartoMeta } from "../utils/kmReparto.js";
+import { kmDelViaje, toServicios } from "./compactadoView.service.js";
+import { planesDelViaje, repartoMeta } from "../utils/kmReparto.js";
 import { spedizzioneFilterForActor, assertAccess } from "./record.service.js";
 
 const MIN_SERVICIOS = 2;
@@ -102,7 +103,7 @@ const groupView = async (compactadoId) => {
     id: compactadoId,
     total: members.length,
     principalId: members[0].id,
-    servicios: members.map(toServicio),
+    servicios: toServicios(members),
     km: kmDelViaje(members),
   };
 };
@@ -112,6 +113,8 @@ export const compactarForActor = async (actor, ids) => {
   const ordered = await loadForCompact(actor, ids);
   const compactadoId = randomUUID();
   await assignGroup(compactadoId, ordered.map((r, i) => ({ id: r.id, orden: i + 1 })));
+  // El viaje es un solo circuito (lugar de espera -> retiro -> todas las paradas -> lugar de espera).
+  await ensureCircuitSafe(ordered[0].id);
   return groupView(compactadoId);
 };
 
@@ -139,6 +142,7 @@ export const reordenarForActor = async (actor, compactadoId, ids) => {
   const ordered = await loadForCompact(actor, ids, compactadoId);
   await assignGroup(compactadoId, ordered.map((r, i) => ({ id: r.id, orden: i + 1 })));
   if (removed.length > 0) await clearGroup(removed.map((m) => m.id));
+  await ensureCircuitSafe(ordered[0].id);
   return groupView(compactadoId);
 };
 
@@ -170,9 +174,9 @@ export const ajustarKmViajeForActor = async (actor, compactadoId, { reparto, not
   const round1 = (v) => Math.round(v * 10) / 10;
   const items = reparto.map((r) => ({ id: r.id, km: round1(r.km) }));
   const total = round1(items.reduce((sum, r) => sum + r.km, 0));
-  const planificado = round1(members.reduce((sum, m) => sum + kmPlanificado(m), 0));
+  const { total: planificado, planes } = planesDelViaje(members);
   const extra = round1(total - planificado);
-  const planOf = new Map(members.map((m) => [m.id, kmPlanificado(m)]));
+  const planOf = new Map(members.map((m, i) => [m.id, planes[i]]));
   // Los servicios con km de mas son los que hicieron mas de lo planificado.
   const servicioIds = extra > 0 ? items.filter((r) => r.km > planOf.get(r.id) + 0.05).map((r) => r.id) : [];
   const meta = repartoMeta({ total, planificado, extra, servicioIds }, { origen: "ADMIN", nota, por: actor.id });

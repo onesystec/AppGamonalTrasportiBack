@@ -97,6 +97,9 @@ export const findCandidateServices = ({ vehicleId, from, to }) =>
       fechaRetiro: true,
       eta: true,
       rutaDuracionMin: true,
+      // Viaje compacto al que pertenece (ver collapseViajes en mancatoMatching.service.js).
+      compactadoId: true,
+      compactadoOrden: true,
       client: { select: { nombre: true } },
       driver: PERSON_SELECT,
     },

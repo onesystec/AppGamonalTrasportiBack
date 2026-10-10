@@ -1,3 +1,4 @@
+import { kmRecorrido } from "./kmFacturables.js";
 import {
   CATEGORIAS_VEHICULO,
   FALTANTES_DESDE,
@@ -9,7 +10,7 @@ export const romeDay = (date) => new Date(date).toLocaleDateString("en-CA", { ti
 const round1 = (value) => Math.round(value * 10) / 10;
 
 // Km del servicio: los que reporto el chofer, si no los del servicio y, de ultima, los de la ruta.
-export const serviceKm = (record) => record.kilometrosReales || record.kilometros || record.rutaDistanciaKm || 0;
+export const serviceKm = (record) => kmRecorrido(record);
 
 // El servicio se evalua solo cuando ya termino y es de la fecha de corte en adelante.
 export const isEvaluable = (record) =>

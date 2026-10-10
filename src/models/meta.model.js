@@ -15,6 +15,7 @@ export const findDoneRecordsForKm = ({ from, to, driverIds }) =>
       kilometrosReales: true,
       kilometros: true,
       rutaDistanciaKm: true,
+      spedizzione: true,
     },
   });
 

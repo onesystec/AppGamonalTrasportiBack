@@ -4,7 +4,8 @@ import { env } from "../config/env.js";
 import { getConfig, setConfig } from "../models/permiso.model.js";
 import { findRecordById, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
-import { estimateDriveMinutes } from "../utils/stopDetection.js";
+import { distanceMeters, estimateDriveMinutes } from "../utils/stopDetection.js";
+import { findGroupMembers } from "../models/compactado.model.js";
 import { geocodeAddress } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 
@@ -59,7 +60,7 @@ export const setReturnSettings = async (direccion) => {
   return getReturnSettings();
 };
 
-const resolveReturn = async (record) => {
+export const resolveReturn = async (record) => {
   const place = areaReturnPlace(record);
   if (place) return { nombre: place.nombre, direccion: place.direccion, lat: place.lat, lng: place.lng, fuente: "area" };
   const configured = await readReturnConfig();
@@ -70,7 +71,103 @@ const resolveReturn = async (record) => {
   return { nombre: fallback.nombre, direccion: fallback.direccion, lat: fallback.lat, lng: fallback.lng, fuente: "por defecto" };
 };
 
-// ------------------------------------------------------------------- estimacion de un servicio
+// ------------------------------------------------------------------- circuito del servicio (o del viaje)
+
+// Todo servicio sale del lugar de espera, pasa por el retiro, entrega y vuelve al lugar de espera:
+//   lugar de espera -> retiro -> paradas -> lugar de espera
+// En un viaje compacto es UN solo circuito: el vehiculo no vuelve al lugar de espera entre una entrega y la
+// siguiente, va directo a la proxima parada y recien despues de la ultima vuelve.
+const CIRCUIT_SAME_PLACE_M = 150;
+const round1 = (value) => Math.round(value * 10) / 10;
+const pointKey = (p) => `${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`;
+const straightKm = (a, b) => (distanceMeters(a, b) * 1.35) / 1000;
+
+const pickupOf = (record) =>
+  record.salidaLat != null && record.salidaLng != null
+    ? { direccion: record.salidaDireccion ?? "Salida", lat: record.salidaLat, lng: record.salidaLng }
+    : { direccion: DEPOT_ORIGIN.direccion, lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng };
+
+// Los servicios del circuito: el propio, o todos los del viaje compacto en el orden de las paradas.
+const unitOf = async (record) => {
+  if (!record.compactadoId) return [record];
+  const ids = (await findGroupMembers(record.compactadoId)).map((m) => m.id);
+  const members = await Promise.all(ids.map((id) => (id === record.id ? record : findRecordById(id))));
+  return members.filter(Boolean);
+};
+
+const placedStops = (record) =>
+  (record.stops ?? []).filter((s) => s.lat != null && s.lng != null).sort((a, b) => a.orden - b.orden);
+
+// Puntos del circuito: base (lugar de espera), retiros distintos (uno solo si todos retiran en el mismo lugar) y
+// paradas de todos los servicios en orden. null si alguna parada no esta ubicada en el mapa.
+const circuitPoints = async (members) => {
+  if (members.some((m) => (m.stops ?? []).length === 0 || placedStops(m).length !== m.stops.length)) return null;
+  const base = await resolveReturn(members[0]);
+  const retiros = [];
+  for (const m of members) {
+    const pickup = pickupOf(m);
+    if (!retiros.some((r) => distanceMeters(r, pickup) <= CIRCUIT_SAME_PLACE_M)) retiros.push(pickup);
+  }
+  const paradas = members.flatMap(placedStops);
+  return { base, retiros, paradas };
+};
+
+// Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Sin servidor de rutas se estima en
+// linea recta (con un factor), y queda marcado.
+const routeLegs = async ({ base, retiros, paradas }) => {
+  const ida = [base, ...retiros, ...paradas];
+  const last = paradas[paradas.length - 1];
+  const [idaRoute, backRoute] = await Promise.all([calculateRoute(ida), calculateRoute([last, base])]);
+  const estimada = !idaRoute || !backRoute;
+  return {
+    idaKm: idaRoute ? idaRoute.distanciaKm : ida.slice(1).reduce((sum, p, i) => sum + straightKm(ida[i], p), 0),
+    idaMin: idaRoute ? idaRoute.duracionMin : ida.slice(1).reduce((sum, p, i) => sum + estimateDriveMinutes(ida[i], p), 0),
+    vueltaKm: backRoute ? backRoute.distanciaKm : straightKm(last, base),
+    vueltaMin: backRoute ? backRoute.duracionMin : estimateDriveMinutes(last, base),
+    estimada,
+  };
+};
+
+// Circuito planificado del servicio o, si va en un viaje compacto, de todo el viaje (se guarda en el servicio
+// principal, columna "circuito"). Se recalcula solo si cambiaron los puntos (firma). null si no se puede (traspaso
+// entre choferes, paradas sin ubicar). Es la referencia para validar los km y las horas que declara el chofer.
+export const ensureCircuit = async (recordId, { force = false } = {}) => {
+  const record = await findRecordById(recordId);
+  if (!record || record.servicioOrigenId || record.continuaciones?.length) return null;
+  const members = await unitOf(record);
+  if (members.some((m) => m.servicioOrigenId || m.continuaciones?.length)) return null;
+  const points = await circuitPoints(members);
+  if (!points) return null;
+
+  const holder = members[0];
+  const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|");
+  if (!force && holder.circuito?.firma === firma) return holder.circuito;
+
+  const legs = await routeLegs(points);
+  const circuito = {
+    km: round1(legs.idaKm + legs.vueltaKm),
+    idaKm: round1(legs.idaKm),
+    idaMin: Math.round(legs.idaMin),
+    vueltaKm: round1(legs.vueltaKm),
+    vueltaMin: Math.round(legs.vueltaMin),
+    base: { nombre: points.base.nombre, direccion: points.base.direccion },
+    retiros: points.retiros.map((p) => p.direccion),
+    paradas: points.paradas.map((p) => p.direccion ?? null),
+    servicios: members.map((m) => m.codigo),
+    firma,
+    fuente: legs.estimada ? "estimada" : "ruta",
+    calculadaAt: new Date().toISOString(),
+  };
+  await updateRecordById(holder.id, { circuito });
+  return circuito;
+};
+
+// Igual, sin romper nunca el flujo que lo llama.
+export const ensureCircuitSafe = (recordId, options) =>
+  ensureCircuit(recordId, options).catch((err) => {
+    console.error("No se pudo calcular el circuito del servicio:", err.message);
+    return null;
+  });
 
 export const computeEstimacionForRecord = async (recordId) => {
   const record = await findRecordById(recordId);
@@ -79,49 +176,31 @@ export const computeEstimacionForRecord = async (recordId) => {
     throw new AppError("Un servicio traspasado entre choferes no se puede estimar por ruta", 409);
   }
 
-  const stops = (record.stops ?? [])
-    .filter((s) => s.lat != null && s.lng != null)
-    .sort((a, b) => a.orden - b.orden);
-  if (stops.length === 0) throw new AppError("El servicio no tiene paradas ubicadas en el mapa", 409);
-
-  const salida =
-    record.salidaLat != null && record.salidaLng != null
-      ? { direccion: record.salidaDireccion ?? "Salida", lat: record.salidaLat, lng: record.salidaLng }
-      : { direccion: DEPOT_ORIGIN.direccion, lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng };
+  const members = await unitOf(record);
+  const points = await circuitPoints(members);
+  if (!points) throw new AppError("El servicio no tiene paradas ubicadas en el mapa", 409);
+  const circuito = await ensureCircuit(recordId);
 
   const factor = env.ESTIMATE_TRAFFIC_FACTOR;
-  // Ida: salida -> paradas en orden. Si ya esta calculada al cargar el servicio se reutiliza.
-  let idaBase = record.rutaDuracionMin != null && record.rutaCalculadaAt ? record.rutaDuracionMin : null;
-  let distanciaIdaKm = record.rutaDuracionMin != null && record.rutaCalculadaAt ? record.rutaDistanciaKm : null;
-  let estimada = false;
-  if (idaBase == null) {
-    const route = await calculateRoute([salida, ...stops]);
-    if (route) {
-      idaBase = route.duracionMin;
-      distanciaIdaKm = route.distanciaKm;
-    } else {
-      idaBase = [salida, ...stops].slice(1).reduce((sum, stop, i) => sum + estimateDriveMinutes([salida, ...stops][i], stop), 0);
-      estimada = true;
-    }
-  }
+  const paradas = points.paradas;
+  const lastStop = paradas[paradas.length - 1];
+  const retorno = points.base;
 
-  const lastStop = stops[stops.length - 1];
-  const retorno = await resolveReturn(record);
-  const back = await calculateRoute([lastStop, retorno]);
-  const vueltaBase = back ? back.duracionMin : estimateDriveMinutes(lastStop, retorno);
-
-  const idaMin = Math.round(idaBase * factor);
-  const vueltaMin = Math.round(vueltaBase * factor);
-  const paradasMin = stops.length * env.ESTIMATE_STOP_MIN;
+  const idaMin = Math.round(circuito.idaMin * factor);
+  const vueltaMin = Math.round(circuito.vueltaMin * factor);
+  const paradasMin = paradas.length * env.ESTIMATE_STOP_MIN;
   const descansosHastaUltima = Math.floor(idaMin / env.ESTIMATE_BREAK_EVERY_MIN) * env.ESTIMATE_BREAK_MIN;
   const descansosMin = Math.floor((idaMin + vueltaMin) / env.ESTIMATE_BREAK_EVERY_MIN) * env.ESTIMATE_BREAK_MIN;
 
-  // Hora de retiro: la cargada en el servicio; si falta, se deduce hacia atras desde la ETA (maximo de entrega).
-  let inicioMs = record.fechaRetiro ? new Date(record.fechaRetiro).getTime() : null;
+  // Hora de salida del lugar de espera: la "Fecha retiro" cargada; si falta, se deduce hacia atras desde la ETA (maximo
+  // de entrega) del ultimo servicio del viaje.
+  const lastMember = members[members.length - 1];
+  const holder = members[0];
+  let inicioMs = holder.fechaRetiro ? new Date(holder.fechaRetiro).getTime() : null;
   const inicioInferido = inicioMs == null;
   if (inicioMs == null) {
-    if (!record.eta) throw new AppError("El servicio no tiene hora de retiro ni ETA para estimar", 409);
-    inicioMs = new Date(record.eta).getTime() - (idaMin + paradasMin + descansosHastaUltima) * MIN_MS;
+    if (!lastMember.eta) throw new AppError("El servicio no tiene hora de retiro ni ETA para estimar", 409);
+    inicioMs = new Date(lastMember.eta).getTime() - (idaMin + paradasMin + descansosHastaUltima) * MIN_MS;
   }
 
   const ultimaEntregaMs = inicioMs + (idaMin + paradasMin + descansosHastaUltima) * MIN_MS;
@@ -131,9 +210,13 @@ export const computeEstimacionForRecord = async (recordId) => {
     calculadaAt: new Date().toISOString(),
     inicioAt: new Date(inicioMs).toISOString(),
     inicioInferido,
-    salida: salida.direccion,
-    destinoFinal: lastStop.direccion ?? record.destinazione ?? null,
-    paradas: stops.length,
+    // Circuito completo: sale del lugar de espera, retira, entrega todas las paradas (en un viaje compacto, sin volver
+    // entre una y otra) y vuelve.
+    salida: retorno.nombre ?? retorno.direccion,
+    retiros: points.retiros.map((p) => p.direccion),
+    viaje: members.length > 1 ? members.map((m) => m.codigo) : null,
+    destinoFinal: lastStop.direccion ?? lastMember.destinazione ?? null,
+    paradas: paradas.length,
     ultimaEntregaAt: new Date(ultimaEntregaMs).toISOString(),
     finEstimadoAt: new Date(finMs).toISOString(),
     totalMin: Math.round((finMs - inicioMs) / MIN_MS),
@@ -141,13 +224,14 @@ export const computeEstimacionForRecord = async (recordId) => {
     conduccionVueltaMin: vueltaMin,
     paradasMin,
     descansosMin,
-    distanciaIdaKm: distanciaIdaKm != null ? Math.round(distanciaIdaKm) : null,
+    distanciaIdaKm: Math.round(circuito.idaKm),
+    circuitoKm: circuito.km,
     retorno: { direccion: retorno.direccion, nombre: retorno.nombre, fuente: retorno.fuente },
     factorTrafico: factor,
     minPorParada: env.ESTIMATE_STOP_MIN,
     descansoCadaMin: env.ESTIMATE_BREAK_EVERY_MIN,
     descansoMin: env.ESTIMATE_BREAK_MIN,
-    rutaFuente: estimada || !back ? "estimada" : "ruta",
+    rutaFuente: circuito.fuente === "estimada" ? "estimada" : "ruta",
   };
   await updateRecordById(record.id, { estimacionRuta: result });
   return result;

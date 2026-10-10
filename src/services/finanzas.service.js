@@ -16,6 +16,7 @@ import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { esFestivoIT } from "../utils/feriadosIt.js";
 import { romeHHMM } from "../utils/romeTime.js";
 import { computeShiftHours, isDayTime } from "../utils/workHours.js";
+import { kmFacturables } from "../utils/kmFacturables.js";
 import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
@@ -129,8 +130,9 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
       // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
       km = 0;
       kmFuente = "TRASPASO_SIN_KM";
-    } else if (numberOr0(record.kilometros) > 0) {
-      km = record.kilometros;
+    } else if (kmFacturables(record) > 0) {
+      // Km planificados: en DHL y AB Service los del cliente son de ida, se cuentan x2.
+      km = kmFacturables(record);
       kmFuente = "SERVICIO";
     } else if (numberOr0(record.rutaDistanciaKm) > 0) {
       km = record.rutaDistanciaKm;
@@ -187,7 +189,7 @@ const isPayable = (record) => PAYABLE_STATUSES.includes(record.estado);
 const kmOfRecord = (r) =>
   enTraspaso(r)
     ? numberOr0(r.kilometrosReales)
-    : numberOr0(r.kilometrosReales) || numberOr0(r.kilometros) || numberOr0(r.rutaDistanciaKm);
+    : numberOr0(r.kilometrosReales) || kmFacturables(r) || numberOr0(r.rutaDistanciaKm);
 
 export const buildViajeContext = (records) => {
   const byGroup = new Map();

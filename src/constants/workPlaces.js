@@ -19,8 +19,8 @@ export const WORK_PLACES = [
     nombre: "Lugar de espera Milano",
     direccion: "Via della Liberazione, 8, 20068 Peschiera Borromeo MI",
     areas: ["DHL Milano", "AB Service", "Extras Piazza Milano"],
-    lat: 45.422871,
-    lng: 9.293289,
+    lat: 45.42317626065062,
+    lng: 9.293531695992783,
   },
   {
     nombre: "Lugar de espera Roma",
