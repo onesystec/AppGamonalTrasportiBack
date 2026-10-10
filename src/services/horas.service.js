@@ -377,11 +377,28 @@ const buildWarnings = (record, totalMin) => {
   return warnings;
 };
 
+// Cuantas horas pendientes se evaluan para aprobar solas cada vez que se abre la cola (el resto, la proxima vez).
+const AUTO_APPROVE_PER_LOAD = 20;
+
 // Cola de aprobacion: horas enviadas por los choferes (y, si se pide, las devueltas).
 export const listHoursForReviewForActor = async (actor, { estado }) => {
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const estados = estado === "TODAS" ? ["PENDIENTE", "DEVUELTAS"] : [estado];
-  const records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });
+  let records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });
+
+  // Lo que ya esta dentro de lo planificado no necesita que nadie lo revise: se aprueba solo (aunque se haya enviado
+  // antes de que existiera la regla, o cuando recien ahora hay con que comparar). En la cola quedan las anomalias.
+  const approved = new Set();
+  const pendientes = records.filter((r) => r.horasEstado === "PENDIENTE").slice(0, AUTO_APPROVE_PER_LOAD);
+  for (let i = 0; i < pendientes.length; i += 4) {
+    await Promise.all(
+      pendientes.slice(i, i + 4).map(async (r) => {
+        if (await autoApproveIfOk(r.id).catch(() => false)) approved.add(r.id);
+      })
+    );
+  }
+  if (approved.size > 0) records = records.filter((r) => !approved.has(r.id));
+
   const paradasByRecord = await loadParadasForRecords(records.map((r) => r.id));
   // El circuito de cada servicio o viaje (para validar km y horas): se calcula la primera vez, de a pocos por vez.
   for (let i = 0; i < records.length; i += 4) {
