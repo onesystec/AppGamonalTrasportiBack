@@ -84,9 +84,16 @@ export const geocodeAddress = async (direccion, fallbackAddress) => {
 // (la ciudad del registro) se intenta para cualquier parada que no de resultado, ver
 // fetchFromGoogle - si tampoco esa resuelve, recien ahi se interrumpe y propaga el
 // error (dato mal cargado que no se puede aproximar ni a nivel ciudad).
-export const geocodeStops = async (direcciones, fallbackAddress) => {
+// Cada parada es un texto o { direccion, lat?, lng? }: con coordenadas (sugerencia con ubicacion exacta) se usan tal
+// cual, sin geocodificar.
+export const geocodeStops = async (stopsInput, fallbackAddress) => {
   const stops = [];
-  for (const direccion of direcciones) {
+  for (const item of stopsInput) {
+    const { direccion, lat: exactLat, lng: exactLng } = typeof item === "string" ? { direccion: item } : item;
+    if (exactLat != null && exactLng != null) {
+      stops.push({ direccion, lat: exactLat, lng: exactLng });
+      continue;
+    }
     const { lat, lng } = await geocodeAddress(direccion, fallbackAddress);
     stops.push({ direccion, lat, lng });
   }

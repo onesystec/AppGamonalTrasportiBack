@@ -52,8 +52,18 @@ const operationalFields = {
 
 // Paradas del servicio, en orden. El deposito de partida es fijo (no se envia desde el
 // cliente) y "destinazione" se deriva en el backend a partir de la ultima parada.
+// Cada parada es un texto (se geocodifica) o { direccion, lat, lng } cuando viene de una sugerencia con ubicacion
+// exacta (no se geocodifica). Siempre sale como objeto { direccion, lat?, lng? }.
+const stopObject = z
+  .object({
+    direccion: z.string().trim().min(1, "La direccion de la parada no puede estar vacia").max(200),
+    lat: z.number().min(-90).max(90).optional(),
+    lng: z.number().min(-180).max(180).optional(),
+  })
+  .refine((v) => (v.lat == null) === (v.lng == null), { message: "lat y lng van juntas" });
+const stopField = z.preprocess((v) => (typeof v === "string" ? { direccion: v } : v), stopObject);
 const stopsField = z
-  .array(z.string().trim().min(1, "La direccion de la parada no puede estar vacia"))
+  .array(stopField)
   .min(1, "Debe haber al menos una parada")
   .max(10, "Maximo 10 paradas");
 

@@ -141,11 +141,15 @@ const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = DEPOT_OR
   };
 };
 
-const stopsUnchanged = (existingStops, direcciones) =>
-  existingStops.length === direcciones.length &&
-  existingStops.every(
-    (stop, i) => stop.direccion.trim().toLowerCase() === direcciones[i].trim().toLowerCase()
-  );
+// Las paradas pueden llegar como texto o como { direccion, lat?, lng? }. Si traen coordenadas y no son las que
+// ya tiene la parada, cuentan como cambio (aunque el texto sea el mismo).
+const stopsUnchanged = (existingStops, stopsInput) =>
+  existingStops.length === stopsInput.length &&
+  existingStops.every((stop, i) => {
+    const next = typeof stopsInput[i] === "string" ? { direccion: stopsInput[i] } : stopsInput[i];
+    if (stop.direccion.trim().toLowerCase() !== next.direccion.trim().toLowerCase()) return false;
+    return next.lat == null || (stop.lat === next.lat && stop.lng === next.lng);
+  });
 
 // Traspaso entre choferes. Del lado del servicio original: quien lo termino ("relevo"); del lado de
 // la continuacion: de quien lo recibio ("origen").
