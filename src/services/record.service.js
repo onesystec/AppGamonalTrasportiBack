@@ -20,6 +20,8 @@ import { groupFuelByRecord } from "../models/combustible.model.js";
 import { computeFaltantes } from "../utils/faltantes.js";
 import { attachFaltantes } from "./faltantes.service.js";
 import { effectiveFuel, fuelNeedsAudit } from "../utils/fuelCost.js";
+import { effectiveTolls } from "../utils/tollCost.js";
+import { sumMancatosByRecord } from "../models/mancato.model.js";
 import { geocodeAddress, geocodeStops } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
@@ -217,15 +219,31 @@ const toFuelSummary = (record) => {
   };
 };
 
-// Suma y cantidad de comprobantes por servicio para los listados (sin traer cada comprobante).
+// Peajes efectivos de un servicio: los mancatos asignados si hay, si no lo cargado a mano (ver utils/tollCost.js).
+// En el detalle vienen los mancatos; en los listados solo la suma y la cantidad (ver attachFuel).
+const toTollSummary = (record) => {
+  const items = record.mancatos;
+  const mancatosCount = items ? items.length : (record.mancatoCount ?? 0);
+  const mancatosTotal = items ? items.reduce((sum, m) => sum + Number(m.costo), 0) : (record.mancatoSum ?? 0);
+  const manual = record.peajes ?? null;
+  const { fuente, total } = effectiveTolls({ manual, mancatosTotal, mancatosCount });
+  return { fuente, total, manual, mancatos: { count: mancatosCount, total: Math.round(mancatosTotal * 100) / 100 } };
+};
+
+// Suma y cantidad de comprobantes de combustible y de peajes (mancatos) por servicio para los listados (sin traer
+// cada uno).
 const attachFuel = async (records) => {
   if (records.length === 0) return records;
-  const groups = await groupFuelByRecord();
+  const [groups, mancatoGroups] = await Promise.all([groupFuelByRecord(), sumMancatosByRecord()]);
   const byRecord = new Map(groups.map((g) => [g.recordId, g]));
+  const mancatosByRecord = new Map(mancatoGroups.map((g) => [g.recordId, g]));
   for (const record of records) {
     const group = byRecord.get(record.id);
     record.fuelSum = Number(group?._sum.monto ?? 0);
     record.fuelCount = group?._count._all ?? 0;
+    const mancatos = mancatosByRecord.get(record.id);
+    record.mancatoSum = Number(mancatos?._sum.costo ?? 0);
+    record.mancatoCount = mancatos?._count._all ?? 0;
   }
   return records;
 };
@@ -258,7 +276,7 @@ const computeTotals = (record) => {
     (record.areaC ?? 0) +
     (record.costoEspera ?? 0) +
     (record.costoTraforoFrejusBrennero ?? 0) +
-    (record.peajes ?? 0) +
+    toTollSummary(record).total +
     (record.vignetta ?? 0) +
     (record.costoHotel ?? 0) +
     (record.costoOtros ?? 0);
@@ -320,7 +338,11 @@ const toFullResponse = (record) => {
     areaC: record.areaC,
     costoEspera: record.costoEspera,
     costoTraforoFrejusBrennero: record.costoTraforoFrejusBrennero,
-    peajes: record.peajes,
+    // Peajes efectivos (mancatos asignados si hay, si no el valor a mano), nunca la suma de ambos.
+    // "peajesManual" es lo que se escribio en el formulario del servicio.
+    peajes: toTollSummary(record).total,
+    peajesManual: record.peajes,
+    peajesDetalle: toTollSummary(record),
     vignetta: record.vignetta,
     costoHotel: record.costoHotel,
     costoOtros: record.costoOtros,
@@ -362,7 +384,7 @@ const toResumenResponse = (record) => {
     areaC: record.areaC,
     costoEspera: record.costoEspera,
     costoTraforoFrejusBrennero: record.costoTraforoFrejusBrennero,
-    peajes: record.peajes,
+    peajes: toTollSummary(record).total,
     vignetta: record.vignetta,
     costoHotel: record.costoHotel,
     costoOtros: record.costoOtros,
@@ -577,7 +599,7 @@ export const listRecordsSummaryForActor = async (actor, dateRange) => {
   // Cada fila lleva "faltante": true si ese servicio terminado tiene algo sin subir (la lista marca el dia).
   await attachFuel(records);
   await attachFaltantes(records);
-  return records.map(({ vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelSum, fuelCount, faltantesCounts, faltantesDay, compactado, compactadoMembers, faltantesGrupo, faltantesMiembro, ...row }) => ({
+  return records.map(({ vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelSum, fuelCount, mancatoSum, mancatoCount, faltantesCounts, faltantesDay, compactado, compactadoMembers, faltantesGrupo, faltantesMiembro, ...row }) => ({
     ...row,
     compactado: compactado ? { id: compactado.id, orden: compactado.orden, total: compactado.total, principal: compactado.principal } : null,
     faltante:

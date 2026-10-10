@@ -16,6 +16,7 @@ import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { esFestivoIT } from "../utils/feriadosIt.js";
 import { romeHHMM } from "../utils/romeTime.js";
 import { computeShiftHours, isDayTime } from "../utils/workHours.js";
+import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
 import { getAttendanceByDriver } from "./permiso.service.js";
@@ -336,7 +337,7 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   const recordArea = recordAreaWhere(actor);
   const fuelArea = combustibleAreaWhere(actor);
 
-  const [records, fuel, mancato, multas, fuelAsignaciones, fuelToAudit, horasPorAprobar] = await Promise.all([
+  const [rawRecords, fuel, mancato, multas, fuelAsignaciones, fuelToAudit, horasPorAprobar] = await Promise.all([
     findRecordsLite({ from, to, driverId, areaWhere: recordArea }),
     findCombustibleLite({
       from: monthStartDate(firstMonth),
@@ -352,6 +353,8 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     // Horas enviadas por los choferes que esperan aprobacion (sin rango de fechas: no vencen).
     privileged ? countRecordsByHorasEstado({ estado: "PENDIENTE", spedizzioneFilter: spedizzioneFilterForActor(actor) }) : Promise.resolve(0),
   ]);
+
+  const records = rawRecords.map(withEffectiveTolls);
 
   const limitDay = comparisonLimitDay(month);
   const prevMonth = shiftMonth(month, -1);
@@ -578,7 +581,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
   const driverId = privileged ? query.driverId : actor.id;
 
   const [allRecords, deductions] = await Promise.all([
-    findRecordsDetailed({ from, to, driverId, areaWhere: recordAreaWhere(actor) }),
+    findRecordsDetailed({ from, to, driverId, areaWhere: recordAreaWhere(actor) }).then((rows) => rows.map(withEffectiveTolls)),
     findPendingDeductions({ driverId, areaWhere: multaAreaWhere(actor) }),
   ]);
   const records = allRecords.filter((r) => monthOfRecord(r) === month && isPayable(r));
@@ -683,7 +686,7 @@ export const getGastosServiciosForActor = async (actor, query) => {
 
   const auditWindow = windowFor(shiftMonth(month, -(SERIES_MONTHS - 1)), month);
   const [all, combustibleRevisar] = await Promise.all([
-    findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }),
+    findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }).then((rows) => rows.map(withEffectiveTolls)),
     loadFuelToAudit(auditWindow, recordAreaWhere(actor)),
   ]);
   const records = all.filter((r) => monthOfRecord(r) === month && recordGastosTotal(r) > 0);

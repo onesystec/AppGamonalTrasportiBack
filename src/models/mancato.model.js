@@ -163,3 +163,12 @@ export const groupMancatosByRecord = () =>
     where: { recordId: { not: null } },
     _count: { _all: true },
   });
+
+// Suma y cantidad de peajes (mancatos) asignados a cada servicio, para los listados (ver attachFuel en record.service.js).
+export const sumMancatosByRecord = () =>
+  prisma.mancatoPagamento.groupBy({
+    by: ["recordId"],
+    where: { recordId: { not: null } },
+    _sum: { costo: true },
+    _count: { _all: true },
+  });

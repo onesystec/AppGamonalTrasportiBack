@@ -28,6 +28,8 @@ export const findRecordsLite = ({ from, to, driverId, areaWhere }) =>
       areaC: true,
       costoTraforoFrejusBrennero: true,
       peajes: true,
+      // Peajes (mancatos) asignados al servicio: mandan sobre el valor a mano (ver utils/tollCost.js).
+      mancatos: { select: { costo: true } },
       vignetta: true,
       costoHotel: true,
       costoOtros: true,
@@ -71,6 +73,8 @@ export const findRecordsDetailed = ({ from, to, driverId, areaWhere }) =>
       areaC: true,
       costoTraforoFrejusBrennero: true,
       peajes: true,
+      // Peajes (mancatos) asignados al servicio: mandan sobre el valor a mano (ver utils/tollCost.js).
+      mancatos: { select: { costo: true } },
       vignetta: true,
       costoHotel: true,
       costoOtros: true,
