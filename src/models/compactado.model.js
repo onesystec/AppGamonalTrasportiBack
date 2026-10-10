@@ -1,16 +1,22 @@
 import { VIAJES_DESDE_DATE } from "../config/viajes.js";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../config/prisma.js";
 
-// Servicios que todavia se pueden compactar en un viaje: abiertos (aun no terminados).
+// Servicios abiertos (aun no terminados).
 export const OPEN_STATES = ["IN_SOSPESO", "IN_CONSEGNA", "RITIRATO"];
 
-// Los ultimos servicios creados que siguen abiertos, sin compactar y que no son la continuacion de un traspaso.
+// Se puede compactar un servicio abierto o uno ya entregado al que todavia no se le cargaron horas (los que
+// se crean cuando el viaje ya paso: la ETA vencida no importa). Con horas cargadas ya no.
+export const isCompactable = (r) =>
+  OPEN_STATES.includes(r.estado) || (r.estado === "CONSEGNATO" && !r.horasEstado);
+
+// Los ultimos servicios creados que se pueden compactar (abiertos, o entregados sin horas) y aun no estan en un viaje.
 export const findCompactableRecords = ({ spedizzioneFilter, limit = 60 } = {}) =>
   prisma.record.findMany({
     // Incluye la continuacion de un traspaso (el servicio que recibe otro chofer): se puede llevar junto con
     // los servicios propios de ese chofer.
     where: {
-      estado: { in: OPEN_STATES },
+      OR: [{ estado: { in: OPEN_STATES } }, { estado: "CONSEGNATO", horasEstado: null }],
       compactadoId: null,
       fechaServicio: { gte: VIAJES_DESDE_DATE },
       ...(spedizzioneFilter ?? {}),
@@ -63,6 +69,7 @@ const MEMBER_SELECT = {
   codigo: true,
   destinazione: true,
   eta: true,
+  fechaServicio: true,
   estado: true,
   driverId: true,
   vehicleId: true,
@@ -77,6 +84,7 @@ const MEMBER_SELECT = {
   kilometros: true,
   kilometrosReales: true,
   rutaDistanciaKm: true,
+  kmReparto: true,
   // Traspaso entre choferes (continuacion = servicio recibido de otro chofer; original = el que entrego).
   servicioOrigenId: true,
   traspasoHora: true,
@@ -104,7 +112,22 @@ export const assignGroup = (compactadoId, items) =>
   );
 
 export const clearGroup = (ids) =>
-  prisma.record.updateMany({ where: { id: { in: ids } }, data: { compactadoId: null, compactadoOrden: null } });
+  prisma.record.updateMany({
+    where: { id: { in: ids } },
+    data: { compactadoId: null, compactadoOrden: null, kmReparto: Prisma.DbNull },
+  });
+
+// Guarda los km reales de cada servicio del viaje (`items` = [{ id, km }]) y, en el principal, como se repartieron.
+export const setGroupKm = (items, principalId, meta) =>
+  prisma.$transaction(
+    items.map(({ id, km }) =>
+      prisma.record.update({
+        where: { id },
+        data: { kilometrosReales: km, ...(id === principalId ? { kmReparto: meta } : {}) },
+        select: { id: true },
+      })
+    )
+  );
 
 // Marca como entregados los servicios abiertos de un viaje cuando el chofer lo termina.
 export const markGroupDelivered = (compactadoId) =>

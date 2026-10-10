@@ -1,15 +1,17 @@
 import { randomUUID } from "node:crypto";
 import {
-  OPEN_STATES,
   assignGroup,
   clearGroup,
   findCompactableRecords,
   findGroupMembers,
   findRecordsForCompact,
+  isCompactable,
+  setGroupKm,
 } from "../models/compactado.model.js";
 import { VIAJES_DESDE, viajesAplican } from "../config/viajes.js";
 import { AppError } from "../utils/AppError.js";
-import { toServicio } from "./compactadoView.service.js";
+import { kmDelViaje, toServicio } from "./compactadoView.service.js";
+import { kmPlanificado, repartoMeta } from "../utils/kmReparto.js";
 import { spedizzioneFilterForActor, assertAccess } from "./record.service.js";
 
 const MIN_SERVICIOS = 2;
@@ -64,8 +66,11 @@ const loadForCompact = async (actor, ids, groupId = null) => {
     if (!viajesAplican(r.fechaServicio)) {
       throw new AppError(`${r.codigo}: los viajes compactos aplican a servicios desde el ${VIAJES_DESDE.split("-").reverse().join("/")}`, 409);
     }
-    if (!OPEN_STATES.includes(r.estado)) {
-      throw new AppError(`${r.codigo}: solo se pueden compactar servicios abiertos (en suspenso, en camino o retirado)`, 409);
+    if (!isCompactable(r)) {
+      throw new AppError(
+        `${r.codigo}: solo se pueden compactar servicios abiertos (en suspenso, en camino o retirado) o entregados sin horas cargadas`,
+        409
+      );
     }
     if (r.compactadoId && r.compactadoId !== groupId) {
       throw new AppError(`${r.codigo} ya esta en otro viaje compacto`, 409);
@@ -98,6 +103,7 @@ const groupView = async (compactadoId) => {
     total: members.length,
     principalId: members[0].id,
     servicios: members.map(toServicio),
+    km: kmDelViaje(members),
   };
 };
 
@@ -145,4 +151,32 @@ export const descompactarForActor = async (actor, compactadoId) => {
     throw new AppError("El viaje ya tiene horas cargadas: no se puede deshacer", 409);
   }
   await clearGroup(members.map((m) => m.id));
+};
+
+// La oficina corrige como se repartieron los km reales del viaje: `reparto` = [{ id, km }] con TODOS los servicios
+// del viaje. La suma es el total de km del viaje (de ahi sale el pago por distancia). Se puede hacer aunque las horas
+// ya esten cargadas o aprobadas.
+export const ajustarKmViajeForActor = async (actor, compactadoId, { reparto, nota }) => {
+  assertPrivileged(actor);
+  const members = await findGroupMembers(compactadoId);
+  if (members.length === 0) throw new AppError("Ese viaje compacto no existe", 404);
+  members.forEach((m) => assertAccess(actor, m));
+
+  const ids = reparto.map((r) => r.id);
+  if (new Set(ids).size !== ids.length || ids.length !== members.length || members.some((m) => !ids.includes(m.id))) {
+    throw new AppError("El reparto tiene que incluir todos los servicios del viaje, una sola vez cada uno", 400);
+  }
+
+  const round1 = (v) => Math.round(v * 10) / 10;
+  const items = reparto.map((r) => ({ id: r.id, km: round1(r.km) }));
+  const total = round1(items.reduce((sum, r) => sum + r.km, 0));
+  const planificado = round1(members.reduce((sum, m) => sum + kmPlanificado(m), 0));
+  const extra = round1(total - planificado);
+  const planOf = new Map(members.map((m) => [m.id, kmPlanificado(m)]));
+  // Los servicios con km de mas son los que hicieron mas de lo planificado.
+  const servicioIds = extra > 0 ? items.filter((r) => r.km > planOf.get(r.id) + 0.05).map((r) => r.id) : [];
+  const meta = repartoMeta({ total, planificado, extra, servicioIds }, { origen: "ADMIN", nota, por: actor.id });
+
+  await setGroupKm(items, members[0].id, meta);
+  return groupView(compactadoId);
 };

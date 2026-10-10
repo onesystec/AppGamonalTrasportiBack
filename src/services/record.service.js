@@ -7,7 +7,6 @@ import {
   findRecordsForExport,
   findRecordsPending,
   findRecordsSummary,
-  findRecordsWithSyncFailure,
   releaseCombustiblesOfRecord,
   releaseMancatosOfRecord,
   searchRecords,
@@ -26,13 +25,8 @@ import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { env } from "../config/env.js";
-import {
-  appendRecordToAppsheet,
-  deleteRecordFromAppsheet,
-  updateRecordInAppsheet,
-} from "./appsheetWriteback.service.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
-import { ORIGEN_PREFIX, toRomeParts } from "../constants/appsheetMaps.js";
+import { toRomeParts } from "../constants/appsheetMaps.js";
 import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
@@ -442,7 +436,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
     await buildStopsPipeline(direcciones, data.ciudad, salida ?? DEPOT_ORIGIN);
 
-  let record = await createRecordModel({
+  const record = await createRecordModel({
     ...rest,
     ...(salida ? salidaColumns(salida) : {}),
     destinazione,
@@ -454,29 +448,6 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
     estado: data.estado ?? "IN_SOSPESO",
     clienteConfirmado: data.clienteConfirmado ?? false,
   });
-
-  // Solo para registros nuevos creados desde la app (el sync ya manda origenExternoId
-  // seteado, escribirlo de vuelta a la hoja seria redundante - ver appsheetSync.service.js).
-  // Best-effort: si falla la escritura en Sheets (permisos, red, cuota), el registro en
-  // la app ya quedo creado igual, no se corta el flujo del usuario por eso - pero se deja
-  // appsheetSyncFallido=true marcado en el registro para que la UI avise (ver
-  // computeAppsheetSyncAlerts) en vez de perderse en silencio como antes.
-  // DHL Roma no entra a este bloque: appendRecordToAppsheet no escribe nada para esa
-  // zona a proposito (ver appsheetWriteback.service.js) - si igual se marcara
-  // origenExternoId aca, quedaria apuntando a una fila que nunca existio en la hoja.
-  const isDhlRoma = record.spedizzione === "DHL" && record.extrasPiazzaZona === "ROMA";
-  if (!data.origenExternoId && !isDhlRoma) {
-    try {
-      await appendRecordToAppsheet(record);
-      record = await updateRecordById(record.id, {
-        origenExternoId: `${ORIGEN_PREFIX}${record.id}`,
-        appsheetSyncFallido: false,
-      });
-    } catch (err) {
-      console.error("No se pudo escribir el registro en la hoja de AppSheet:", err.message);
-      record = await updateRecordById(record.id, { appsheetSyncFallido: true }).catch(() => record);
-    }
-  }
 
   // Los choferes suelen subir un peaje antes de que la oficina cargue el servicio: ahora que
   // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar.
@@ -569,15 +540,6 @@ export const listPendingRecordsForActor = async (actor) => {
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
   const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFaltantes(await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter })));
-  return records.map((record) => toResponse(record, actor));
-};
-
-// Para la campanita OWNER/ADMIN (ver computeAppsheetSyncAlerts en el frontend) - sin
-// esto, un registro cuya escritura a AppSheet fallo quedaba en silencio hasta que
-// alguien lo notara a mano comparando contra la planilla.
-export const listAppsheetSyncFailuresForActor = async (actor) => {
-  const spedizzioneFilter = spedizzioneFilterForActor(actor);
-  const records = await findRecordsWithSyncFailure(spedizzioneFilter);
   return records.map((record) => toResponse(record, actor));
 };
 
@@ -790,31 +752,7 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   payload = applyHoursApprovalRules(actor, record, payload);
 
-  let updated = await updateRecordById(id, payload);
-
-  // Best-effort, igual que appendRecordToAppsheet/deleteRecordFromAppsheet: si falla
-  // (permisos, red, cuota), el registro ya se actualizo en la app igual, no se corta
-  // el flujo por esto - pero queda marcado appsheetSyncFallido=true para que la UI
-  // avise. Si el registro nunca llego a tener origenExternoId porque la escritura
-  // original (alta) fallo, un simple updateRecordInAppsheet no alcanza (no hace nada
-  // sin origenExternoId, ver appsheetWriteback.service.js) - hay que reintentar el
-  // alta completa (appendRecordToAppsheet) en vez de la edicion. Si origenExternoId
-  // sigue null pero appsheetSyncFallido nunca se marco, es un registro que nunca
-  // debio sincronizar (historico cargado a mano) - no se toca.
-  try {
-    if (updated.origenExternoId) {
-      await updateRecordInAppsheet(updated);
-    } else if (updated.appsheetSyncFallido) {
-      await appendRecordToAppsheet(updated);
-      updated = await updateRecordById(id, { origenExternoId: `${ORIGEN_PREFIX}${id}` });
-    }
-    if (updated.appsheetSyncFallido) {
-      updated = await updateRecordById(id, { appsheetSyncFallido: false });
-    }
-  } catch (err) {
-    console.error("No se pudo actualizar el registro en la hoja de AppSheet:", err.message);
-    updated = await updateRecordById(id, { appsheetSyncFallido: true }).catch(() => updated);
-  }
+  const updated = await updateRecordById(id, payload);
 
   // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
   // cambiar a que servicio pertenece un peaje.
@@ -883,12 +821,4 @@ export const deleteRecord = async (actor, id) => {
   await releaseCombustiblesOfRecord(id);
   await deleteRecordById(id);
   await rematchAssignmentsForVehicle(record.vehicleId);
-
-  // Best-effort, igual que la escritura al crear (ver createRecord): si falla (permisos,
-  // red, cuota), el registro ya se borro de la app igual, no se corta el flujo por esto.
-  try {
-    await deleteRecordFromAppsheet(record);
-  } catch (err) {
-    console.error("No se pudo borrar el registro de la hoja de AppSheet:", err.message);
-  }
 };

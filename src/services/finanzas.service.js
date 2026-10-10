@@ -200,8 +200,13 @@ export const buildViajeContext = (records) => {
     const payable = members.filter(isPayable).sort((a, b) => (a.compactadoOrden ?? 0) - (b.compactadoOrden ?? 0));
     const principal = payable[0];
     if (!principal) continue;
-    // Si el chofer reporto los km reales en el principal, son los de todo el viaje; si no, se suman los de cada servicio.
-    const km = numberOr0(principal.kilometrosReales) > 0 ? principal.kilometrosReales : members.reduce((sum, m) => sum + kmOfRecord(m), 0);
+    // Los km del viaje son la suma de lo que hizo cada servicio (el chofer anota el total y se reparte entre ellos).
+    // Un viaje anterior al reparto lleva el total entero en el principal y nada en los demas.
+    const sinReparto = !principal.kmReparto && members.every((m) => m.id === principal.id || m.kilometrosReales == null);
+    const km =
+      sinReparto && numberOr0(principal.kilometrosReales) > 0
+        ? principal.kilometrosReales
+        : members.reduce((sum, m) => sum + (typeof m.kilometrosReales === "number" ? m.kilometrosReales : kmOfRecord(m)), 0);
     ctx.set(principal.compactadoId, { principalId: principal.id, principalCodigo: principal.codigo, km, servicios: members.length });
   }
   return ctx;

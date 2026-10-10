@@ -1,11 +1,13 @@
-import { findGroupMembers, markGroupDelivered } from "../models/compactado.model.js";
+import { findGroupMembers, markGroupDelivered, setGroupKm } from "../models/compactado.model.js";
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
 import { computeShiftHours } from "../utils/workHours.js";
+import { kmPlanificado, repartirKm, repartoMeta } from "../utils/kmReparto.js";
 import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
+import { attachCompactados } from "./compactadoView.service.js";
 import { computeEstimacionForRecord } from "./rutaEstimada.service.js";
 import { refreshEstiloInBackground } from "./drivingStyle.service.js";
 import { computeParadasForRecord, loadParadasForRecords, refreshParadasInBackground } from "./vehicleStops.service.js";
@@ -92,6 +94,23 @@ export const submitHoursForActor = async (actor, id, body) => {
     }
   }
 
+  // Viaje compacto: los km reales que anota el chofer son los de TODO el viaje; se reparten entre sus servicios
+  // (lo que cada uno hizo queda en su propio kilometrosReales).
+  let kmRepartidos = null;
+  if (tripMembers?.length > 1 && body.kilometrosReales != null) {
+    const extraIds = body.kmExtra?.servicioIds ?? [];
+    if (extraIds.some((extraId) => !tripMembers.some((m) => m.id === extraId))) {
+      throw new AppError("Elegiste un servicio que no es de este viaje", 400);
+    }
+    const reparto = repartirKm({
+      total: body.kilometrosReales,
+      servicios: tripMembers.map((m) => ({ id: m.id, plan: kmPlanificado(m) })),
+      extraIds,
+    });
+    const origen = reparto.servicioIds.length > 0 || body.kmExtra?.nota ? "CHOFER" : "AUTO";
+    kmRepartidos = { reparto, meta: repartoMeta(reparto, { origen, nota: body.kmExtra?.nota, por: actor.id }) };
+  }
+
   const markDelivered = body.entregado === true && !["CONSEGNATO", "RITIRATO"].includes(record.estado);
   const now = new Date();
   const data = {
@@ -104,7 +123,14 @@ export const submitHoursForActor = async (actor, id, body) => {
     horasNoche: shift.horasNoche,
     tiempoEspera: shift.tiempoEspera,
     horasNota: null,
-    ...(body.kilometrosReales != null ? { kilometrosReales: body.kilometrosReales } : {}),
+    ...(kmRepartidos
+      ? {
+          kilometrosReales: kmRepartidos.reparto.servicios.find((r) => r.id === record.id).km,
+          kmReparto: kmRepartidos.meta,
+        }
+      : body.kilometrosReales != null
+        ? { kilometrosReales: body.kilometrosReales }
+        : {}),
     ...(body.comentarios ? { comentarios: body.comentarios } : {}),
     ...(privileged
       ? { horasEstado: "APROBADAS", horasRevisadasAt: now, horasRevisadaPorId: actor.id }
@@ -123,6 +149,11 @@ export const submitHoursForActor = async (actor, id, body) => {
   }
 
   const updated = await updateRecordById(id, data);
+  // Los demas servicios del viaje reciben su parte de los km.
+  if (kmRepartidos) {
+    const others = kmRepartidos.reparto.servicios.filter((r) => r.id !== record.id);
+    if (others.length > 0) await setGroupKm(others, record.id, kmRepartidos.meta);
+  }
   // Cambiar el estado puede cambiar a que servicio pertenece un peaje o una carga de combustible.
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   // Terminar el viaje compacto entrega todos sus servicios.
@@ -282,6 +313,7 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
   const estados = estado === "TODAS" ? ["PENDIENTE", "DEVUELTAS"] : [estado];
   const records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });
   const paradasByRecord = await loadParadasForRecords(records.map((r) => r.id));
+  await attachCompactados(records);
 
   // Al abrir la aprobacion se calculan, en segundo plano, las paradas de las jornadas que todavia no
   // las tienen (como mucho 3 por vez, la proxima vez que se abra ya estan).
@@ -310,6 +342,10 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
       kilometros: record.kilometros,
       kilometrosReales: record.kilometrosReales,
       rutaDistanciaKm: record.rutaDistanciaKm,
+      // Viaje compacto: km de todo el viaje y como se repartieron (el principal es el que se aprueba).
+      viaje: record.compactado
+        ? { total: record.compactado.total, principal: record.compactado.principal, km: record.compactado.km, servicios: record.compactado.servicios }
+        : null,
       comentarios: record.comentarios,
       jornada: toJornada(record),
       totalMin,

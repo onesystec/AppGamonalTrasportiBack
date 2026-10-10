@@ -1,4 +1,7 @@
 import { findMembersOfGroups } from "../models/compactado.model.js";
+import { extraEsGrande, kmPlanificado } from "../utils/kmReparto.js";
+
+const round1 = (value) => Math.round(value * 10) / 10;
 
 export const toServicio = (m) => ({
   id: m.id,
@@ -7,9 +10,29 @@ export const toServicio = (m) => ({
   destinazione: m.destinazione,
   eta: m.eta,
   estado: m.estado,
+  // Km planificados y km reales (repartidos) de este servicio dentro del viaje.
+  kmPlan: round1(kmPlanificado(m)),
+  kmReal: m.kilometrosReales ?? null,
   // Servicio recibido de otro chofer (traspaso): "Nombre Apellido" de quien lo entrego, o null.
   recibidoDe: m.servicioOrigen?.driver ? `${m.servicioOrigen.driver.nombre} ${m.servicioOrigen.driver.apellido}` : null,
 });
+
+// Km de todo el viaje: lo planificado (suma de sus servicios), lo real (suma de lo repartido) y como se repartio.
+// `real` es null mientras nadie cargo km reales.
+export const kmDelViaje = (members) => {
+  const planificado = round1(members.reduce((sum, m) => sum + kmPlanificado(m), 0));
+  const cargados = members.filter((m) => typeof m.kilometrosReales === "number");
+  const real = cargados.length > 0 ? round1(cargados.reduce((sum, m) => sum + m.kilometrosReales, 0)) : null;
+  const extra = real != null ? round1(real - planificado) : null;
+  return {
+    planificado,
+    real,
+    extra,
+    grande: extra != null && extra > 0 && extraEsGrande(extra, planificado),
+    // Quien lo repartio y como: { origen: AUTO|CHOFER|ADMIN, servicioIds, nota, at }. null si no hay reparto guardado.
+    reparto: members[0]?.kmReparto ?? null,
+  };
+};
 
 // El viaje de cada servicio de la lista (compactado: { id, orden, total, principal, principalId, servicios }) o
 // null. Una sola consulta para todos los viajes que aparecen. Tambien deja los miembros en
@@ -40,6 +63,7 @@ export const attachCompactados = async (records) => {
       principalId: principal.id,
       principalCodigo: principal.codigo,
       servicios: members.map(toServicio),
+      km: kmDelViaje(members),
     };
   }
   return records;

@@ -11,9 +11,10 @@ import {
   listByMonth,
   listPending,
   listSummaryByMonth,
-  listSyncFailures,
   listByYear,
+  ajustarKmViaje,
   listCompactables,
+  listSyncFailures,
   remove,
   reordenarCompactado,
   search,
@@ -29,6 +30,7 @@ import { validate } from "../middlewares/validate.js";
 import {
   compactadoIdParamSchema,
   compactarSchema,
+  kmViajeSchema,
   createRecordSchema,
   exportRecordsQuerySchema,
   declaracionesSchema,
@@ -52,6 +54,7 @@ router.get("/", list);
 router.get("/pending", listPending);
 router.get("/search", search);
 // Servicios compactados (varios servicios de un chofer en un solo viaje): solo Admin/Responsable.
+router.get("/sync-fallidos", authorize("OWNER", "ADMIN"), listSyncFailures);
 router.get("/compactar/sugerencias", authorize("OWNER", "ADMIN"), listCompactables);
 router.post("/compactar", authorize("OWNER", "ADMIN"), validate(compactarSchema), compactar);
 router.patch(
@@ -61,13 +64,19 @@ router.patch(
   validate(compactarSchema),
   reordenarCompactado
 );
+router.put(
+  "/compactar/:compactadoId/km",
+  authorize("OWNER", "ADMIN"),
+  validate(compactadoIdParamSchema, "params"),
+  validate(kmViajeSchema),
+  ajustarKmViaje
+);
 router.delete(
   "/compactar/:compactadoId",
   authorize("OWNER", "ADMIN"),
   validate(compactadoIdParamSchema, "params"),
   descompactar
 );
-router.get("/sync-fallidos", authorize("OWNER", "ADMIN"), listSyncFailures);
 router.get(
   "/export",
   authorize("OWNER", "ADMIN"),

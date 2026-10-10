@@ -212,4 +212,13 @@ export const compactarSchema = z.object({
   recordIds: z.array(z.string().uuid("Servicio invalido")).min(1).max(8),
 });
 
+// Reparto de km reales de un viaje compacto, hecho por la oficina: todos los servicios del viaje con sus km.
+export const kmViajeSchema = z.object({
+  reparto: z
+    .array(z.object({ id: z.string().uuid("Servicio invalido"), km: z.coerce.number().min(0, "Los km no pueden ser negativos").max(5000) }))
+    .min(2)
+    .max(8),
+  nota: z.string().trim().max(500).optional(),
+});
+
 export const compactadoIdParamSchema = z.object({ compactadoId: z.string().uuid("Viaje invalido") });

@@ -1,4 +1,5 @@
 import {
+  ajustarKmViajeForActor,
   compactarForActor,
   descompactarForActor,
   listCompactableForActor,
@@ -10,7 +11,6 @@ import {
   exportRecordsForActor,
   getLiveEtaForRecord,
   getRecordByIdForActor,
-  listAppsheetSyncFailuresForActor,
   listPendingRecordsForActor,
   listRecordsForActor,
   listRecordsResumenForActor,
@@ -86,10 +86,10 @@ export const search = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: { records } });
 });
 
-// Campanita OWNER/ADMIN: registros que no se pudieron sincronizar con AppSheet.
+// Ya no se sincroniza con AppSheet, asi que nunca hay fallos. Se deja la ruta (vacia) para que los APK instalados
+// que todavia la consultan para la campanita no fallen.
 export const listSyncFailures = asyncHandler(async (req, res) => {
-  const records = await listAppsheetSyncFailuresForActor(req.user);
-  res.status(200).json({ success: true, data: { records } });
+  res.status(200).json({ success: true, data: { records: [] } });
 });
 
 export const listByYear = asyncHandler(async (req, res) => {
@@ -148,6 +148,11 @@ export const compactar = asyncHandler(async (req, res) => {
 
 export const reordenarCompactado = asyncHandler(async (req, res) => {
   const viaje = await reordenarForActor(req.user, req.params.compactadoId, req.body.recordIds);
+  res.status(200).json({ success: true, data: { viaje } });
+});
+
+export const ajustarKmViaje = asyncHandler(async (req, res) => {
+  const viaje = await ajustarKmViajeForActor(req.user, req.params.compactadoId, req.body);
   res.status(200).json({ success: true, data: { viaje } });
 });
 

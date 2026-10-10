@@ -31,6 +31,13 @@ const jornadaFields = {
 export const submitHorasSchema = z.object({
   ...jornadaFields,
   kilometrosReales: z.coerce.number().min(0).optional(),
+  // Viaje compacto con km de mas: en que servicios fueron (si es en varios se reparten) y por que.
+  kmExtra: z
+    .object({
+      servicioIds: z.array(z.string().uuid("Servicio invalido")).max(8).default([]),
+      nota: z.string().trim().max(500).optional(),
+    })
+    .optional(),
   comentarios: z.string().trim().max(1000).optional(),
   // "Terminar servicio": ademas de las horas, marca el servicio como entregado en la misma
   // operacion (si ya lo estaba no cambia nada).

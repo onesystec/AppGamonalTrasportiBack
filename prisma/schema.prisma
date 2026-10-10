@@ -506,6 +506,9 @@ model Record {
   gpsFin              Json?
   // Estilo de manejo de ESTA jornada (OneSystec, solo el tramo inicio-fin del chofer): km, calidad e
   // incidentes por categoria. El puntaje de cada chofer se arma sumando los de sus servicios. null = pendiente.
+  // Viaje compacto, en el servicio principal: como se repartieron los km reales entre sus servicios
+  // ({ origen: AUTO|CHOFER|ADMIN, total, planificado, extra, servicioIds, nota, por, at }).
+  kmReparto           Json?
   estiloManejo        Json?
   estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay

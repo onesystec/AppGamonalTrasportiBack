@@ -267,16 +267,6 @@ export const findRecordsForExport = ({
     orderBy: { fechaServicio: "asc" },
   });
 
-// Registros cuyo ultimo intento de sincronizar con AppSheet fallo (ver
-// appsheetSyncFallido en record.service.js) - siempre son pocos, no hace falta acotar
-// por fecha como el resto de los listados.
-export const findRecordsWithSyncFailure = (spedizzioneFilter) =>
-  prisma.record.findMany({
-    where: { appsheetSyncFallido: true, ...(spedizzioneFilter ?? {}) },
-    select: RECORD_SELECT_LIST,
-    orderBy: { updatedAt: "desc" },
-  });
-
 // Busqueda liviana por codigo/cliente/chofer/destino, con limite - pensada para tipear
 // mientras se busca, no para traer todo el historico y filtrar en el navegador.
 const SEARCH_RESULTS_LIMIT = 50;
