@@ -56,3 +56,14 @@ export const findRespaldoPings = async (driverId, gte, lt) => {
   });
   return rows.map((r) => ({ at: r.recordedAt, lat: r.lat, lng: r.lng, speed: null, ignition: null, moving: null }));
 };
+
+// Servicio en camino (o retirado) del chofer y el vehiculo con el que lo hace: para saber si hay que seguirlo con el celular.
+export const findTrackedServiceVehicle = (driverId, now = Date.now()) =>
+  prisma.record.findFirst({
+    where: {
+      driverId,
+      estado: { in: ["IN_CONSEGNA", "RITIRATO"] },
+      fechaServicio: { gte: new Date(now - 36 * HOUR_MS), lte: new Date(now + 12 * HOUR_MS) },
+    },
+    select: { id: true, vehicle: { select: { targa: true } } },
+  });

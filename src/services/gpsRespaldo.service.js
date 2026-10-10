@@ -3,12 +3,14 @@ import {
   countChoferesConPermiso,
   createRespaldoPing,
   findLastRespaldoPing,
+  findTrackedServiceVehicle,
   hasActiveService,
 } from "../models/gpsRespaldo.model.js";
 import { updateUserGpsRespaldo } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
 import { distanceMeters } from "../utils/stopDetection.js";
 import { getGpsHealth } from "./gpsHealth.service.js";
+import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { toUserResponse } from "./user.service.js";
 
 // GPS de respaldo del celular. Solo funciona si se cumplen las tres cosas a la vez: (1) el chofer lo
@@ -25,6 +27,23 @@ const hasServiceCached = async (driverId) => {
   if (hit && Date.now() - hit.at < SERVICE_CACHE_MS) return hit.value;
   const value = await hasActiveService(driverId);
   serviceCache.set(driverId, { value, at: Date.now() });
+  return value;
+};
+
+// Seguimiento en vivo (mapa de servicios): si el chofer esta en camino y su vehiculo no reporta GPS, su celular tiene que
+// aportar la posicion aunque el GPS de la flota en general funcione. Solo con su autorizacion y durante el servicio.
+const trackingCache = new Map();
+const needsTrackingBackup = async (driverId) => {
+  const hit = trackingCache.get(driverId);
+  if (hit && Date.now() - hit.at < SERVICE_CACHE_MS / 2) return hit.value;
+  let value = false;
+  try {
+    const service = await findTrackedServiceVehicle(driverId);
+    if (service) value = !(await getFreshVehiclePositionByTarga(service.vehicle?.targa));
+  } catch {
+    value = false;
+  }
+  trackingCache.set(driverId, { value, at: Date.now() });
   return value;
 };
 
@@ -46,7 +65,10 @@ export const getMyGpsRespaldo = async (actor) => {
   } catch {
     return { ...base, motivo: "SIN_ESTADO" };
   }
-  if (!health.respaldoActivo) return { ...base, motivo: "GPS_VEHICULO_OK" };
+  if (!health.respaldoActivo) {
+    if (await needsTrackingBackup(actor.id)) return { ...base, activo: true, motivo: "SEGUIMIENTO" };
+    return { ...base, motivo: "GPS_VEHICULO_OK" };
+  }
   if (!(await hasServiceCached(actor.id))) return { ...base, motivo: "SIN_SERVICIO" };
   return { ...base, activo: true, desde: health.desde };
 };

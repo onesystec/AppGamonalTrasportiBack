@@ -2,6 +2,7 @@ import { env } from "../config/env.js";
 import { deleteParadasOlderThan } from "../models/parada.model.js";
 import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
+import { runSeguimientoAlerts } from "./seguimiento.service.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
 // Antes los jobs de limpieza dependian de un scheduler externo porque Render free se
@@ -79,4 +80,17 @@ export const startFaltantesReminder = () => {
   };
 
   setInterval(tick, CHECK_EVERY_MS).unref();
+};
+
+// Seguimiento en vivo: cada 2 minutos (de 05:00 a 23:00 de Roma) revisa los servicios en camino y avisa por push si alguno no
+// tiene GPS o supera su ETA, aunque nadie tenga el mapa abierto. Solo en produccion, como los demas, y se apaga con
+// SEGUIMIENTO_MONITOR_ENABLED=false.
+export const startSeguimientoMonitor = () => {
+  if (env.NODE_ENV !== "production" || !env.SEGUIMIENTO_MONITOR_ENABLED) return;
+  const tick = () => {
+    const hour = romeHour();
+    if (hour < 5 || hour >= 23) return;
+    runSeguimientoAlerts().catch(() => {});
+  };
+  setInterval(tick, 2 * 60 * 1000).unref();
 };

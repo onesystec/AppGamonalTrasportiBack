@@ -1,7 +1,7 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
-import { startFaltantesReminder, startRetentionScheduler } from "./services/retentionScheduler.js";
+import { startFaltantesReminder, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
 
 const server = app.listen(env.PORT, () => {
   console.log(`RegistrosGTBack escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);
@@ -9,6 +9,7 @@ const server = app.listen(env.PORT, () => {
 
 startRetentionScheduler();
 startFaltantesReminder();
+startSeguimientoMonitor();
 
 const shutdown = async (signal) => {
   console.log(`\n${signal} recibido, cerrando servidor...`);
