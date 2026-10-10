@@ -13,6 +13,7 @@ import {
   listSummaryByMonth,
   listByYear,
   ajustarKmViaje,
+  circuitoMapa,
   sinSustentar,
   listCompactables,
   listSyncFailures,
@@ -105,6 +106,8 @@ router.get("/:year(\\d{4})", validate(yearParamSchema, "params"), listByYear);
 router.post("/", authorize("OWNER", "ADMIN"), validate(createRecordSchema), create);
 
 router.get("/:id", validate(idParamSchema, "params"), getById);
+// Circuito (lugar de espera -> retiro -> paradas -> lugar de espera) con sus tramos y el recorrido, para verlo en el mapa.
+router.get("/:id/circuito", validate(idParamSchema, "params"), circuitoMapa);
 
 // A demanda desde el mapa (solo el servicio abierto/seleccionado, no todos en cada poll).
 router.get(

@@ -30,7 +30,7 @@ import { calculateRoute } from "./routing.service.js";
 import { LOCATION_FRESH_MINUTES } from "./user.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { env } from "../config/env.js";
-import { DEPOT_ORIGIN } from "../constants/depot.js";
+import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 import { toRomeParts } from "../constants/appsheetMaps.js";
 import { OPEN_STATES, setGroupOpenEstado } from "../models/compactado.model.js";
 import { viajesAplican } from "../config/viajes.js";
@@ -99,7 +99,7 @@ const RELEVANT_FOR_MATCHING = [
 const salidaOf = (record) =>
   record.salidaLat != null && record.salidaLng != null
     ? { direccion: record.salidaDireccion ?? "Salida", lat: record.salidaLat, lng: record.salidaLng }
-    : { direccion: DEPOT_ORIGIN.direccion, lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng };
+    : (({ direccion, lat, lng }) => ({ direccion, lat, lng }))(defaultSalidaFor(record));
 
 // De lo que manda el formulario ({ direccion, lat?, lng? }) al punto con coordenadas. Con coordenadas
 // (sugerencia con ubicacion exacta) no se geocodifica; sin ellas se geocodifica el texto, y si no se
@@ -123,7 +123,7 @@ const salidaColumns = (salida) => ({
 // el payload listo para mezclar en la data que se manda a Prisma. fallbackCiudad: si
 // una parada no geocodifica, geocodeStops la aproxima al centro de esa ciudad en vez
 // de fallar el registro entero (ver geocoding.service.js).
-const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = DEPOT_ORIGIN) => {
+const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = defaultSalidaFor()) => {
   const stopsGeocoded = await geocodeStops(direcciones, fallbackCiudad);
   const ruta = await calculateRoute([salida, ...stopsGeocoded]);
 
@@ -495,7 +495,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   }
   const salida = await resolveSalida(salidaInput);
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-    await buildStopsPipeline(direcciones, data.ciudad, salida ?? DEPOT_ORIGIN);
+    await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data));
 
   const record = await createRecordModel({
     ...rest,
@@ -658,7 +658,7 @@ export const getRecordByIdForActor = async (actor, id) => {
   // primera vez y cuando cambian las paradas.
   if (viajesAplican(record.fechaServicio)) {
     const circuito = await ensureCircuitSafe(id);
-    if (circuito && !record.compactadoId) record.circuito = circuito;
+    if (circuito) record.circuito = circuito;
   }
   await attachFaltantes([record]);
   return toResponse(record, actor);

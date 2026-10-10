@@ -1,4 +1,4 @@
-import { DEPOT_ORIGIN } from "../constants/depot.js";
+import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 import { WORK_PLACES } from "../constants/workPlaces.js";
 import { env } from "../config/env.js";
 import { getConfig, setConfig } from "../models/permiso.model.js";
@@ -22,7 +22,10 @@ const DEFAULT_RETURN_PLACE = () => placeByName("Lugar de espera Milano");
 
 // A que lugar de espera vuelve el vehiculo segun el area del servicio.
 const areaReturnPlace = (record) => {
-  if (record.extrasPiazzaZona === "ROMA") return placeByName("Lugar de espera Roma (Extras Piazza)");
+  // Roma tiene dos lugares de espera: el de DHL Roma y el de Extras Piazza Roma (Cargo City).
+  if (record.extrasPiazzaZona === "ROMA") {
+    return record.spedizzione === "DHL" ? placeByName("Lugar de espera Roma") : placeByName("Lugar de espera Roma (Extras Piazza)");
+  }
   if (record.aplicativo?.startsWith("ROMA_")) return placeByName("Lugar de espera Roma");
   if (record.extrasPiazzaZona === "MILANO" || record.aplicativo?.startsWith("MILANO_")) {
     return placeByName("Lugar de espera Milano");
@@ -85,7 +88,7 @@ const straightKm = (a, b) => (distanceMeters(a, b) * 1.35) / 1000;
 const pickupOf = (record) =>
   record.salidaLat != null && record.salidaLng != null
     ? { direccion: record.salidaDireccion ?? "Salida", lat: record.salidaLat, lng: record.salidaLng }
-    : { direccion: DEPOT_ORIGIN.direccion, lat: DEPOT_ORIGIN.lat, lng: DEPOT_ORIGIN.lng };
+    : (({ direccion, lat, lng }) => ({ direccion, lat, lng }))(defaultSalidaFor(record));
 
 // Los servicios del circuito: el propio, o todos los del viaje compacto en el orden de las paradas.
 const unitOf = async (record) => {
@@ -119,11 +122,17 @@ const routeLegs = async ({ base, retiros, paradas }) => {
   const last = paradas[paradas.length - 1];
   const [idaRoute, backRoute] = await Promise.all([calculateRoute(ida), calculateRoute([last, base])]);
   const estimada = !idaRoute || !backRoute;
+  // Cada tramo del circuito, en orden: base -> retiro(s) -> paradas -> base (sin ruta, en linea recta con un factor).
+  const tramosIda = ida.slice(1).map((to, i) => ({
+    km: idaRoute?.tramos?.[i]?.distanciaKm ?? straightKm(ida[i], to),
+    min: idaRoute?.tramos?.[i]?.duracionMin ?? estimateDriveMinutes(ida[i], to),
+  }));
   return {
-    idaKm: idaRoute ? idaRoute.distanciaKm : ida.slice(1).reduce((sum, p, i) => sum + straightKm(ida[i], p), 0),
-    idaMin: idaRoute ? idaRoute.duracionMin : ida.slice(1).reduce((sum, p, i) => sum + estimateDriveMinutes(ida[i], p), 0),
+    idaKm: idaRoute ? idaRoute.distanciaKm : tramosIda.reduce((sum, t) => sum + t.km, 0),
+    idaMin: idaRoute ? idaRoute.duracionMin : tramosIda.reduce((sum, t) => sum + t.min, 0),
     vueltaKm: backRoute ? backRoute.distanciaKm : straightKm(last, base),
     vueltaMin: backRoute ? backRoute.duracionMin : estimateDriveMinutes(last, base),
+    tramosIda,
     estimada,
   };
 };
@@ -141,7 +150,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
 
   const holder = members[0];
   const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|");
-  if (!force && holder.circuito?.firma === firma) return holder.circuito;
+  if (!force && holder.circuito?.firma === firma && holder.circuito.tramos) return holder.circuito;
 
   const legs = await routeLegs(points);
   const circuito = {
@@ -151,6 +160,21 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     vueltaKm: round1(legs.vueltaKm),
     vueltaMin: Math.round(legs.vueltaMin),
     base: { nombre: points.base.nombre, direccion: points.base.direccion },
+    // Los tramos del circuito, en orden, para verificar la ruta: lugar de espera -> retiro -> paradas -> lugar de espera.
+    tramos: [
+      ...[...points.retiros, ...points.paradas].map((to, i) => ({
+        desde: i === 0 ? points.base.nombre : [...points.retiros, ...points.paradas][i - 1].direccion,
+        hasta: to.direccion,
+        km: round1(legs.tramosIda[i].km),
+        min: Math.round(legs.tramosIda[i].min),
+      })),
+      {
+        desde: points.paradas[points.paradas.length - 1].direccion,
+        hasta: points.base.nombre,
+        km: round1(legs.vueltaKm),
+        min: Math.round(legs.vueltaMin),
+      },
+    ],
     retiros: points.retiros.map((p) => p.direccion),
     paradas: points.paradas.map((p) => p.direccion ?? null),
     servicios: members.map((m) => m.codigo),
@@ -158,6 +182,8 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     fuente: legs.estimada ? "estimada" : "ruta",
     calculadaAt: new Date().toISOString(),
   };
+  // El total es la suma de los tramos que se muestran (asi lo que se ve en pantalla siempre suma).
+  circuito.km = round1(circuito.tramos.reduce((sum, t) => sum + t.km, 0));
   await updateRecordById(holder.id, { circuito });
   return circuito;
 };
@@ -235,4 +261,27 @@ export const computeEstimacionForRecord = async (recordId) => {
   };
   await updateRecordById(record.id, { estimacionRuta: result });
   return result;
+};
+
+// Todo lo que hace falta para dibujar el circuito en un mapa y comprobar que es correcto: los puntos en orden (salida,
+// retiro, paradas, regreso), el recorrido por calles y el detalle de km de cada tramo.
+export const getCircuitMapData = async (recordId) => {
+  const circuito = await ensureCircuit(recordId);
+  if (!circuito) return null;
+  const record = await findRecordById(recordId);
+  const members = await unitOf(record);
+  const points = await circuitPoints(members);
+  if (!points) return null;
+  const todos = [points.base, ...points.retiros, ...points.paradas, points.base];
+  const route = await calculateRoute(todos);
+  return {
+    circuito,
+    puntos: [
+      { tipo: "SALIDA", nombre: points.base.nombre ?? "Lugar de espera", lat: points.base.lat, lng: points.base.lng },
+      ...points.retiros.map((p) => ({ tipo: "RETIRO", nombre: p.direccion, lat: p.lat, lng: p.lng })),
+      ...points.paradas.map((p) => ({ tipo: "PARADA", nombre: p.direccion ?? "Parada", lat: p.lat, lng: p.lng })),
+      { tipo: "REGRESO", nombre: points.base.nombre ?? "Lugar de espera", lat: points.base.lat, lng: points.base.lng },
+    ],
+    geometria: route?.geometria ?? null,
+  };
 };

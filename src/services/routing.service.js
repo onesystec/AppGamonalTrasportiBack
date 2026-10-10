@@ -22,6 +22,8 @@ export const calculateRoute = async (points) => {
       distanciaKm: route.distance / 1000,
       duracionMin: route.duration / 60,
       geometria: route.geometry,
+      // Distancia y duracion de cada tramo entre un punto y el siguiente.
+      tramos: (route.legs ?? []).map((leg) => ({ distanciaKm: leg.distance / 1000, duracionMin: leg.duration / 60 })),
     };
   } catch {
     return null;

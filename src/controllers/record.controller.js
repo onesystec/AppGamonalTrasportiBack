@@ -20,6 +20,7 @@ import {
   updateDeclaracionesForActor,
   updateRecordForActor,
 } from "../services/record.service.js";
+import { getCircuitMapData } from "../services/rutaEstimada.service.js";
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -156,6 +157,13 @@ export const reordenarCompactado = asyncHandler(async (req, res) => {
 export const sinSustentar = asyncHandler(async (req, res) => {
   const { registros, servicios } = await countUnsupportedForDriver(req.user.id);
   res.status(200).json({ success: true, data: { registros, servicios } });
+});
+
+// Circuito del servicio (o del viaje) para dibujarlo en un mapa y verificarlo.
+export const circuitoMapa = asyncHandler(async (req, res) => {
+  const record = await getRecordByIdForActor(req.user, req.params.id);
+  const data = await getCircuitMapData(record.id);
+  res.status(200).json({ success: true, data: data ?? { circuito: null, puntos: [], geometria: null } });
 });
 
 export const ajustarKmViaje = asyncHandler(async (req, res) => {
