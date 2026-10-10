@@ -1,3 +1,4 @@
+import { findGroupMembers, markGroupDelivered } from "../models/compactado.model.js";
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
 import { computeShiftHours } from "../utils/workHours.js";
@@ -44,6 +45,15 @@ export const submitHoursForActor = async (actor, id, body) => {
   if (NOT_WORKED_STATUSES.includes(record.estado)) {
     throw new AppError("Un servicio anulado o reprogramado no tiene horas para cargar", 409);
   }
+  // Servicios compactados en un viaje: una sola jornada para todo el viaje, que se carga en el servicio principal.
+  let tripMembers = null;
+  if (record.compactadoId) {
+    tripMembers = await findGroupMembers(record.compactadoId);
+    const principal = tripMembers[0];
+    if (principal && principal.id !== record.id) {
+      throw new AppError(`Este servicio va compactado en un viaje: las horas se cargan una sola vez, en ${principal.codigo}`, 409);
+    }
+  }
   const privileged = isPrivileged(actor);
   if (!privileged && record.horasEstado === "APROBADAS") {
     throw new AppError("Estas horas ya fueron aprobadas. Si hay un error, avisa al responsable", 409);
@@ -52,24 +62,34 @@ export const submitHoursForActor = async (actor, id, body) => {
   const shift = computeShiftHours(body);
   if (shift.error) throw new AppError(shift.error, 400);
 
-  // Traspaso entre choferes: las jornadas tienen que ser coherentes con la hora en que se paso el paquete.
-  if (record.servicioOrigenId) {
-    if (!record.traspasoHora) {
-      throw new AppError("Primero indica a que hora recibiste el paquete", 409);
+  // Traspaso entre choferes: las jornadas tienen que ser coherentes con la hora en que se paso el paquete. En un
+  // viaje compacto la jornada cubre a todos sus servicios, asi que se revisan los traspasos de cada uno (por
+  // ejemplo, el chofer que recibe un paquete en el camino y lo lleva junto con su propio servicio).
+  const toCheck = tripMembers?.length ? tripMembers : [{ ...record, continuaciones: record.continuaciones }];
+  for (const m of toCheck) {
+    if (m.servicioOrigenId) {
+      if (!m.traspasoHora) {
+        throw new AppError(
+          m.id === record.id
+            ? "Primero indica a que hora recibiste el paquete"
+            : `Primero indica a que hora recibiste el paquete de ${m.codigo}: va en este viaje`,
+          409
+        );
+      }
+      if (body.inicio.getTime() > m.traspasoHora.getTime()) {
+        throw new AppError(
+          `Tu jornada tiene que empezar a la hora en que recibiste el paquete (${romeStamp(m.traspasoHora)}) o antes`,
+          400
+        );
+      }
     }
-    if (body.inicio.getTime() > record.traspasoHora.getTime()) {
+    const handover = m.continuaciones?.[0]?.traspasoHora;
+    if (handover && body.fin.getTime() < handover.getTime()) {
       throw new AppError(
-        `Tu jornada tiene que empezar a la hora en que recibiste el paquete (${romeStamp(record.traspasoHora)}) o antes`,
+        `Tu jornada no puede terminar antes de entregar el paquete (${romeStamp(handover)}). Termina cuando vuelves al lugar de espera`,
         400
       );
     }
-  }
-  const handover = record.continuaciones?.[0]?.traspasoHora;
-  if (handover && body.fin.getTime() < handover.getTime()) {
-    throw new AppError(
-      `Tu jornada no puede terminar antes de entregar el paquete (${romeStamp(handover)}). Termina cuando vuelves al lugar de espera`,
-      400
-    );
   }
 
   const markDelivered = body.entregado === true && !["CONSEGNATO", "RITIRATO"].includes(record.estado);
@@ -105,6 +125,8 @@ export const submitHoursForActor = async (actor, id, body) => {
   const updated = await updateRecordById(id, data);
   // Cambiar el estado puede cambiar a que servicio pertenece un peaje o una carga de combustible.
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
+  // Terminar el viaje compacto entrega todos sus servicios.
+  if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
   // Las paradas del vehiculo durante la jornada se calculan aparte, sin hacer esperar al chofer.
   refreshParadasInBackground(id);
   refreshEstiloInBackground(id, { force: true });

@@ -34,7 +34,12 @@ export const estimateLiters = (record) => {
 // necesario" en cualquiera de sus servicios, para que ninguno quede pendiente. Sin "day" (contexto no
 // cargado) se evalua solo el servicio.
 export const computeFaltantes = (record, counts = {}, day = null) => {
-  const mancatos = record.mancatos;
+  // Viaje compacto: el servicio principal responde por todo el viaje (peajes y comprobantes de todos sus
+  // servicios, una sola ida y una sola vuelta); los demas no piden nada (faltantesMiembro).
+  const grupo = record.faltantesGrupo;
+  if (grupo) counts = grupo;
+  const mancatos = grupo ? undefined : record.mancatos;
+  const declared = grupo ?? record;
   let ida = mancatos ? mancatos.filter((m) => m.tramo === "IDA").length : (counts.mancatoIda ?? 0);
   let vuelta = mancatos ? mancatos.filter((m) => m.tramo === "VUELTA").length : (counts.mancatoVuelta ?? 0);
   let sinTramo = mancatos ? mancatos.filter((m) => !m.tramo).length : (counts.mancatoSinTramo ?? 0);
@@ -44,27 +49,32 @@ export const computeFaltantes = (record, counts = {}, day = null) => {
     else vuelta += 1;
     sinTramo -= 1;
   }
-  const ownFuel = record.combustibles ? record.combustibles.length : (counts.combustibles ?? record.fuelCount ?? 0);
+  const ownFuel = !grupo && record.combustibles ? record.combustibles.length : (counts.combustibles ?? record.fuelCount ?? 0);
 
-  const aplica = isEvaluable(record);
+  const aplica = isEvaluable(record) && !record.faltantesMiembro;
   const own = estimateLiters(record);
   const dayLiters = day ? day.litros : (own?.medio ?? 0);
   const exigeCombustible = dayLiters >= LITROS_MINIMOS_PARA_EXIGIR_COMBUSTIBLE;
-  const combustibleCubierto = ownFuel > 0 || (day?.comprobantes ?? 0) > 0 || Boolean(record.sinCombustible) || Boolean(day?.declarado);
+  const combustibleCubierto = ownFuel > 0 || (day?.comprobantes ?? 0) > 0 || Boolean(declared.sinCombustible) || Boolean(day?.declarado);
 
   const excepcion = record.faltantesExcepcion
     ? { nota: record.faltantesExcepcionNota ?? "", por: record.faltantesExcepcionPor ?? null, at: record.faltantesExcepcionAt ?? null }
     : null;
 
   const exigible = aplica && !excepcion;
-  const faltaIda = exigible && ida === 0 && !record.sinPeajeIda;
-  const faltaVuelta = exigible && vuelta === 0 && !record.sinPeajeVuelta;
+  const faltaIda = exigible && ida === 0 && !declared.sinPeajeIda;
+  const faltaVuelta = exigible && vuelta === 0 && !declared.sinPeajeVuelta;
   const faltaCombustible = exigible && exigeCombustible && !combustibleCubierto;
 
   return {
     aplica,
     ida: faltaIda,
     vuelta: faltaVuelta,
+    // Si ya hay un peaje de cada tramo (cubiertos aunque falte otro), para que la pantalla no lo pida de nuevo.
+    tieneIda: ida > 0,
+    tieneVuelta: vuelta > 0,
+    // Este servicio va en un viaje compacto y los avisos los lleva el principal.
+    enViaje: Boolean(record.faltantesGrupo || record.faltantesMiembro),
     combustible: faltaCombustible,
     pendientes: [faltaIda, faltaVuelta, faltaCombustible].filter(Boolean).length,
     exigeCombustible,
@@ -75,9 +85,9 @@ export const computeFaltantes = (record, counts = {}, day = null) => {
       : null,
     excepcion,
     declarado: {
-      sinPeajeIda: Boolean(record.sinPeajeIda),
-      sinPeajeVuelta: Boolean(record.sinPeajeVuelta),
-      sinCombustible: Boolean(record.sinCombustible),
+      sinPeajeIda: Boolean(declared.sinPeajeIda),
+      sinPeajeVuelta: Boolean(declared.sinPeajeVuelta),
+      sinCombustible: Boolean(declared.sinCombustible),
     },
   };
 };

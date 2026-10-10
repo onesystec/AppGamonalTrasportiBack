@@ -196,3 +196,10 @@ export const excepcionSchema = z
     message: "Explica el motivo de la excepcion",
     path: ["nota"],
   });
+
+// Servicios (en el orden de las paradas) de un viaje compacto: el primero es el principal.
+export const compactarSchema = z.object({
+  recordIds: z.array(z.string().uuid("Servicio invalido")).min(1).max(8),
+});
+
+export const compactadoIdParamSchema = z.object({ compactadoId: z.string().uuid("Viaje invalido") });

@@ -555,6 +555,12 @@ model Record {
   continuaciones   Record[]  @relation("Traspaso")
   traspasoHora     DateTime?
 
+  // Servicios compactados: un mismo chofer hace 2 o mas servicios en un solo viaje. Comparten compactadoId y
+  // compactadoOrden es el orden de las paradas del viaje; el 1 es el servicio principal: ahi se carga UNA sola
+  // jornada de horas, se declaran los peajes/carburante y se paga el viaje (los demas quedan incluidos).
+  compactadoId     String?
+  compactadoOrden  Int?
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]
@@ -563,6 +569,7 @@ model Record {
   @@index([driverId])
   @@index([horasEstado])
   @@index([servicioOrigenId])
+  @@index([compactadoId])
   @@map("records")
 }
 

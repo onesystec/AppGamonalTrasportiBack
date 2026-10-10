@@ -1,4 +1,10 @@
 import {
+  compactarForActor,
+  descompactarForActor,
+  listCompactableForActor,
+  reordenarForActor,
+} from "../services/compactado.service.js";
+import {
   createRecord,
   deleteRecord,
   exportRecordsForActor,
@@ -130,6 +136,24 @@ export const updateDeclaraciones = asyncHandler(async (req, res) => {
 export const setExcepcion = asyncHandler(async (req, res) => {
   const record = await setFaltantesExcepcionForActor(req.user, req.params.id, req.body);
   res.status(200).json({ success: true, data: { record } });
+});
+
+export const listCompactables = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: { servicios: await listCompactableForActor(req.user) } });
+});
+
+export const compactar = asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: { viaje: await compactarForActor(req.user, req.body.recordIds) } });
+});
+
+export const reordenarCompactado = asyncHandler(async (req, res) => {
+  const viaje = await reordenarForActor(req.user, req.params.compactadoId, req.body.recordIds);
+  res.status(200).json({ success: true, data: { viaje } });
+});
+
+export const descompactar = asyncHandler(async (req, res) => {
+  await descompactarForActor(req.user, req.params.compactadoId);
+  res.status(204).send();
 });
 
 export const remove = asyncHandler(async (req, res) => {

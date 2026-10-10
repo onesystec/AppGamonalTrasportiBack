@@ -1,6 +1,8 @@
 import { Router } from "express";
 import {
+  compactar,
   create,
+  descompactar,
   exportRecords,
   getById,
   getLiveEta,
@@ -11,7 +13,9 @@ import {
   listSummaryByMonth,
   listSyncFailures,
   listByYear,
+  listCompactables,
   remove,
+  reordenarCompactado,
   search,
   setExcepcion,
   update,
@@ -23,6 +27,8 @@ import { authorize } from "../middlewares/authorize.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
 import {
+  compactadoIdParamSchema,
+  compactarSchema,
   createRecordSchema,
   exportRecordsQuerySchema,
   declaracionesSchema,
@@ -45,6 +51,22 @@ router.get("/", list);
 // igual deben registrarse antes de "/:id" (mas abajo) para no chocar con el UUID.
 router.get("/pending", listPending);
 router.get("/search", search);
+// Servicios compactados (varios servicios de un chofer en un solo viaje): solo Admin/Responsable.
+router.get("/compactar/sugerencias", authorize("OWNER", "ADMIN"), listCompactables);
+router.post("/compactar", authorize("OWNER", "ADMIN"), validate(compactarSchema), compactar);
+router.patch(
+  "/compactar/:compactadoId",
+  authorize("OWNER", "ADMIN"),
+  validate(compactadoIdParamSchema, "params"),
+  validate(compactarSchema),
+  reordenarCompactado
+);
+router.delete(
+  "/compactar/:compactadoId",
+  authorize("OWNER", "ADMIN"),
+  validate(compactadoIdParamSchema, "params"),
+  descompactar
+);
 router.get("/sync-fallidos", authorize("OWNER", "ADMIN"), listSyncFailures);
 router.get(
   "/export",

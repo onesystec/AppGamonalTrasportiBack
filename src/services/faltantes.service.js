@@ -1,6 +1,7 @@
 import { FALTANTES_DESDE } from "../config/faltantes.js";
 import { findFinishedForVehicles, findFuelForVehicles, findRecordsToRemind, markRemindedByIds } from "../models/faltantes.model.js";
 import { groupMancatosByRecord } from "../models/mancato.model.js";
+import { attachCompactados } from "./compactadoView.service.js";
 import { computeFaltantes, estimateLiters, isEvaluable, romeDay } from "../utils/faltantes.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
@@ -11,6 +12,8 @@ const dayKey = (vehicleId, day) => `${vehicleId}|${day}`;
 // estimados de todos sus servicios, los comprobantes de combustible y si alguien declaro "no fue necesario".
 // Deja el resultado en cada servicio (faltantesCounts / faltantesDay) para que computeFaltantes lo use.
 export const attachFaltantes = async (records) => {
+  // Los servicios compactados en un viaje se evaluan juntos: el principal declara por todo el viaje.
+  await attachCompactados(records);
   const evaluables = records.filter((r) => r.vehicleId && isEvaluable(r));
   const mancatoGroups = evaluables.length > 0 ? await groupMancatosByRecord() : [];
   const mancatosByRecord = new Map();
@@ -46,6 +49,26 @@ export const attachFaltantes = async (records) => {
   }
 
   for (const record of records) {
+    const members = record.compactadoMembers;
+    if (members?.length) {
+      if (record.id !== members[0].id) record.faltantesMiembro = true;
+      else {
+        const g = { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0, combustibles: 0, sinPeajeIda: false, sinPeajeVuelta: false, sinCombustible: false };
+        for (const m of members) {
+          const c = mancatosByRecord.get(m.id);
+          if (c) {
+            g.mancatoIda += c.mancatoIda;
+            g.mancatoVuelta += c.mancatoVuelta;
+            g.mancatoSinTramo += c.mancatoSinTramo;
+          }
+          g.combustibles += m._count?.combustibles ?? 0;
+          g.sinPeajeIda ||= Boolean(m.sinPeajeIda);
+          g.sinPeajeVuelta ||= Boolean(m.sinPeajeVuelta);
+          g.sinCombustible ||= Boolean(m.sinCombustible);
+        }
+        record.faltantesGrupo = g;
+      }
+    }
     record.faltantesCounts = {
       ...(mancatosByRecord.get(record.id) ?? { mancatoIda: 0, mancatoVuelta: 0, mancatoSinTramo: 0 }),
       combustibles: record.combustibles ? record.combustibles.length : (record.fuelCount ?? 0),

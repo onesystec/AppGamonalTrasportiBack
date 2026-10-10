@@ -134,6 +134,8 @@ const RECORD_SELECT_LIST = {
   faltantesExcepcionNota: true,
   faltantesExcepcionPor: true,
   faltantesExcepcionAt: true,
+  compactadoId: true,
+  compactadoOrden: true,
   createdAt: true,
   updatedAt: true,
 };
@@ -348,6 +350,8 @@ export const findRecordsSummary = ({ driverId, dateRange, spedizzioneFilter } = 
       sinPeajeVuelta: true,
       sinCombustible: true,
       faltantesExcepcion: true,
+      compactadoId: true,
+      compactadoOrden: true,
     },
     orderBy: { fechaServicio: "desc" },
   });

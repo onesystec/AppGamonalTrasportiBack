@@ -286,6 +286,7 @@ const toFullResponse = (record) => {
     fechaRetiro: record.fechaRetiro,
     mancatos: toMancatosSummary(record.mancatos),
     faltantes: faltantesOf(record),
+    compactado: record.compactado ?? null,
     descripcion: record.descripcion,
     codigo: record.codigo,
     destinazione: record.destinazione,
@@ -387,6 +388,7 @@ const toChoferResponse = (record) => ({
   fechaRetiro: record.fechaRetiro,
   mancatos: toMancatosSummary(record.mancatos),
   faltantes: faltantesOf(record),
+  compactado: record.compactado ?? null,
   descripcion: record.descripcion,
   codigo: record.codigo,
   destinazione: record.destinazione,
@@ -607,11 +609,12 @@ export const listRecordsSummaryForActor = async (actor, dateRange) => {
   // Cada fila lleva "faltante": true si ese servicio terminado tiene algo sin subir (la lista marca el dia).
   await attachFuel(records);
   await attachFaltantes(records);
-  return records.map(({ vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelSum, fuelCount, faltantesCounts, faltantesDay, ...row }) => ({
+  return records.map(({ vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelSum, fuelCount, faltantesCounts, faltantesDay, compactado, compactadoMembers, faltantesGrupo, faltantesMiembro, ...row }) => ({
     ...row,
+    compactado: compactado ? { id: compactado.id, orden: compactado.orden, total: compactado.total, principal: compactado.principal } : null,
     faltante:
       computeFaltantes(
-        { ...row, vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelCount },
+        { ...row, vehicle, vehicleId, rutaDistanciaKm, sinPeajeIda, sinPeajeVuelta, sinCombustible, faltantesExcepcion, fuelCount, faltantesGrupo, faltantesMiembro },
         faltantesCounts,
         faltantesDay
       ).pendientes > 0,

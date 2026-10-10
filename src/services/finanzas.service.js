@@ -55,6 +55,11 @@ const comparisonLimitDay = (month) => (month === romeDay().slice(0, 7) ? Number(
 
 const numberOr0 = (value) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 
+// Servicio que cambio de manos (traspaso entre choferes): el que entrego su paquete a otro chofer o el que lo recibio.
+// Sus km planificados o los de su ruta son los del servicio ENTERO (por ejemplo Milano - Napoli), no los que
+// hizo cada chofer.
+const enTraspaso = (record) => Boolean(record.servicioOrigenId) || (record._count?.continuaciones ?? 0) > 0;
+
 const ROME_WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 const romeWeekday = (date) =>
   ROME_WEEKDAYS[new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date(date))];
@@ -70,7 +75,7 @@ const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : v
 //  - Reperibilidad: si el servicio SALE fuera del horario laboral (fin de semana o festivo) se suma el extra,
 //    con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
-export const computeServicePay = (record) => {
+export const computeServicePay = (record, { kmViaje = null } = {}) => {
   const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
   const aprobadas = record.horasEstado === "APROBADAS";
 
@@ -109,9 +114,18 @@ export const computeServicePay = (record) => {
     pagoBase = horasDia * tariff.horaDiaEur + horasNoche * tariff.horaNocheEur;
   } else {
     modo = "KM";
-    if (numberOr0(record.kilometrosReales) > 0) {
+    if (kmViaje != null && kmViaje > 0) {
+      // Servicio principal de un viaje compacto: los km de todo el viaje, pagados una sola vez.
+      km = kmViaje;
+      kmFuente = "VIAJE";
+    } else if (numberOr0(record.kilometrosReales) > 0) {
       km = record.kilometrosReales;
       kmFuente = "REAL";
+    } else if (enTraspaso(record)) {
+      // Sin horas aprobadas ni sus km reales no se sabe cuanto manejo cada uno: no se paga por los km del
+      // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
+      km = 0;
+      kmFuente = "TRASPASO_SIN_KM";
     } else if (numberOr0(record.kilometros) > 0) {
       km = record.kilometros;
       kmFuente = "SERVICIO";
@@ -160,6 +174,63 @@ export const computePayIfApproved = (record) =>
   computeServicePay({ ...record, horasEstado: "APROBADAS" });
 
 const isPayable = (record) => PAYABLE_STATUSES.includes(record.estado);
+
+// ---------------------------------------------------------------- viajes compactados
+// Varios servicios de un chofer en un solo viaje se pagan UNA vez, como un solo servicio: el principal (el de
+// menor orden) lleva la jornada de todo el viaje y los km sumados; los demas quedan incluidos (pago 0). Asi una
+// jornada, una reperibilidad y una espera no se pagan por cada servicio del viaje.
+// La continuacion de un traspaso (servicio recibido de otro chofer) copia la ruta del servicio original: esos km
+// no son los que hace quien la recibe, asi que solo cuentan si el servicio trae los suyos.
+const kmOfRecord = (r) =>
+  enTraspaso(r)
+    ? numberOr0(r.kilometrosReales)
+    : numberOr0(r.kilometrosReales) || numberOr0(r.kilometros) || numberOr0(r.rutaDistanciaKm);
+
+export const buildViajeContext = (records) => {
+  const byGroup = new Map();
+  for (const r of records) {
+    if (!r.compactadoId) continue;
+    if (!byGroup.has(r.compactadoId)) byGroup.set(r.compactadoId, []);
+    byGroup.get(r.compactadoId).push(r);
+  }
+  const ctx = new Map();
+  for (const members of byGroup.values()) {
+    const payable = members.filter(isPayable).sort((a, b) => (a.compactadoOrden ?? 0) - (b.compactadoOrden ?? 0));
+    const principal = payable[0];
+    if (!principal) continue;
+    // Si el chofer reporto los km reales en el principal, son los de todo el viaje; si no, se suman los de cada servicio.
+    const km = numberOr0(principal.kilometrosReales) > 0 ? principal.kilometrosReales : members.reduce((sum, m) => sum + kmOfRecord(m), 0);
+    ctx.set(principal.compactadoId, { principalId: principal.id, principalCodigo: principal.codigo, km, servicios: members.length });
+  }
+  return ctx;
+};
+
+const includedPay = (record, viaje) => ({
+  modo: "VIAJE",
+  franja: null,
+  horasEstado: null,
+  horas: 0,
+  horasDia: 0,
+  horasNoche: 0,
+  km: null,
+  kmFuente: null,
+  esperaHoras: 0,
+  reperibilidad: null,
+  pagoBase: 0,
+  pagoEspera: 0,
+  pagoReperibilidad: 0,
+  total: 0,
+  incluidoEnViaje: true,
+  viajeCodigo: viaje.principalCodigo,
+});
+
+// Pago de un servicio teniendo en cuenta su viaje compacto (si lo tiene).
+export const payOf = (record, ctx) => {
+  const viaje = record.compactadoId ? ctx?.get(record.compactadoId) : null;
+  if (!viaje) return computeServicePay(record);
+  if (record.id !== viaje.principalId) return includedPay(record, viaje);
+  return { ...computeServicePay(record, { kmViaje: viaje.km }), viajeServicios: viaje.servicios };
+};
 
 const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, servicios: 0, choferes: new Set() });
 const addPay = (acc, record, pay) => {
@@ -291,6 +362,7 @@ export const getFinanzasResumenForActor = async (actor, query) => {
   }
   const prevSame = { combustible: 0, gastos: 0, pago: emptyPay() };
 
+  const viajes = buildViajeContext(records);
   for (const r of records) {
     const day = romeDay(r.fechaServicio);
     const bucket = buckets.get(day.slice(0, 7));
@@ -304,10 +376,10 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     const estimado = privileged && r.combustibles.length === 0 ? numberOr0(r.costoCombustible) : 0;
     bucket.combustibleEstimado += estimado;
     if (day.startsWith(prevMonth) && dayOfMonth(day) <= limitDay) prevSame.combustible += estimado;
-    if (isPayable(r)) addPay(bucket.pago, r, computeServicePay(r));
+    if (isPayable(r)) addPay(bucket.pago, r, payOf(r, viajes));
     if (day.startsWith(prevMonth) && dayOfMonth(day) <= limitDay) {
       prevSame.gastos += gastosTotal;
-      if (isPayable(r)) addPay(prevSame.pago, r, computeServicePay(r));
+      if (isPayable(r)) addPay(prevSame.pago, r, payOf(r, viajes));
     }
   }
   for (const f of fuel) {
@@ -486,6 +558,9 @@ const serviceItem = (record, pay) => ({
   ...pay,
   // Lo que se pagaria si las horas cargadas se aprobaran (solo tiene sentido si hay horas).
   estimadoSiAprobada: pay.horasEstado && pay.horasEstado !== "APROBADAS" ? computePayIfApproved(record).total : null,
+  incluidoEnViaje: pay.incluidoEnViaje ?? false,
+  viajeCodigo: pay.viajeCodigo ?? null,
+  viajeServicios: pay.viajeServicios ?? null,
 });
 
 export const getPagosChoferesForActor = async (actor, query) => {
@@ -506,8 +581,9 @@ export const getPagosChoferesForActor = async (actor, query) => {
 
   const byDriver = new Map();
   const total = emptyPay();
+  const viajes = buildViajeContext(records);
   for (const r of records) {
-    const pay = computeServicePay(r);
+    const pay = payOf(r, viajes);
     addPay(total, r, pay);
     const entry =
       byDriver.get(r.driverId) ??
@@ -535,8 +611,11 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.horas += pay.horas;
     entry.horasDia += pay.horasDia;
     entry.horasNoche += pay.horasNoche;
-    if (pay.modo === "KM") entry.serviciosPorKm += 1;
-    if (r.horasEstado === "PENDIENTE") entry.horasPorAprobar += 1;
+    if (pay.modo === "KM" && !pay.incluidoEnViaje) entry.serviciosPorKm += 1;
+    // Un servicio incluido en un viaje compacto no lleva horas propias: las del viaje estan en el principal.
+    if (pay.incluidoEnViaje) {
+      // sin contadores de horas
+    } else if (r.horasEstado === "PENDIENTE") entry.horasPorAprobar += 1;
     else if (r.horasEstado === "DEVUELTAS") entry.horasDevueltas += 1;
     else if (!r.horasEstado) entry.horasSinCargar += 1;
     entry.km += pay.modo === "KM" ? (pay.km ?? 0) : 0;
@@ -546,7 +625,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoReperibilidad += pay.pagoReperibilidad;
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     entry.total += pay.total;
-    if (pay.kmFuente === "SIN_DATO") entry.serviciosSinDato += 1;
+    if (pay.kmFuente === "SIN_DATO" || pay.kmFuente === "TRASPASO_SIN_KM") entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
   }
 
@@ -582,7 +661,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     total: finishPay(total),
     porChofer,
     servicios: showItems
-      ? records.map((r) => serviceItem(r, computeServicePay(r))).sort((a, b) => b.fecha - a.fecha)
+      ? records.map((r) => serviceItem(r, payOf(r, viajes))).sort((a, b) => b.fecha - a.fecha)
       : null,
   };
 };
