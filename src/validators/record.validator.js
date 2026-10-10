@@ -77,17 +77,17 @@ const salidaField = z
   })
   .refine((v) => (v.lat == null) === (v.lng == null), { message: "lat y lng van juntas" });
 
+// Los formularios mandan las fechas como hora "de pared" sin zona (AAAA-MM-DDTHH:mm): se
+// interpretan como hora de Roma (la operacion es ahi), sin depender de la zona del navegador ni del
+// servidor. Lo que escribe la oficina es exactamente lo que se guarda y se muestra. Un ISO completo
+// (con zona) pasa tal cual.
+const WALL_CLOCK = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+const romeWallClock = (value) =>
+  typeof value === "string" && WALL_CLOCK.test(value) ? romeLocalToDate(value.slice(0, 10), value.slice(11, 16)) : value;
+
 // Cuando sale realmente el vehiculo. "" (o null) la borra al editar.
-// El formulario manda la hora "de pared" sin zona (AAAA-MM-DDTHH:mm): se interpreta como hora de
-// Roma (la operacion es ahi), sin depender de la zona del navegador ni del servidor.
 const fechaRetiro = z.preprocess(
-  (value) => {
-    if (value === "" || value === null) return null;
-    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) {
-      return romeLocalToDate(value.slice(0, 10), value.slice(11, 16));
-    }
-    return value;
-  },
+  (value) => (value === "" || value === null ? null : romeWallClock(value)),
   z.coerce.date({ errorMap: () => ({ message: "fechaRetiro invalida" }) }).nullable().optional()
 );
 
@@ -95,8 +95,8 @@ export const createRecordSchema = z.object({
   driverId: z.string().uuid("driverId invalido"),
   vehicleId: z.string().uuid("vehicleId invalido"),
   clientId: z.string().uuid("clientId invalido"),
-  fechaServicio: z.coerce.date({ errorMap: () => ({ message: "fechaServicio invalida" }) }),
-  eta: z.coerce.date({ errorMap: () => ({ message: "eta invalida" }) }),
+  fechaServicio: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "fechaServicio invalida" }) })),
+  eta: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "eta invalida" }) })),
   fechaRetiro,
   descripcion: z.string().trim().min(1, "La descripcion es obligatoria"),
   codigo: z.string().trim().min(1, "El codigo es obligatorio"),
@@ -117,8 +117,8 @@ export const updateRecordSchema = z.object({
   driverId: z.string().uuid().optional(),
   vehicleId: z.string().uuid().optional(),
   clientId: z.string().uuid().optional(),
-  fechaServicio: z.coerce.date().optional(),
-  eta: z.coerce.date().optional(),
+  fechaServicio: z.preprocess(romeWallClock, z.coerce.date().optional()),
+  eta: z.preprocess(romeWallClock, z.coerce.date().optional()),
   fechaRetiro,
   descripcion: z.string().trim().min(1).optional(),
   codigo: z.string().trim().min(1).optional(),
