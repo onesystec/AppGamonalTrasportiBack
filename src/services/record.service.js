@@ -27,6 +27,8 @@ import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { env } from "../config/env.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { toRomeParts } from "../constants/appsheetMaps.js";
+import { OPEN_STATES, setGroupOpenEstado } from "../models/compactado.model.js";
+import { viajesAplican } from "../config/viajes.js";
 import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
@@ -597,6 +599,35 @@ export const getRecordByIdForActor = async (actor, id) => {
   return toResponse(record, actor);
 };
 
+// Un servicio dentro de un viaje compacto no se edita suelto:
+//  - Los km reales son los de TODO el viaje (se cargan al terminarlo y se reparten, o los reparte la oficina):
+//    cambiar los de un solo servicio descuadraria el total y el reparto.
+//  - El chofer mueve el estado de todo el viaje junto (en camino, retirado...) y lo entrega terminando el viaje.
+//    La oficina si puede mover un servicio solo (anularlo, reprogramarlo).
+// Devuelve el payload sin los km repetidos y, si hay que mover todo el viaje de estado, el estado nuevo.
+const applyViajeRules = (actor, record, payload) => {
+  if (!record.compactadoId || !viajesAplican(record.fechaServicio)) return { payload, estadoViaje: null };
+  let next = payload;
+  if ("kilometrosReales" in next) {
+    const { kilometrosReales, ...rest } = next;
+    if (kilometrosReales != null && Number(kilometrosReales) !== (record.kilometrosReales ?? null)) {
+      throw new AppError(
+        "Este servicio va en un viaje compacto: los km reales se cargan para todo el viaje (al terminarlo, o con \"Ajustar reparto de km\" en la oficina)",
+        409
+      );
+    }
+    next = rest;
+  }
+  let estadoViaje = null;
+  if (!isPrivileged(actor) && "estado" in next && next.estado !== record.estado) {
+    if (!OPEN_STATES.includes(next.estado) || !OPEN_STATES.includes(record.estado)) {
+      throw new AppError("Los servicios de un viaje compacto se entregan todos juntos al terminar el viaje (\"Terminar viaje\")", 409);
+    }
+    estadoViaje = next.estado;
+  }
+  return { payload: next, estadoViaje };
+};
+
 const HOURS_TOTAL_FIELDS = ["horasDia", "horasNoche", "tiempoEspera"];
 
 // Cargar los totales de horas directamente (formulario viejo / app instalada sin actualizar)
@@ -750,9 +781,11 @@ export const updateRecordForActor = async (actor, id, data) => {
     await syncRelevoForRecord(record, choferRelevoId);
   }
 
-  payload = applyHoursApprovalRules(actor, record, payload);
+  const viaje = applyViajeRules(actor, record, payload);
+  payload = applyHoursApprovalRules(actor, record, viaje.payload);
 
   const updated = await updateRecordById(id, payload);
+  if (viaje.estadoViaje) await setGroupOpenEstado(record.compactadoId, viaje.estadoViaje);
 
   // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
   // cambiar a que servicio pertenece un peaje.

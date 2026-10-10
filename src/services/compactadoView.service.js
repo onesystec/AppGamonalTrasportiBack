@@ -62,6 +62,8 @@ export const attachCompactados = async (records) => {
       principal: record.id === principal.id,
       principalId: principal.id,
       principalCodigo: principal.codigo,
+      // Estado de las horas del viaje (viven en el servicio principal): PENDIENTE, APROBADAS, DEVUELTAS o null.
+      principalHoras: principal.horasEstado ?? null,
       servicios: members.map(toServicio),
       km: kmDelViaje(members),
     };

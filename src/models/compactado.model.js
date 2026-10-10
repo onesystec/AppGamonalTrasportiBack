@@ -117,6 +117,11 @@ export const clearGroup = (ids) =>
     data: { compactadoId: null, compactadoOrden: null, kmReparto: Prisma.DbNull },
   });
 
+// El chofer mueve el estado de un servicio abierto del viaje: se mueve todo el viaje junto (los ya entregados o
+// anulados no se tocan).
+export const setGroupOpenEstado = (compactadoId, estado) =>
+  prisma.record.updateMany({ where: { compactadoId, estado: { in: OPEN_STATES } }, data: { estado } });
+
 // Guarda los km reales de cada servicio del viaje (`items` = [{ id, km }]) y, en el principal, como se repartieron.
 export const setGroupKm = (items, principalId, meta) =>
   prisma.$transaction(
