@@ -1,5 +1,6 @@
 import {
   deleteBustaPagaForActor,
+  listDestinatariosForActor,
   getBustaPagaFileUrl,
   getConstanciaForActor,
   listBustasPagaForActor,
@@ -16,6 +17,10 @@ const requestMeta = (req) => ({
 
 export const list = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: { bustas: await listBustasPagaForActor(req.user, req.query) } });
+});
+
+export const destinatarios = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: { usuarios: await listDestinatariosForActor(req.user) } });
 });
 
 export const upload = asyncHandler(async (req, res) => {

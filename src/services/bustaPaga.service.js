@@ -4,6 +4,7 @@ import {
   createBustaPaga,
   deleteBustaPaga,
   findAccesos,
+  findDestinatarios,
   findBustaPagaById,
   findBustaPagaDeChoferMes,
   findBustasPaga,
@@ -15,7 +16,8 @@ import { AppError } from "../utils/AppError.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 
-// Quien carga y gestiona las busta paga: Recursos Humanos (y el Admin). Los Responsables no las ven.
+// Quien carga y gestiona las busta paga: Recursos Humanos (y el Admin). Todos los usuarios, incluidos los
+// Responsables, reciben y ven las suyas; solo ellas.
 const canManage = (actor) => actor.cargo === "RRHH" || actor.cargo === "OWNER";
 
 const MONTHS = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
@@ -32,7 +34,8 @@ const log = (bustaPagaId, usuarioId, accion, meta) =>
 const toListItem = (b) => ({
   id: b.id,
   choferId: b.choferId,
-  chofer: b.chofer ? `${b.chofer.nombre} ${b.chofer.apellido}` : null,
+  chofer: b.chofer ? `${b.chofer.nombre} ${b.chofer.apellido}` : null, // quien la recibe (cualquier cargo)
+  cargo: b.chofer?.cargo ?? null,
   anio: b.anio,
   mes: b.mes,
   nombreArchivo: b.nombreArchivo,
@@ -42,13 +45,18 @@ const toListItem = (b) => ({
 });
 
 export const listBustasPagaForActor = async (actor, query) => {
-  if (actor.cargo === "CHOFER") {
+  // Quien no gestiona ve solo las suyas; quien gestiona puede pedir solo las suyas con `propias`.
+  if (query.propias === "true" || !canManage(actor)) {
     const rows = await findBustasPaga({ choferId: actor.id, anio: query.anio });
     return rows.map(toListItem);
   }
-  assertManager(actor);
-  const rows = await findBustasPaga(query);
+  const rows = await findBustasPaga({ choferId: query.choferId, anio: query.anio });
   return rows.map(toListItem);
+};
+
+export const listDestinatariosForActor = async (actor) => {
+  assertManager(actor);
+  return findDestinatarios();
 };
 
 export const uploadBustaPagaForActor = async (actor, file, body, meta) => {
@@ -57,12 +65,12 @@ export const uploadBustaPagaForActor = async (actor, file, body, meta) => {
   if (file.buffer.subarray(0, 4).toString() !== "%PDF") throw new AppError("El archivo no es un PDF valido", 400);
 
   const chofer = await findUserById(body.choferId);
-  if (!chofer || chofer.cargo !== "CHOFER") throw new AppError("Chofer no encontrado", 404);
+  if (!chofer) throw new AppError("Usuario no encontrado", 404);
 
   const existing = await findBustaPagaDeChoferMes(body.choferId, body.anio, body.mes);
   if (existing?.firmadaAt) {
     throw new AppError(
-      `La busta paga de ${MONTHS[body.mes - 1]} ${body.anio} de este chofer ya fue firmada y no se puede reemplazar`,
+      `La busta paga de ${MONTHS[body.mes - 1]} ${body.anio} de esta persona ya fue firmada y no se puede reemplazar`,
       409
     );
   }
@@ -87,7 +95,7 @@ export const uploadBustaPagaForActor = async (actor, file, body, meta) => {
     await log(record.id, actor.id, "SUBIDA", meta);
   }
 
-  // Aviso al chofer, sin ningun dato del importe.
+  // Aviso a quien la recibe, sin ningun dato del importe.
   sendPushToUserIds([body.choferId], {
     title: "Tu busta paga esta disponible",
     body: `Ya puedes ver tu busta paga de ${MONTHS[body.mes - 1]} ${body.anio}.`,
@@ -103,10 +111,9 @@ const loadOwn = async (actor, id) => {
   return record;
 };
 
-// El chofer firma a mano que la recibe: se guarda el trazo, la hora del servidor, la IP, el dispositivo
+// Quien la recibe firma a mano que la recibe: se guarda el trazo, la hora del servidor, la IP, el dispositivo
 // y la huella del archivo. Solo despues puede abrirla.
 export const signBustaPagaForActor = async (actor, id, body, meta) => {
-  if (actor.cargo !== "CHOFER") throw new AppError("Solo el chofer puede firmar su busta paga", 403);
   const record = await loadOwn(actor, id);
   if (record.firmadaAt) throw new AppError("Esta busta paga ya fue firmada", 409);
 
@@ -125,18 +132,18 @@ export const signBustaPagaForActor = async (actor, id, body, meta) => {
   return toListItem(updated);
 };
 
-// URL temporal del PDF. El chofer solo la obtiene despues de firmar; Recursos Humanos siempre.
+// URL temporal del PDF. Quien la recibe (sea cual sea su cargo) la obtiene solo despues de firmar; Recursos
+// Humanos y el Admin pueden abrir las de los demas siempre.
 export const getBustaPagaFileUrl = async (actor, id, meta) => {
-  let record;
-  if (actor.cargo === "CHOFER") {
-    record = await loadOwn(actor, id);
+  const record = await findBustaPagaById(id);
+  if (!record) throw new AppError("Busta paga no encontrada", 404);
+  const isOwn = record.choferId === actor.id;
+  if (isOwn) {
     if (!record.firmadaAt) throw new AppError("Firma primero para poder ver tu busta paga", 403);
-  } else {
-    assertManager(actor);
-    record = await findBustaPagaById(id);
-    if (!record) throw new AppError("Busta paga no encontrada", 404);
+  } else if (!canManage(actor)) {
+    throw new AppError("Busta paga no encontrada", 404);
   }
-  await log(record.id, actor.id, actor.cargo === "CHOFER" ? "VISTA" : "VISTA_RRHH", meta);
+  await log(record.id, actor.id, isOwn ? "VISTA" : "VISTA_RRHH", meta);
   return { url: await getSignedUrlForKey(record.archivoKey, FILE_URL_SECONDS), expiraEnSegundos: FILE_URL_SECONDS };
 };
 
@@ -145,7 +152,7 @@ export const getConstanciaForActor = async (actor, id) => {
   assertManager(actor);
   const record = await findBustaPagaById(id);
   if (!record) throw new AppError("Busta paga no encontrada", 404);
-  if (!record.firmadaAt) throw new AppError("El chofer todavia no firmo esta busta paga", 409);
+  if (!record.firmadaAt) throw new AppError("Todavia no firmo esta busta paga", 409);
   const [chofer, subidaPor, accesos] = await Promise.all([
     findUserById(record.choferId),
     findUserById(record.subidaPorId),

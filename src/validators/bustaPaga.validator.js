@@ -11,6 +11,8 @@ export const uploadBustaPagaSchema = z.object({
 export const listBustaPagaQuerySchema = z.object({
   choferId: z.string().uuid().optional(),
   anio: z.coerce.number().int().min(2000).max(2100).optional(),
+  // "true": solo las propias (aunque quien consulta sea de la oficina o Recursos Humanos).
+  propias: z.enum(["true", "false"]).optional(),
 });
 
 // La firma llega como imagen PNG en base64 (data URL) dibujada con el dedo en el celular.

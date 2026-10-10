@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { driversProgress, getConfig, myProgress, putConfig } from "../controllers/meta.controller.js";
+import { driversProgress, getConfig, myDrivingStyle, myProgress, putConfig } from "../controllers/meta.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
@@ -15,6 +15,8 @@ router.put("/config", authorize("OWNER"), validate(metasConfigSchema), putConfig
 
 // Avance del propio usuario y, para la oficina, el de todos los que manejan.
 router.get("/mi-progreso", validate(progressQuerySchema, "query"), myProgress);
+// Puntaje de estilo de manejo (OneSystec) de quien consulta; va aparte para no demorar la meta si el GPS tarda.
+router.get("/mi-estilo-manejo", myDrivingStyle);
 router.get("/choferes", authorize("OWNER", "ADMIN"), validate(progressQuerySchema, "query"), driversProgress);
 
 export default router;

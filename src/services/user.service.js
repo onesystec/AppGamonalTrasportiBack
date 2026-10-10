@@ -422,9 +422,9 @@ export const deleteUser = async (actor, targetId) => {
   if (actor.cargo === "ADMIN" && user.cargo !== "CHOFER") {
     throw new AppError("No puedes eliminar a un Admin ni a otro Responsable", 403);
   }
-  // Las busta paga se conservan: un chofer que tiene alguna no se elimina, se desactiva.
+  // Las busta paga se conservan: un usuario que tiene alguna no se elimina, se desactiva.
   if (await hasBustasPaga(targetId)) {
-    throw new AppError("Este chofer tiene busta paga guardadas y no se puede eliminar. Desactivalo en su lugar", 409);
+    throw new AppError("Este usuario tiene busta paga guardadas y no se puede eliminar. Desactivalo en su lugar", 409);
   }
 
   // Se borran los objetos de R2 antes de la fila: el ON DELETE CASCADE limpia la tabla

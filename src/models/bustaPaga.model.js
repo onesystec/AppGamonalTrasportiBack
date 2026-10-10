@@ -3,7 +3,7 @@ import { prisma } from "../config/prisma.js";
 const LIST_SELECT = {
   id: true,
   choferId: true,
-  chofer: { select: { nombre: true, apellido: true } },
+  chofer: { select: { nombre: true, apellido: true, cargo: true } },
   anio: true,
   mes: true,
   nombreArchivo: true,
@@ -35,3 +35,11 @@ export const findAccesos = (bustaPagaId) =>
   prisma.bustaPagaAcceso.findMany({ where: { bustaPagaId }, orderBy: { createdAt: "asc" }, take: 100 });
 
 export const countBustasDeChofer = (choferId) => prisma.bustaPaga.count({ where: { choferId } });
+
+// A quien se le puede enviar una busta paga: cualquier usuario activo, sea cual sea su cargo.
+export const findDestinatarios = () =>
+  prisma.user.findMany({
+    where: { estado: "ACTIVO" },
+    select: { id: true, nombre: true, apellido: true, cargo: true },
+    orderBy: [{ nombre: "asc" }, { apellido: "asc" }],
+  });

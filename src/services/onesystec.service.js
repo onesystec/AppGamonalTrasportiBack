@@ -17,12 +17,15 @@ export const isOnesystecConfigured = () => Boolean(env.ONESYSTEC_BASE_URL && env
 
 const normalizePlate = (plate) => plate?.replace(/\s+/g, "").toUpperCase() ?? "";
 
-const request = async (path) => {
+const request = async (path, { timeoutMs = REQUEST_TIMEOUT_MS, root = false } = {}) => {
   if (!isOnesystecConfigured()) throw new AppError("La conexion con el GPS no esta configurada", 503);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${env.ONESYSTEC_BASE_URL.replace(/\/+$/, "")}${path}`, {
+    const base = env.ONESYSTEC_BASE_URL.replace(/\/+$/, "");
+    // root: endpoints que solo existen en la API v1, aunque la URL configurada ya termine en /v1 o no.
+    const url = root ? `${base.replace(/\/v1$/i, "")}/v1${path}` : `${base}${path}`;
+    const res = await fetch(url, {
       headers: { Authorization: `Bearer ${env.ONESYSTEC_API_KEY}` },
       signal: controller.signal,
     });
@@ -105,3 +108,36 @@ export const probeOnesystec = async () => {
     clearTimeout(timer);
   }
 };
+
+// Estilo de conduccion de toda la flota (API v1): por vehiculo, puntaje 1-100 (100 = sin incidentes) de
+// frenadas, aceleraciones y giros bruscos y exceso de velocidad, por cada 100 km. La ventana termina ahora
+// (maximo 31 dias). Una sola llamada sirve a todos los choferes, asi que se guarda en memoria un buen rato.
+const DRIVING_STYLE_TTL_MS = 15 * 60 * 1000;
+const DRIVING_STYLE_FAILURE_BACKOFF_MS = 60 * 1000;
+const DRIVING_STYLE_TIMEOUT_MS = 12000;
+const drivingStyleCache = new Map(); // days -> { at, vehicles }
+const drivingStyleInflight = new Map();
+let drivingStyleFailedAt = 0;
+
+export const getFleetDrivingStyle = async (days = 30) => {
+  const cached = drivingStyleCache.get(days);
+  if (cached && Date.now() - cached.at < DRIVING_STYLE_TTL_MS) return cached.vehicles;
+  if (Date.now() - drivingStyleFailedAt < DRIVING_STYLE_FAILURE_BACKOFF_MS) return cached?.vehicles ?? null;
+  if (drivingStyleInflight.has(days)) return drivingStyleInflight.get(days);
+
+  const pending = request(`/driving-style?days=${days}`, { root: true, timeoutMs: DRIVING_STYLE_TIMEOUT_MS })
+    .then((body) => {
+      const vehicles = Array.isArray(body?.vehicles) ? body.vehicles : [];
+      drivingStyleCache.set(days, { at: Date.now(), vehicles });
+      return vehicles;
+    })
+    .catch(() => {
+      drivingStyleFailedAt = Date.now();
+      return cached?.vehicles ?? null;
+    })
+    .finally(() => drivingStyleInflight.delete(days));
+  drivingStyleInflight.set(days, pending);
+  return pending;
+};
+
+export { normalizePlate };
