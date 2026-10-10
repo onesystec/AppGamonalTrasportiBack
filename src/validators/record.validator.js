@@ -95,9 +95,12 @@ export const createRecordSchema = z.object({
   driverId: z.string().uuid("driverId invalido"),
   vehicleId: z.string().uuid("vehicleId invalido"),
   clientId: z.string().uuid("clientId invalido"),
-  fechaServicio: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "fechaServicio invalida" }) })),
+  // Ya no se carga: el dia del servicio es el de la salida (Fecha retiro) o, si no hay, el de la ETA. Se acepta (y se
+  // usa si no hay hora de salida) por los servicios que entran por Telegram.
+  fechaServicio: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "fechaServicio invalida" }) }).optional()),
   eta: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "eta invalida" }) })),
   fechaRetiro,
+  retiroPaqueteAt: fechaRetiro,
   descripcion: z.string().trim().min(1, "La descripcion es obligatoria"),
   codigo: z.string().trim().min(1, "El codigo es obligatorio"),
   ciudad: z.string().trim().optional(),
@@ -120,6 +123,7 @@ export const updateRecordSchema = z.object({
   fechaServicio: z.preprocess(romeWallClock, z.coerce.date().optional()),
   eta: z.preprocess(romeWallClock, z.coerce.date().optional()),
   fechaRetiro,
+  retiroPaqueteAt: fechaRetiro,
   descripcion: z.string().trim().min(1).optional(),
   codigo: z.string().trim().min(1).optional(),
   ciudad: z.string().trim().optional(),

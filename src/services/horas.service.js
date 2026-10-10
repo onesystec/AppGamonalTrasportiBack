@@ -300,6 +300,9 @@ const buildWarnings = (record, totalMin) => {
   if (record.horaInicioReal && record.fechaRetiro) {
     const diffMin = (new Date(record.fechaRetiro).getTime() - new Date(record.horaInicioReal).getTime()) / MIN_MS;
     if (diffMin > 120) warnings.push(`El inicio declarado es ${hoursText(diffMin)} anterior a la fecha de retiro`);
+    // Mucho despues de la salida planificada: por ejemplo un paquete retirado un dia que sale a entregar dias despues
+    // (la "Fecha retiro" tiene que ser la hora en que sale a entregar, no la del retiro del paquete).
+    if (-diffMin > 180) warnings.push(`El inicio declarado es ${hoursText(-diffMin)} posterior a la salida planificada (fecha de retiro)`);
   }
   const handover = record.servicioOrigenId ? record.traspasoHora : record.continuaciones?.[0]?.traspasoHora;
   if (record.servicioOrigenId) {
@@ -373,6 +376,9 @@ const buildWarnings = (record, totalMin) => {
     }
   }
   if (totalMin > 12 * 60) warnings.push("Jornada de mas de 12 horas");
+  if ((record.pausaMin ?? 0) >= 180) {
+    warnings.push(`Pausa no trabajada de ${hoursText(record.pausaMin)} (descanso largo): revisa que corresponda y que las horas pagadas sean las trabajadas`);
+  }
   if (record.pausaMin === 0 && totalMin > 6 * 60) warnings.push("Mas de 6 horas sin ninguna pausa declarada");
   return warnings;
 };

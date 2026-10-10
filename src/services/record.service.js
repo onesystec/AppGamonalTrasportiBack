@@ -318,6 +318,7 @@ const toFullResponse = (record) => {
     fechaServicio: record.fechaServicio,
     eta: record.eta,
     fechaRetiro: record.fechaRetiro,
+    retiroPaqueteAt: record.retiroPaqueteAt ?? null,
     mancatos: toMancatosSummary(record.mancatos),
     faltantes: faltantesOf(record),
     compactado: record.compactado ?? null,
@@ -432,6 +433,7 @@ const toChoferResponse = (record) => ({
   fechaServicio: record.fechaServicio,
   eta: record.eta,
   fechaRetiro: record.fechaRetiro,
+  retiroPaqueteAt: record.retiroPaqueteAt ?? null,
   mancatos: toMancatosSummary(record.mancatos),
   faltantes: faltantesOf(record),
   compactado: record.compactado ?? null,
@@ -481,6 +483,9 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   }
 
   const { stops: direcciones, salida: salidaInput, ...rest } = data;
+  // El dia del servicio es el de la salida (Fecha retiro) o, sin ella, el de la ETA: ya no se carga aparte.
+  // (El historico importado conserva la fecha que trae.)
+  if (!skipActiveCheck) rest.fechaServicio = rest.fechaRetiro ?? rest.fechaServicio ?? rest.eta;
   // Precio por km automatico (tarifa de DHL/AB Service, o la de la categoria del vehiculo en Extras Piazza) si la
   // oficina no escribio uno. Queda grabado en el servicio: cambiar la tarifa despues no toca los ya creados.
   if (rest.precioKm == null && !skipActiveCheck) {
@@ -839,6 +844,15 @@ export const updateRecordForActor = async (actor, id, data) => {
     const { choferRelevoId, ...rest } = payload;
     payload = rest;
     await syncRelevoForRecord(record, choferRelevoId);
+  }
+
+  // El dia del servicio sigue a la salida (Fecha retiro) o, sin ella, a la ETA. No se edita aparte.
+  if (isPrivileged(actor) && ("fechaRetiro" in payload || "eta" in payload || "fechaServicio" in payload)) {
+    const { fechaServicio: _ignorada, ...sinFecha } = payload;
+    const retiro = "fechaRetiro" in payload ? payload.fechaRetiro : record.fechaRetiro;
+    const derivada = retiro ?? payload.eta ?? record.eta;
+    // Solo desde el corte de las funciones nuevas: el historico viejo no se mueve de dia al corregirle una hora.
+    payload = viajesAplican(record.fechaServicio) || viajesAplican(derivada) ? { ...sinFecha, fechaServicio: derivada } : payload;
   }
 
   // Si cambia el vehiculo (otra categoria) o el tipo de servicio y el precio por km era el automatico, se recalcula.

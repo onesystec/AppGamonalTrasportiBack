@@ -513,6 +513,9 @@ model Record {
   // principal de un viaje compacto, de todo el viaje: { km, idaKm, idaMin, vueltaKm, vueltaMin, base, retiros, paradas,
   // firma, fuente, calculadaAt }. Ver ensureCircuit en rutaEstimada.service.js.
   circuito            Json?
+  // Retiro del paquete cuando se hace antes de salir a entregarlo (viernes retiro, lunes entrega): informativo. Las horas, el
+  // dia del servicio y los peajes cuentan desde fechaRetiro, que es la salida a entregar.
+  retiroPaqueteAt     DateTime?
   estiloManejo        Json?
   estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay

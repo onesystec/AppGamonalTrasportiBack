@@ -5,6 +5,7 @@ const MIN_MS = 60000;
 const DAY_MS = 24 * 60 * MIN_MS;
 // Tope de una jornada declarada: mas que esto casi seguro es un error de carga (fecha mal).
 export const MAX_SHIFT_MIN = 24 * 60;
+const MAX_SPAN_MIN = 48 * 60;
 
 const romeDayOf = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
@@ -58,10 +59,16 @@ export const computeShiftHours = ({ inicio, fin, esperaMin = 0, pausaMin = 0 }) 
   if (endMs <= startMs) return { error: "La hora de fin debe ser posterior a la de inicio" };
 
   const totalMin = (endMs - startMs) / MIN_MS;
-  if (totalMin > MAX_SHIFT_MIN) return { error: "La jornada no puede superar las 24 horas, revisa las fechas" };
-
   const espera = Math.max(0, Math.round(esperaMin || 0));
   const pausa = Math.max(0, Math.round(pausaMin || 0));
+  // Una jornada larga con un descanso (por ejemplo 27 h con 5 h de sueno) es valida si, descontada la pausa, lo
+  // trabajado no pasa de 24 h. Aun con pausa, de inicio a fin no puede pasar de 48 h (seguro: fecha mal puesta).
+  if (totalMin > MAX_SPAN_MIN || totalMin - pausa > MAX_SHIFT_MIN) {
+    return {
+      error:
+        "La jornada no puede superar las 24 horas trabajadas (la pausa no trabajada se descuenta): pon como inicio la hora en que saliste a entregar (no la del retiro del paquete), revisa las fechas y anota tu descanso en la pausa",
+    };
+  }
   if (espera + pausa > totalMin) return { error: "La espera y la pausa no pueden superar la jornada" };
 
   const { diaMin, nocheMin } = splitDayNightMinutes(startMs, endMs);
