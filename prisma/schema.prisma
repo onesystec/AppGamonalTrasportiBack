@@ -504,6 +504,10 @@ model Record {
   // Lectura del GPS sobre el final de la jornada (ultimo movimiento del vehiculo, ultima entrega, tiempo
   // de vuelta al lugar de espera y tope). Solo fechas y duraciones: no guarda ubicaciones de fuera de la jornada.
   gpsFin              Json?
+  // Estilo de manejo de ESTA jornada (OneSystec, solo el tramo inicio-fin del chofer): km, calidad e
+  // incidentes por categoria. El puntaje de cada chofer se arma sumando los de sus servicios. null = pendiente.
+  estiloManejo        Json?
+  estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay
   // datos de GPS ni del vehiculo ni del celular. Ver rutaEstimada.service.js.
   estimacionRuta      Json?

@@ -18,17 +18,18 @@ export const findDoneRecordsForKm = ({ from, to, driverIds }) =>
     },
   });
 
-// Servicios hechos de un chofer desde una fecha, con la patente del vehiculo: sirve para saber que
-// vehiculos uso y cuanto en cada uno.
-export const findDoneRecordsOfDriver = ({ driverId, from }) =>
+// Servicios hechos de un chofer desde una fecha que tienen su jornada cargada, con el estilo de manejo de
+// esa jornada si ya se calculo (ver drivingStyle.service.js).
+export const findDriverServicesForEstilo = ({ driverId, from }) =>
   prisma.record.findMany({
-    where: { driverId, fechaServicio: { gte: from }, estado: { in: ["CONSEGNATO", "RITIRATO"] } },
-    select: {
-      kilometrosReales: true,
-      kilometros: true,
-      rutaDistanciaKm: true,
-      vehicle: { select: { targa: true } },
+    where: {
+      driverId,
+      fechaServicio: { gte: from },
+      estado: { in: ["CONSEGNATO", "RITIRATO"] },
+      horaInicioReal: { not: null },
+      horaFinReal: { not: null },
     },
+    select: { id: true, horaFinReal: true, estiloManejo: true, estiloCalculadoAt: true },
   });
 
 // Usuarios que manejan: choferes y cualquier otro usuario al que se le haya puesto nivel.

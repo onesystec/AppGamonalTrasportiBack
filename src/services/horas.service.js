@@ -6,6 +6,7 @@ import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
 import { computeEstimacionForRecord } from "./rutaEstimada.service.js";
+import { refreshEstiloInBackground } from "./drivingStyle.service.js";
 import { computeParadasForRecord, loadParadasForRecords, refreshParadasInBackground } from "./vehicleStops.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
@@ -106,6 +107,7 @@ export const submitHoursForActor = async (actor, id, body) => {
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   // Las paradas del vehiculo durante la jornada se calculan aparte, sin hacer esperar al chofer.
   refreshParadasInBackground(id);
+  refreshEstiloInBackground(id, { force: true });
   return { jornada: toJornada(updated), pago: computePayPreview(updated) };
 };
 
@@ -159,7 +161,10 @@ export const reviewHoursForActor = async (actor, id, body) => {
   data.horasNota = body.nota || null;
 
   const updated = await updateRecordById(id, data);
-  if (wantsAdjust) refreshParadasInBackground(id);
+  if (wantsAdjust) {
+    refreshParadasInBackground(id);
+    refreshEstiloInBackground(id, { force: true });
+  }
   notify(
     updated,
     wantsAdjust ? "Horas aprobadas con ajuste" : "Horas aprobadas",
