@@ -105,11 +105,11 @@ const envSchema = z.object({
   // los choferes que lo autorizaron comparten su ubicacion SOLO durante sus servicios y las paradas se
   // calculan con eso (ver gpsHealth.service.js y gpsRespaldo.service.js). "false" lo apaga del todo.
   // Revision en segundo plano (cada 2 min, de 05:00 a 23:00 de Roma) de los servicios en camino para mandar los avisos del
-  // seguimiento aunque nadie tenga el mapa abierto. Mantiene la base despierta mientras corre: "false" la apaga y los
-  // avisos solo salen cuando alguien de la oficina tiene la app abierta.
+  // seguimiento aunque nadie tenga el mapa abierto. Mantiene la base despierta (Neon cobra por hora despierta), por eso
+  // viene apagada: con "false" los avisos solo salen cuando alguien de la oficina tiene la app abierta. "true" la enciende.
   SEGUIMIENTO_MONITOR_ENABLED: z
     .enum(["true", "false"])
-    .default("true")
+    .default("false")
     .transform((value) => value === "true"),
   GPS_RESPALDO_ENABLED: z
     .enum(["true", "false"])
