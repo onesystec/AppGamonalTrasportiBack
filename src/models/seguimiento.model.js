@@ -6,6 +6,7 @@ const SELECT = {
   estado: true,
   eta: true,
   fechaRetiro: true,
+  llegadaGpsAt: true,
   fechaServicio: true,
   destinazione: true,
   spedizzione: true,
@@ -40,3 +41,6 @@ export const findGroupMembers = (compactadoIds) =>
         orderBy: [{ compactadoId: "asc" }, { compactadoOrden: "asc" }],
       })
     : [];
+
+// Hora en que el GPS vio al vehiculo en la parada final del servicio.
+export const markLlegadaGps = (id, at) => prisma.record.update({ where: { id }, data: { llegadaGpsAt: at }, select: { id: true } });

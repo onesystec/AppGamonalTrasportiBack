@@ -516,6 +516,9 @@ model Record {
   // Retiro del paquete cuando se hace antes de salir a entregarlo (viernes retiro, lunes entrega): informativo. Las horas, el
   // dia del servicio y los peajes cuentan desde fechaRetiro, que es la salida a entregar.
   retiroPaqueteAt     DateTime?
+  // Cuando el GPS vio al vehiculo en la parada final del servicio (a menos de 150 m y casi parado). Lo detecta el seguimiento
+  // en vivo (seguimiento.service.js); da la hora real de llegada para medir la puntualidad contra la ETA.
+  llegadaGpsAt        DateTime?
   estiloManejo        Json?
   estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay
