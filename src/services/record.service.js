@@ -735,6 +735,8 @@ export const updateDeclaracionesForActor = async (actor, id, data) => {
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
   const updated = await updateRecordById(id, data);
+  // Si cambio lo que declaro sobre los peajes, la ruta del circuito se calcula de nuevo (con o sin peaje) sin hacer esperar al chofer.
+  if ("sinPeajeIda" in data || "sinPeajeVuelta" in data) ensureCircuitSafe(id);
   await attachFaltantes([updated]);
   return toResponse(updated, actor);
 };

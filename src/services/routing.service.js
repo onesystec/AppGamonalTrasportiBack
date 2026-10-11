@@ -1,10 +1,7 @@
 import { env } from "../config/env.js";
 
-// Calcula distancia/duracion/geometria de la ruta que pasa por "points" en orden
-// (points[0] es siempre el deposito). Best-effort: el servidor demo publico de OSRM
-// puede fallar o estar caido, y eso NO debe bloquear la creacion/edicion del servicio -
-// en ese caso se devuelve null y el registro se guarda igual, sin ruta calculada.
-export const calculateRoute = async (points) => {
+// Ruta de OSRM (la de siempre: la mas rapida, con peajes si conviene).
+const osrmRoute = async (points) => {
   try {
     const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
     const url = new URL(`/route/v1/driving/${coords}`, env.OSRM_BASE_URL);
@@ -24,10 +21,93 @@ export const calculateRoute = async (points) => {
       geometria: route.geometry,
       // Distancia y duracion de cada tramo entre un punto y el siguiente.
       tramos: (route.legs ?? []).map((leg) => ({ distanciaKm: leg.distance / 1000, duracionMin: leg.duration / 60 })),
+      motor: "osrm",
+      evitoPeajes: false,
     };
   } catch {
     return null;
   }
+};
+
+// Polyline de Valhalla (precision 6) -> [[lng, lat], ...].
+const decodePolyline6 = (encoded) => {
+  const coords = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+  while (index < encoded.length) {
+    for (const axis of ["lat", "lng"]) {
+      let shift = 0;
+      let result = 0;
+      let byte;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const delta = result & 1 ? ~(result >> 1) : result >> 1;
+      if (axis === "lat") lat += delta;
+      else lng += delta;
+    }
+    coords.push([lng / 1e6, lat / 1e6]);
+  }
+  return coords;
+};
+
+const VALHALLA_TIMEOUT_MS = 20000;
+
+// Ruta evitando peajes (Valhalla, use_tolls=0): lo que el chofer declara cuando dice que no uso peaje. Mismo formato que la de OSRM,
+// mas "usaPeaje" (Valhalla dice si la ruta que eligio lleva algun peaje: solo pasa si no hay otro camino).
+const valhallaRoute = async (points) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), VALHALLA_TIMEOUT_MS);
+  try {
+    const response = await fetch(new URL("/route", env.VALHALLA_BASE_URL), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": "GamonalDriver/1.0" },
+      body: JSON.stringify({
+        locations: points.map((p) => ({ lat: p.lat, lon: p.lng, type: "break" })),
+        costing: "auto",
+        costing_options: { auto: { use_tolls: 0 } },
+        directions_options: { units: "kilometers" },
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const { trip } = await response.json();
+    if (!trip?.legs?.length) return null;
+
+    const coordinates = [];
+    trip.legs.forEach((leg, i) => {
+      const shape = decodePolyline6(leg.shape);
+      coordinates.push(...(i === 0 ? shape : shape.slice(1)));
+    });
+    return {
+      distanciaKm: trip.summary.length,
+      duracionMin: trip.summary.time / 60,
+      geometria: { type: "LineString", coordinates },
+      tramos: trip.legs.map((leg) => ({ distanciaKm: leg.summary.length, duracionMin: leg.summary.time / 60 })),
+      motor: "valhalla",
+      evitoPeajes: true,
+      usaPeaje: Boolean(trip.summary.has_toll),
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+// Calcula distancia/duracion/geometria de la ruta que pasa por "points" en orden (points[0] es siempre el deposito). Con
+// evitarPeajes la ruta no usa autopistas de pago (si Valhalla no responde, se devuelve la de OSRM con evitoPeajes: false para que quien
+// la llama sepa que no se pudo garantizar). Best-effort: los servidores publicos pueden fallar o estar caidos, y eso NO debe bloquear la
+// creacion/edicion del servicio - en ese caso se devuelve null y el registro se guarda igual, sin ruta calculada.
+export const calculateRoute = async (points, { evitarPeajes = false } = {}) => {
+  if (evitarPeajes) {
+    const route = await valhallaRoute(points);
+    if (route) return route;
+  }
+  return osrmRoute(points);
 };
 
 // El servidor publico de OSRM no matchea trazas muy largas en una sola llamada -

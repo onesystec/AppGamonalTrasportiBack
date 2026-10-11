@@ -27,6 +27,9 @@ const envSchema = z.object({
   // en Google Cloud Console > APIs & Services, habilitando "Geocoding API".
   GOOGLE_MAPS_API_KEY: z.string().min(1, "GOOGLE_MAPS_API_KEY es obligatorio"),
   OSRM_BASE_URL: z.string().url().default("https://router.project-osrm.org"),
+  // Ruta "sin peaje" (cuando el chofer declara que no uso peaje): OSRM publico no puede evitarlos, Valhalla si (use_tolls=0). Por
+  // defecto el servidor publico de FOSSGIS (uso razonable, sin garantias); se puede apuntar a uno propio.
+  VALHALLA_BASE_URL: z.string().url().default("https://valhalla1.openstreetmap.de"),
 
   // GPS de vehiculo (seccion Mapa) - Refresh Token de la cuenta de Velocity Fleet, ver
   // https://api-docs.velocityfleet.com/authentication. Opcional a proposito: sin esto

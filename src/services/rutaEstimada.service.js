@@ -7,6 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { distanceMeters, estimateDriveMinutes } from "../utils/stopDetection.js";
 import { findGroupMembers } from "../models/compactado.model.js";
 import { geocodeAddress } from "./geocoding.service.js";
+import { peajeLabel, peajesEnRuta } from "./peajes.service.js";
 import { calculateRoute } from "./routing.service.js";
 
 // Estimacion del tiempo de un servicio SOLO con sus direcciones, para cuando no hay datos de GPS ni del
@@ -115,12 +116,16 @@ const circuitPoints = async (members) => {
   return { base, retiros, paradas };
 };
 
-// Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Sin servidor de rutas se estima en
-// linea recta (con un factor), y queda marcado.
-const routeLegs = async ({ base, retiros, paradas }) => {
+// Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Si el chofer declaro que no uso peaje de ida o de
+// vuelta, ese sentido se calcula sin autopistas de pago (sinPeaje). Sin servidor de rutas se estima en linea recta (con un factor), y
+// queda marcado.
+const routeLegs = async ({ base, retiros, paradas }, sinPeaje = {}) => {
   const ida = [base, ...retiros, ...paradas];
   const last = paradas[paradas.length - 1];
-  const [idaRoute, backRoute] = await Promise.all([calculateRoute(ida), calculateRoute([last, base])]);
+  const [idaRoute, backRoute] = await Promise.all([
+    calculateRoute(ida, { evitarPeajes: Boolean(sinPeaje.ida) }),
+    calculateRoute([last, base], { evitarPeajes: Boolean(sinPeaje.vuelta) }),
+  ]);
   const estimada = !idaRoute || !backRoute;
   // Cada tramo del circuito, en orden: base -> retiro(s) -> paradas -> base (sin ruta, en linea recta con un factor).
   const tramosIda = ida.slice(1).map((to, i) => ({
@@ -134,6 +139,34 @@ const routeLegs = async ({ base, retiros, paradas }) => {
     vueltaMin: backRoute ? backRoute.duracionMin : estimateDriveMinutes(last, base),
     tramosIda,
     estimada,
+    idaRoute,
+    backRoute,
+  };
+};
+
+// Que dijo el chofer sobre los peajes del circuito: en un viaje compacto se declara en cualquier servicio del viaje.
+const sinPeajeOf = (members) => ({
+  ida: members.some((m) => m.sinPeajeIda),
+  vuelta: members.some((m) => m.sinPeajeVuelta),
+});
+
+// Peajes del catalogo por los que pasa cada sentido del circuito, para mostrarlos y para comprobar las rutas "sin peaje".
+const peajesDeLegs = async (legs, sinPeaje) => {
+  const [ida, vuelta] = await Promise.all([
+    legs.idaRoute ? peajesEnRuta(legs.idaRoute.geometria) : [],
+    legs.backRoute ? peajesEnRuta(legs.backRoute.geometria) : [],
+  ]);
+  const names = (list) => [...new Set(list.map(peajeLabel))].slice(0, 8);
+  return {
+    // Lo que declaro el chofer (true = no uso peaje) y si la ruta calculada realmente lo evita.
+    idaSinPeaje: sinPeaje.ida,
+    vueltaSinPeaje: sinPeaje.vuelta,
+    idaEvitado: sinPeaje.ida ? Boolean(legs.idaRoute?.evitoPeajes) : null,
+    vueltaEvitado: sinPeaje.vuelta ? Boolean(legs.backRoute?.evitoPeajes) : null,
+    ida: names(ida),
+    vuelta: names(vuelta),
+    idaCantidad: ida.length,
+    vueltaCantidad: vuelta.length,
   };
 };
 
@@ -149,10 +182,12 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   if (!points) return null;
 
   const holder = members[0];
-  const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|");
+  const sinPeaje = sinPeajeOf(members);
+  // Los peajes declarados entran en la firma: si el chofer cambia lo que declaro, el circuito se vuelve a calcular.
+  const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|") + `|peaje:${sinPeaje.ida ? 1 : 0}${sinPeaje.vuelta ? 1 : 0}`;
   if (!force && holder.circuito?.firma === firma && holder.circuito.tramos) return holder.circuito;
 
-  const legs = await routeLegs(points);
+  const legs = await routeLegs(points, sinPeaje);
   const circuito = {
     km: round1(legs.idaKm + legs.vueltaKm),
     idaKm: round1(legs.idaKm),
@@ -179,6 +214,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     paradas: points.paradas.map((p) => p.direccion ?? null),
     servicios: members.map((m) => m.codigo),
     firma,
+    peajes: await peajesDeLegs(legs, sinPeaje),
     fuente: legs.estimada ? "estimada" : "ruta",
     calculadaAt: new Date().toISOString(),
   };
@@ -272,8 +308,25 @@ export const getCircuitMapData = async (recordId) => {
   const members = await unitOf(record);
   const points = await circuitPoints(members);
   if (!points) return null;
-  const todos = [points.base, ...points.retiros, ...points.paradas, points.base];
-  const route = await calculateRoute(todos);
+  const sinPeaje = sinPeajeOf(members);
+  const ida = [points.base, ...points.retiros, ...points.paradas];
+  const last = points.paradas[points.paradas.length - 1];
+  const [idaRoute, backRoute] = await Promise.all([
+    calculateRoute(ida, { evitarPeajes: sinPeaje.ida }),
+    calculateRoute([last, points.base], { evitarPeajes: sinPeaje.vuelta }),
+  ]);
+  const [peajesIda, peajesVuelta] = await Promise.all([
+    idaRoute ? peajesEnRuta(idaRoute.geometria) : [],
+    backRoute ? peajesEnRuta(backRoute.geometria) : [],
+  ]);
+  const ruta = (tipo, route, sin, peajes) => ({
+    tipo,
+    // El chofer declaro que no uso peaje en este sentido y la ruta dibujada lo evita (si no se pudo evitar, "evitado" es false).
+    sinPeaje: sin,
+    evitado: sin ? Boolean(route?.evitoPeajes) : null,
+    geometria: route?.geometria ?? null,
+    peajes: peajes.map((p) => ({ id: p.id, nombre: peajeLabel(p), operador: p.operador, tipo: p.tipo, lat: p.lat, lng: p.lng })),
+  });
   return {
     circuito,
     puntos: [
@@ -282,6 +335,11 @@ export const getCircuitMapData = async (recordId) => {
       ...points.paradas.map((p) => ({ tipo: "PARADA", nombre: p.direccion ?? "Parada", lat: p.lat, lng: p.lng })),
       { tipo: "REGRESO", nombre: points.base.nombre ?? "Lugar de espera", lat: points.base.lat, lng: points.base.lng },
     ],
-    geometria: route?.geometria ?? null,
+    // Ida y vuelta por separado: cada una con su propia ruta (con o sin peaje) y los peajes que cruza.
+    rutas: [ruta("IDA", idaRoute, sinPeaje.ida, peajesIda), ruta("VUELTA", backRoute, sinPeaje.vuelta, peajesVuelta)],
+    geometria:
+      idaRoute?.geometria && backRoute?.geometria
+        ? { type: "LineString", coordinates: [...idaRoute.geometria.coordinates, ...backRoute.geometria.coordinates] }
+        : (idaRoute?.geometria ?? null),
   };
 };

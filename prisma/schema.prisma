@@ -970,3 +970,23 @@ model BustaPagaAcceso {
   @@index([bustaPagaId, createdAt])
   @@map("busta_paga_accesos")
 }
+
+// Catalogo de peajes de Italia (casetas de autopista y portales free-flow), descargado una vez de OpenStreetMap con
+// scripts/import-peajes-osm.mjs y guardado aca para no volver a consultar. Se usa para mostrar por donde hay peajes en los
+// mapas y comprobar si una ruta pasa por uno. Cada fila es un peaje: los carriles de una misma caseta ya vienen agrupados.
+model Peaje {
+  id         String   @id @default(uuid())
+  // Id del nodo de OpenStreetMap (el menor del grupo): permite volver a importar sin duplicar.
+  osmId      String   @unique
+  nombre     String?
+  operador   String?
+  // CASELLO (caseta con barrera) o PORTALE (portico free-flow, sin barrera).
+  tipo       String
+  lat        Float
+  lng        Float
+  carriles   Int      @default(1)
+  importadoAt DateTime @default(now())
+
+  @@index([lat, lng])
+  @@map("peajes")
+}
