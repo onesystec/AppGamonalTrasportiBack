@@ -160,6 +160,9 @@ const envSchema = z.object({
   // Telegram + Claude para interpretar el mensaje en lenguaje natural. Los 3 son
   // opcionales a proposito: sin ellos, ese endpoint solo ignora los webhooks entrantes,
   // el resto de la app sigue igual.
+  // Clave con la que GitHub Actions publica un APK nuevo (POST /api/app/android/publicar). Sin ella ese endpoint queda apagado.
+  APP_PUBLISH_TOKEN: z.string().min(32, "APP_PUBLISH_TOKEN debe tener al menos 32 caracteres").optional(),
+
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   // chat_id del grupo privado autorizado (ver /getUpdates) - cualquier otro chat que le
   // escriba al bot se ignora, ni siquiera se le contesta.

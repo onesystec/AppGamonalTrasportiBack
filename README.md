@@ -337,6 +337,18 @@ Los documentos no estan atados al cargo `CHOFER`: cualquier usuario (OWNER, ADMI
 5. Render asigna su propio `PORT`; la app ya lee `process.env.PORT` a traves de `env.js`, no hace falta tocarlo.
 6. Sharp descarga el binario correcto para Linux durante `npm install` en el build de Render automaticamente, no requiere configuracion extra.
 
+## Actualizacion del APK desde la app
+
+Los testers actualizan el APK desde la propia app (Ajustes > Acerca de > Actualizar aplicacion). La version publicada vive en la tabla
+`Configuracion` (clave `app.android`) y el APK en el bucket privado de R2; `GET /api/app/android` (con sesion) devuelve la version y una
+URL firmada de 30 minutos.
+
+- **Automatico:** al cambiar algo nativo en el frontend (carpeta `android/`, `capacitor.config.json` o las dependencias), GitHub Actions
+  (`.github/workflows/android-apk.yml` del frontend) compila el APK y lo publica con `POST /api/app/android/publicar`. Ese endpoint usa la
+  clave `APP_PUBLISH_TOKEN` (variable de Render, igual que el secreto del mismo nombre en GitHub); sin ella queda apagado (503). Solo acepta
+  un `versionCode` mayor al ya publicado.
+- **A mano:** `node scripts/publicar-apk.mjs <app-debug.apk> --notas "texto"`.
+
 ## Estructura del proyecto
 
 ```
