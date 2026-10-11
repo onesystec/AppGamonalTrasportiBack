@@ -45,6 +45,9 @@ const numeroVerbale = z
 
 const quienPaga = z.enum(QUIEN_PAGA_VALUES, { errorMap: () => ({ message: "Indica si pago el chofer o se descuenta" }) });
 
+// Hora (HH:MM, Roma) de la infraccion; "" la borra.
+const hora = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora invalida (HH:MM)");
+
 export const createMultaSchema = z.object({
   numeroVerbale,
   targa,
@@ -54,6 +57,7 @@ export const createMultaSchema = z.object({
     emptyToUndefined,
     dateOnly.refine((value) => value <= romeToday(), "La fecha de la infraccion no puede ser futura").optional()
   ),
+  horaInfraccion: z.preprocess(emptyToUndefined, hora.optional()),
   fechaRecepcion: dateOnly.refine((value) => value <= romeToday(), "La fecha de recepcion no puede ser futura"),
   // El verbale trae su propio vencimiento; si no se manda, se usa recepcion + 60 dias.
   fechaVencimiento: z.preprocess(emptyToUndefined, dateOnly.optional()),
@@ -74,6 +78,7 @@ export const updateMultaSchema = z.object({
     emptyToNull,
     dateOnly.refine((value) => value <= romeToday(), "La fecha de la infraccion no puede ser futura").nullable().optional()
   ),
+  horaInfraccion: z.preprocess(emptyToNull, hora.nullable().optional()),
   fechaRecepcion: dateOnly.refine((value) => value <= romeToday(), "La fecha de recepcion no puede ser futura").optional(),
   fechaVencimiento: z.preprocess(emptyToUndefined, dateOnly.optional()),
   costo: costo.optional(),
@@ -114,4 +119,12 @@ export const statsMultasQuerySchema = z.object(listFilters);
 export const suggestDriverQuerySchema = z.object({
   targa,
   fecha: dateOnly,
+});
+
+// Sugerencias de chofer para varias multas a la vez (las filas visibles de un acordeon): ?ids=a,b,c
+export const suggestManyQuerySchema = z.object({
+  ids: z
+    .string()
+    .transform((value) => value.split(",").map((id) => id.trim()).filter(Boolean))
+    .pipe(z.array(z.string().uuid("Id invalido")).min(1).max(20)),
 });

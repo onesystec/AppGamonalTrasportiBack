@@ -132,6 +132,7 @@ const toResponse = async (m, today) => {
     driver: person(m.driver),
     registradoPor: person(m.createdBy),
     fechaInfraccion: m.fechaInfraccion,
+    horaInfraccion: m.horaInfraccion,
     fechaRecepcion: m.fechaRecepcion,
     fechaVencimiento: m.fechaVencimiento,
     costo: Number(m.costo),
@@ -234,6 +235,7 @@ export const createMultaForActor = async (actor, data, files) => {
       driverId: data.driverId,
       createdById: actor.id,
       fechaInfraccion: data.fechaInfraccion ? dayToDate(data.fechaInfraccion) : null,
+      horaInfraccion: data.fechaInfraccion ? (data.horaInfraccion ?? null) : null,
       fechaRecepcion: dayToDate(data.fechaRecepcion),
       fechaVencimiento: vencimiento,
       costo: data.costo,
@@ -266,6 +268,7 @@ const toChoferResponse = async (m, today) => {
     numeroVerbale: m.numeroVerbale,
     targa: m.targa,
     fechaInfraccion: m.fechaInfraccion,
+    horaInfraccion: m.horaInfraccion,
     fechaRecepcion: m.fechaRecepcion,
     costo: Number(m.costo),
     quienPaga: m.quienPaga,
@@ -371,6 +374,11 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   assertInfraccionBeforeRecepcion(infraccionDay, recepcionDay);
   if (data.fechaInfraccion !== undefined) {
     payload.fechaInfraccion = data.fechaInfraccion ? dayToDate(data.fechaInfraccion) : null;
+    // Sin dia de infraccion la hora no tiene sentido.
+    if (!data.fechaInfraccion) payload.horaInfraccion = null;
+  }
+  if (data.horaInfraccion !== undefined && payload.horaInfraccion === undefined) {
+    payload.horaInfraccion = infraccionDay ? data.horaInfraccion : null;
   }
   if (data.fechaRecepcion || data.fechaVencimiento) {
     const vencimientoDay = data.fechaVencimiento ?? dateOnlyToDay(current.fechaVencimiento);

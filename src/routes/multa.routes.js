@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { alerts, create, getById, list, remove, stats, suggestDriver, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
+import { alerts, create, getById, list, remove, stats, suggestDriver, suggestForMulta, suggestForMultas, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
@@ -9,6 +9,7 @@ import {
   listMultasQuerySchema,
   statsMultasQuerySchema,
   suggestDriverQuerySchema,
+  suggestManyQuerySchema,
   summaryMultasQuerySchema,
   updateMultaSchema,
 } from "../validators/multa.validator.js";
@@ -37,7 +38,10 @@ router.get("/stats", validate(statsMultasQuerySchema, "query"), stats);
 router.get("/alertas", alerts);
 router.get("/sugerencia-chofer", validate(suggestDriverQuerySchema, "query"), suggestDriver);
 
+router.get("/sugerencias", validate(suggestManyQuerySchema, "query"), suggestForMultas);
+
 router.get("/:id", validate(idParamSchema, "params"), getById);
+router.get("/:id/sugerencia", validate(idParamSchema, "params"), suggestForMulta);
 
 router.patch("/:id", validate(idParamSchema, "params"), uploadFiles, validate(updateMultaSchema), update);
 

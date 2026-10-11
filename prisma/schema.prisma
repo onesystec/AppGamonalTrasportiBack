@@ -789,6 +789,8 @@ model Multa {
   // Dia en que se cometio la infraccion (opcional): sirve para saber quien llevaba el
   // vehiculo ese dia, cruzando con Registros.
   fechaInfraccion      DateTime?      @db.Date
+  // Hora (HH:MM, hora de Roma) de la infraccion cuando el verbale la dice.
+  horaInfraccion       String?        @db.VarChar(5)
   fechaRecepcion       DateTime       @db.Date
   fechaVencimiento     DateTime       @db.Date
   costo                Decimal        @db.Decimal(10, 2)
