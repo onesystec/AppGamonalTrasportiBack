@@ -355,7 +355,7 @@ URL firmada de 30 minutos.
 - **Responsable (ADMIN):** solo lo de su asignacion. Un vehiculo o un chofer es suyo si trabajo en los servicios de sus areas (`areasPermitidas`) en los ultimos 60 dias, o si es de su mismo grupo/centro (Milano Sud, Farmacia...). Ver `src/services/notificationScope.service.js`. `GET /api/notificaciones/alcance` devuelve esos ids para que el front filtre documentos, tagliando, cumpleanios, etc.
 - **Chofer:** solo avisos de lo suyo (servicios, horas, multas, sus documentos, sus excesos de velocidad). No recibe avisos de gestion.
 - **Exceso de velocidad:** se guarda con el chofer que manejaba (el del servicio que tenia el vehiculo a esa hora) y el push le llega solo a el. La oficina no recibe notificacion: lo consulta en Vehiculos > Avisos de velocidad (se carga al abrirlo). Sin servicio en ese momento, queda registrado pero no se avisa a nadie.
-- **Area C y solicitudes de permiso:** el push va al Admin y a los Responsables del vehiculo / chofer. **GPS de la flota:** solo al Admin.
+- **Area C y solicitudes de permiso:** el push va al Admin y a los Responsables del vehiculo / chofer. **GPS de la flota:** al Admin y a todos los Responsables.
 
 ## Estructura del proyecto
 

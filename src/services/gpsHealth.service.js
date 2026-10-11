@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { getConfig, setConfig } from "../models/permiso.model.js";
 import { findChoferIdsWithConsentAndService } from "../models/gpsRespaldo.model.js";
-import { findOwnerUserIds } from "./notificationScope.service.js";
+import { findAllOfficeUserIds } from "./notificationScope.service.js";
 import { isOnesystecConfigured, probeOnesystec } from "./onesystec.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
@@ -25,8 +25,8 @@ const EMPTY = { estado: "OK", desde: null, fallos: 0, estadoBruto: "OK", detalle
 
 const notifyChange = async (prev, next) => {
   try {
-    // El estado del GPS de toda la flota no es de ninguna area en particular: solo el Admin lo recibe.
-    const managers = await findOwnerUserIds();
+    // El estado del GPS de toda la flota no es de ninguna area en particular: lo reciben el Admin y todos los Responsables.
+    const managers = await findAllOfficeUserIds();
     if (isFailingState(next.estado)) {
       await sendPushToUserIds(managers, {
         title: "El GPS de la flota no responde",

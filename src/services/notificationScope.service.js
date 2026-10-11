@@ -77,5 +77,6 @@ export const findOfficeUserIdsForDriver = async (driverId) => {
   return officeIdsFor({ areaKeys, grupo: driver?.grupo ?? null });
 };
 
-// Avisos que solo le sirven al Admin (la infraestructura de toda la flota, como el GPS).
-export const findOwnerUserIds = ownerIds;
+// Avisos de toda la flota que no son de ningun area (como el estado del GPS): el Admin y todos los Responsables activos.
+export const findAllOfficeUserIds = async () =>
+  (await prisma.user.findMany({ where: { cargo: { in: ["OWNER", "ADMIN"] }, estado: "ACTIVO" }, select: { id: true } })).map((u) => u.id);
