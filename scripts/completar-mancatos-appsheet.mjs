@@ -7,8 +7,8 @@
 //
 // Los choferes nuevos se crean INACTIVOS (sin acceso: la clave es aleatoria y no se muestra) con datos de relleno que la oficina puede
 // completar; los vehiculos nuevos quedan con area "Sin asignar" y modelo "Por completar", igual que los que trae Velocity Fleet.
-// No se crea ningun chofer para "GAMONAL TRASPORTI" (es la empresa) ni para filas sin nombre, ni vehiculos para targas que no tienen
-// formato italiano (AA123BB).
+// Los de "GAMONAL TRASPORTI" (la empresa) y los que no traen nombre se asignan a un perfil de la empresa (Gamonal Trasporti, tambien
+// inactivo). No se crean vehiculos para targas que no tienen formato italiano (AA123BB): esos mancatos quedan con targa "SIN TARGA".
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { prisma } from "../src/config/prisma.js";
@@ -120,7 +120,6 @@ const findDriver = (full) => userNames.find((u) => sameName(u.full, full))?.id ?
 
 const newDrivers = new Map(); // nombre normalizado -> { full, numeros: [], id }
 const driverLinks = new Map(); // driverId -> numeros
-const skippedDrivers = new Map();
 const vehicleByTarga = new Map(vehicles.map((v) => [targaOf(v.targa), v.id]));
 const newVehicles = new Map(); // targa -> { numeros: [], id }
 const vehicleLinks = new Map(); // vehicleId -> numeros
@@ -134,10 +133,9 @@ for (const m of mancatos) {
   if (!row) continue;
 
   if (!m.driverId) {
-    const full = fold(row["ID_ TRABAJADOR"]);
-    if (!full || full === "GAMONAL TRASPORTI") {
-      skippedDrivers.set(full || "(sin nombre)", (skippedDrivers.get(full || "(sin nombre)") ?? 0) + 1);
-    } else {
+    // Sin nombre o "GAMONAL TRASPORTI": el mancato es de la empresa.
+    const full = fold(row["ID_ TRABAJADOR"]) || "GAMONAL TRASPORTI";
+    {
       const known = findDriver(full);
       if (known) push(driverLinks, known, m.numero);
       else {
@@ -172,7 +170,6 @@ console.log(`Mancatos sin chofer o sin vehiculo en la app: ${mancatos.length} ($
 console.log("\nChoferes que ya existen y se vinculan:", [...driverLinks].map(([id, n]) => `${userNames.find((u) => u.id === id).full} (${n.length})`).join(", ") || "ninguno");
 console.log("\nChoferes a CREAR (inactivos, sin acceso):");
 [...newDrivers.values()].sort((a, b) => b.numeros.length - a.numeros.length).forEach((d) => console.log(`  ${d.full}  ->  ${d.numeros.length} mancatos`));
-console.log("\nSin chofer (no se crea):", [...skippedDrivers].map(([k, n]) => `${k} (${n})`).join(", ") || "ninguno");
 console.log("\nVehiculos existentes que se vinculan:", [...vehicleLinks].map(([id, n]) => `${vehicles.find((v) => v.id === id).targa} (${n.length})`).join(", ") || "ninguno");
 console.log("\nVehiculos a CREAR (area Sin asignar):");
 [...newVehicles].sort((a, b) => b[1].numeros.length - a[1].numeros.length).forEach(([t, v]) => console.log(`  ${t}  ->  ${v.numeros.length} mancatos`));
