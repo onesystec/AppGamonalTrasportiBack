@@ -356,6 +356,45 @@ export const getMancatoSummaryForActor = async (actor, query) => {
   return Object.fromEntries(entries);
 };
 
+// Resumen por mes (de la fecha del transito) para los acordeones por mes: cuantos hay, cuanto suman y como se reparten por estado. Una
+// sola lectura liviana (fecha, costo, pagado, vencimiento) en vez de una consulta por mes.
+export const getMancatoMesesForActor = async (actor, query) => {
+  const today = romeDay();
+  const where = buildWhere(actor, { ...query, estado: undefined }, today);
+  const rows = await findMancatosForStats(where);
+  const months = new Map();
+  for (const row of rows) {
+    const mes = dateOnlyToDay(row.fecha).slice(0, 7);
+    if (!months.has(mes)) {
+      months.set(mes, {
+        mes,
+        count: 0,
+        total: 0,
+        PENDIENTE: { count: 0, total: 0 },
+        VENCIDO: { count: 0, total: 0 },
+        PAGADO: { count: 0, total: 0 },
+      });
+    }
+    const entry = months.get(mes);
+    const costo = Number(row.costo);
+    const estado = row.pagado ? "PAGADO" : dateOnlyToDay(row.fechaVencimiento) < today ? "VENCIDO" : "PENDIENTE";
+    entry.count += 1;
+    entry.total += costo;
+    entry[estado].count += 1;
+    entry[estado].total += costo;
+  }
+  const round = (n) => Math.round(n * 100) / 100;
+  return [...months.values()]
+    .sort((a, b) => b.mes.localeCompare(a.mes))
+    .map((m) => ({
+      ...m,
+      total: round(m.total),
+      PENDIENTE: { ...m.PENDIENTE, total: round(m.PENDIENTE.total) },
+      VENCIDO: { ...m.VENCIDO, total: round(m.VENCIDO.total) },
+      PAGADO: { ...m.PAGADO, total: round(m.PAGADO.total) },
+    }));
+};
+
 export const getMancatoForActor = async (actor, id) => {
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);

@@ -5,6 +5,7 @@ import {
   getMancatoStatsForActor,
   listMancatoCandidatesForActor,
   rematchMancatosForActor,
+  getMancatoMesesForActor,
   getMancatoSummaryForActor,
   listMancatosForActor,
   updateMancatoForActor,
@@ -19,6 +20,11 @@ export const create = asyncHandler(async (req, res) => {
 export const list = asyncHandler(async (req, res) => {
   const result = await listMancatosForActor(req.user, req.query);
   res.status(200).json({ success: true, data: result });
+});
+
+export const meses = asyncHandler(async (req, res) => {
+  const result = await getMancatoMesesForActor(req.user, req.query);
+  res.status(200).json({ success: true, data: { meses: result } });
 });
 
 export const summary = asyncHandler(async (req, res) => {

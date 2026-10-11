@@ -7,6 +7,7 @@ import {
   rematch,
   remove,
   stats,
+  meses,
   summary,
   update,
 } from "../controllers/mancato.controller.js";
@@ -40,6 +41,9 @@ router.get("/", validate(listMancatosQuerySchema, "query"), list);
 router.get("/summary", validate(summaryMancatosQuerySchema, "query"), summary);
 
 router.get("/stats", validate(statsMancatosQuerySchema, "query"), stats);
+
+// Resumen por mes (acordeones por mes): mismos filtros que el resumen, sin el estado.
+router.get("/meses", validate(summaryMancatosQuerySchema, "query"), meses);
 
 // Vuelve a evaluar los mancatos que la oficina no fijo a mano.
 router.post("/reasignar", rematch);
