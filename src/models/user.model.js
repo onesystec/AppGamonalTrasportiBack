@@ -85,15 +85,10 @@ export const findAllUsers = (cargo) =>
 export const findUserById = (id) =>
   prisma.user.findUnique({ where: { id }, select: SAFE_USER_SELECT });
 
-// Destinatarios de las notificaciones push de alertas (Area C, exceso de velocidad) -
-// ver checkAreaCEntries/checkSpeedingEvents en vehicle.service.js, mismo publico que
-// ya ve esas alertas en la campanita (buildOwnerAlerts en NotificationsContext.jsx).
-export const findOwnerAndAdminUserIds = async () => {
-  const users = await prisma.user.findMany({
-    where: { cargo: { in: ["OWNER", "ADMIN"] } },
-    select: { id: true },
-  });
-  return users.map((u) => u.id);
+// Nombre de varios usuarios a la vez (Map id -> "Nombre Apellido"), para rotular avisos sin traer fichas completas.
+export const findUserNamesByIds = async (ids) => {
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, nombre: true, apellido: true } });
+  return new Map(users.map((u) => [u.id, `${u.nombre} ${u.apellido}`]));
 };
 
 // Admin y los Responsables que tienen esa area marcada (para avisos de algo que pertenece a un area).

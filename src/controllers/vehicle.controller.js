@@ -12,6 +12,7 @@ import {
   listAreaCEntriesForActor,
   listMantenimientosForActor,
   getSpeedingSummaryForActor,
+  listMySpeedingEventsForActor,
   listSpeedingEventsForActor,
   listUnpaidAreaCEntriesForActor,
   listVehicleLivePositionsForActor,
@@ -75,7 +76,7 @@ export const listAreaCEntries = asyncHandler(async (req, res) => {
 
 // Alertas de Area C sin pagar - para la campanita de notificaciones del front.
 export const listUnpaidAreaCEntries = asyncHandler(async (req, res) => {
-  const entries = await listUnpaidAreaCEntriesForActor();
+  const entries = await listUnpaidAreaCEntriesForActor(req.user);
   res.status(200).json({ success: true, data: { entries } });
 });
 
@@ -104,13 +105,19 @@ export const cleanupAreaCEntries = asyncHandler(async (req, res) => {
 // Excesos de velocidad (ver checkSpeedingEvents en vehicle.service.js) - para la
 // campanita de notificaciones del front.
 export const listSpeedingEvents = asyncHandler(async (req, res) => {
-  const events = await listSpeedingEventsForActor(req.query);
+  const events = await listSpeedingEventsForActor(req.user, req.query);
+  res.status(200).json({ success: true, data: { events } });
+});
+
+// Los excesos del propio usuario (chofer): su aviso de velocidad.
+export const listMySpeedingEvents = asyncHandler(async (req, res) => {
+  const events = await listMySpeedingEventsForActor(req.user);
   res.status(200).json({ success: true, data: { events } });
 });
 
 // Resumen por dia y por vehiculo para los acordeones de Control de Flota.
 export const getSpeedingSummary = asyncHandler(async (req, res) => {
-  const summary = await getSpeedingSummaryForActor();
+  const summary = await getSpeedingSummaryForActor(req.user);
   res.status(200).json({ success: true, data: { summary } });
 });
 

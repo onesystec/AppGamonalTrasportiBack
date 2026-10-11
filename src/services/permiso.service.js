@@ -1,4 +1,4 @@
-import { findOwnerAndAdminUserIds } from "../models/user.model.js";
+import { findOfficeUserIdsForDriver, getOfficeScope } from "./notificationScope.service.js";
 import {
   createPermiso,
   deletePermisoById,
@@ -120,7 +120,7 @@ const toPermisoDto = (p, ocupacion = null) => {
 
 const notifyManagers = async (permiso, driver) => {
   try {
-    const ids = await findOwnerAndAdminUserIds();
+    const ids = await findOfficeUserIdsForDriver(permiso.driverId);
     await sendPushToUserIds(ids, {
       title: "Solicitud de permiso",
       body: `${personName(driver)} pide ${TIPO_LABEL[permiso.tipo].toLowerCase()}: ${dateToDay(permiso.fechaDesde)} a ${dateToDay(permiso.fechaHasta)}`,
@@ -274,8 +274,11 @@ export const cancelPermisoForActor = async (actor, id) => {
 export const listPermisosForActor = async (actor, { estado, driverId }) => {
   const privileged = isPrivileged(actor);
   if (!privileged && actor.cargo !== "CHOFER") throw new AppError("No autorizado", 403);
+  // Un Responsable ve las solicitudes de los choferes de su asignacion (el Admin, todas).
+  const scope = privileged ? await getOfficeScope(actor) : null;
   const where = {
     ...(privileged ? (driverId ? { driverId } : {}) : { driverId: actor.id }),
+    ...(scope ? { driverId: driverId ? (scope.driverIds.includes(driverId) ? driverId : { in: [] }) : { in: scope.driverIds } } : {}),
     ...(estado !== "TODAS" ? { estado } : {}),
   };
   const items = await findPermisos({ where, take: 200 });

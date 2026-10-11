@@ -278,8 +278,13 @@ model SpeedingEvent {
   targa      String
   speedKmh   Float
   occurredAt DateTime @default(now())
+  // Chofer que manejaba (por el servicio que tenia el vehiculo a esa hora; ver checkSpeedingEvents) y ese servicio. null = el vehiculo
+  // no tenia servicio en ese momento: el exceso queda registrado pero no se avisa a nadie.
+  driverId   String?
+  recordId   String?
 
   @@index([vehicleId, occurredAt])
+  @@index([driverId, occurredAt])
   @@map("speeding_events")
 }
 

@@ -33,8 +33,11 @@ export const findAllEntries = () =>
 
 // Para la campanita de notificaciones: solo las que siguen sin pagar - una vez pagada,
 // deja de tener sentido seguir avisando (ver computeAreaCAlerts en el front).
-export const findUnpaidEntries = () =>
-  prisma.areaCEntry.findMany({ where: { pagado: false, descartada: false }, orderBy: { enteredAt: "desc" } });
+export const findUnpaidEntries = (vehicleIds = null) =>
+  prisma.areaCEntry.findMany({
+    where: { pagado: false, descartada: false, ...(vehicleIds ? { vehicleId: { in: vehicleIds } } : {}) },
+    orderBy: { enteredAt: "desc" },
+  });
 
 // Retencion (ver AREA_C_ENTRY_RETENTION_DAYS en env.js) - solo lo que sigue SIN pagar:
 // una vez pagada (con o sin comprobante) la entrada queda como registro permanente,

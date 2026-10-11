@@ -13,6 +13,7 @@ import {
   listAreaCEntries,
   listLivePositions,
   listMantenimientos,
+  listMySpeedingEvents,
   listSpeedingEvents,
   listUnpaidAreaCEntries,
   registerKm,
@@ -98,6 +99,8 @@ router.get(
   listSpeedingEvents
 );
 router.get("/speeding-events/summary", authorize("OWNER", "ADMIN"), getSpeedingSummary);
+// Lo suyo, para cualquier usuario que maneja: sus excesos de los ultimos 7 dias.
+router.get("/speeding-events/mine", listMySpeedingEvents);
 router.post("/speeding-events/cleanup", authorize("OWNER"), cleanupSpeedingEvents);
 // Importa a demanda las targas de Velocity Fleet que todavia no tengan ficha en la
 // app (boton en Vehiculos) - solo OWNER: crea vehiculos reales con area SIN_ASIGNAR,

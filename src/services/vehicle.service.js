@@ -8,7 +8,9 @@ import {
   findVehiclesWithDrivers,
   updateVehicleById,
 } from "../models/vehicle.model.js";
-import { findOwnerAndAdminUserIds } from "../models/user.model.js";
+import { findOfficeUserIdsForVehicle, getOfficeScope } from "./notificationScope.service.js";
+import { evaluateMatch, loadCandidates } from "./mancatoMatching.service.js";
+import { findUserNamesByIds } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import {
   createMantenimiento,
@@ -31,10 +33,10 @@ import {
 import {
   createSpeedingEvent,
   deleteSpeedingEventsOlderThan,
+  findEventsForDriver,
   findEventsForVehicle,
   findEventsInRange,
   findRecentEventForVehicle,
-  findRecentEvents,
   summarizeEventsByDay,
   summarizeEventsByVehicle,
 } from "../models/speedingEvent.model.js";
@@ -294,17 +296,14 @@ const checkAreaCEntries = async (matched) => {
   );
   if (insideUnauthorized.length === 0) return;
 
-  // Se pide una sola vez por llamada (no por vehiculo) y solo si hace falta - la
-  // mayoria de los polls no crean ninguna entrada nueva.
-  let recipientIds = null;
-
   for (const vehicle of insideUnauthorized) {
     try {
       const today = await findTodayEntryForVehicle(vehicle.vehicleId);
       if (today) continue;
       await createAreaCEntry(vehicle.vehicleId, vehicle.targa);
 
-      recipientIds ??= await findOwnerAndAdminUserIds();
+      // Solo el Admin y los Responsables a los que pertenece ese vehiculo (su area de servicio o su centro).
+      const recipientIds = await findOfficeUserIdsForVehicle(vehicle.vehicleId);
       sendPushToUserIds(recipientIds, {
         title: "Area C sin autorizacion",
         body: `El vehiculo ${vehicle.targa} entro al Area C sin autorizacion`,
@@ -328,31 +327,44 @@ const toKmh = (speed, speedUnit) => {
   return null;
 };
 
+// Quien manejaba el vehiculo ahora mismo: el chofer del servicio que tenia a esta hora (misma regla que usa el cruce de peajes y combustible).
+// Si el vehiculo no tenia ningun servicio, null: se registra el exceso pero no se avisa a nadie.
+const driverNow = async (vehicleId) => {
+  const at = new Date();
+  const candidates = await loadCandidates(vehicleId, at);
+  if (candidates.length === 0) return null;
+  const match = evaluateMatch({ transitAt: at, driverId: null, candidates, opts: { viajes: true, directo: true } });
+  const record = match.recordId ? candidates.find((c) => c.id === match.recordId) : null;
+  return record ? { recordId: record.id, driverId: record.driverId } : null;
+};
+
 // Registra un exceso de velocidad (ver SpeedingEvent en el schema) para cada vehiculo
 // que supere SPEEDING_THRESHOLD_KMH - nunca un punto GPS suelto, y como mucho uno cada
 // SPEEDING_DEDUP_MINUTES por vehiculo (un exceso sostenido de varios minutos se agrupa
 // como el mismo episodio, no una fila nueva en cada poll). Best-effort y no
 // bloqueante, mismo criterio que checkAreaCEntries.
+// El aviso le llega SOLO al chofer que manejaba (si dos choferes usan el mismo vehiculo el mismo dia, al que iba al volante en ese momento);
+// la oficina no recibe notificacion: lo ve en Vehiculos > Avisos de velocidad, cuando lo abre.
 const checkSpeedingEvents = async (matched) => {
   const speeding = matched
     .map((m) => ({ ...m, speedKmh: toKmh(m.speed, m.speedUnit) }))
     .filter((m) => m.speedKmh != null && m.speedKmh > env.SPEEDING_THRESHOLD_KMH);
   if (speeding.length === 0) return;
 
-  let recipientIds = null;
-
   for (const vehicle of speeding) {
     try {
       const recent = await findRecentEventForVehicle(vehicle.vehicleId, env.SPEEDING_DEDUP_MINUTES);
       if (recent) continue;
-      await createSpeedingEvent(vehicle.vehicleId, vehicle.targa, vehicle.speedKmh);
+      const driving = await driverNow(vehicle.vehicleId).catch(() => null);
+      await createSpeedingEvent(vehicle.vehicleId, vehicle.targa, vehicle.speedKmh, driving ?? {});
 
-      recipientIds ??= await findOwnerAndAdminUserIds();
-      sendPushToUserIds(recipientIds, {
-        title: "Exceso de velocidad",
-        body: `El vehiculo ${vehicle.targa} supero los ${env.SPEEDING_THRESHOLD_KMH}km/h (${Math.round(vehicle.speedKmh)}km/h)`,
-        data: { type: "speeding", targa: vehicle.targa },
-      }).catch((err) => console.error("No se pudo enviar push de exceso de velocidad:", err.message));
+      if (driving?.driverId) {
+        sendPushToUserIds([driving.driverId], {
+          title: "Superaste el limite de velocidad",
+          body: `Ibas a ${Math.round(vehicle.speedKmh)} km/h con ${vehicle.targa} (limite ${env.SPEEDING_THRESHOLD_KMH} km/h). Maneja con cuidado.`,
+          data: { type: "speeding", targa: vehicle.targa },
+        }).catch((err) => console.error("No se pudo enviar push de exceso de velocidad:", err.message));
+      }
     } catch (err) {
       console.error(`No se pudo registrar el exceso de velocidad de ${vehicle.targa}:`, err.message);
     }
@@ -473,7 +485,10 @@ export const listAreaCEntriesForActor = async () => {
 // Alertas de Area C sin pagar (ver findUnpaidEntries) - para la campanita de
 // notificaciones del front. Una vez marcada pagada, deja de aparecer aca (y por lo
 // tanto en la campanita) - no hace falta que el usuario la descarte a mano.
-export const listUnpaidAreaCEntriesForActor = () => findUnpaidEntries();
+export const listUnpaidAreaCEntriesForActor = async (actor) => {
+  const scope = await getOfficeScope(actor);
+  return findUnpaidEntries(scope ? scope.vehicleIds : null);
+};
 
 // Marca (o desmarca) una entrada de Area C como pagada, con opcionalmente una foto del
 // comprobante - ver la seccion "Area C" del Mapa en el front. Reemplaza el comprobante
@@ -549,24 +564,38 @@ export const cleanupOldAreaCEntries = async () => {
   return { deletedCount: toDelete.length, retentionDays: env.AREA_C_ENTRY_RETENTION_DAYS, cutoffDate };
 };
 
-// Excesos de velocidad recientes (ver checkSpeedingEvents) - para la campanita de
-// notificaciones del front. A diferencia de Area C, es un aviso comun (se puede
-// descartar con la X normal).
-// Sin filtros: los ultimos eventos (campanita). Con "day" (YYYY-MM-DD, hora de Roma) o
-// "vehicleId": solo el detalle que se abrio en Control de Flota.
-export const listSpeedingEventsForActor = ({ day, vehicleId } = {}) => {
+// Excesos de velocidad (ver checkSpeedingEvents). Ya no hay aviso en la campanita de la oficina: se ven en Vehiculos > Avisos de velocidad, y solo
+// cuando se abre esa parte. Un Responsable ve unicamente los de los vehiculos de su asignacion. Cada evento trae el chofer que manejaba.
+// "day" (YYYY-MM-DD, hora de Roma) o "vehicleId": el detalle que se abrio. Sin filtros no devuelve nada (no hay lista "de todos").
+const withDrivers = async (events) => {
+  const ids = [...new Set(events.map((e) => e.driverId).filter(Boolean))];
+  const names = ids.length ? await findUserNamesByIds(ids) : new Map();
+  return events.map((e) => ({ ...e, driver: e.driverId ? (names.get(e.driverId) ?? null) : null }));
+};
+
+export const listSpeedingEventsForActor = async (actor, { day, vehicleId } = {}) => {
+  const scope = await getOfficeScope(actor);
+  const ids = scope ? scope.vehicleIds : null;
   if (day) {
     const [year, month, date] = day.split("-").map(Number);
-    return findEventsInRange(buildLocalDateRange(year, month, date, "Europe/Rome"));
+    return withDrivers(await findEventsInRange(buildLocalDateRange(year, month, date, "Europe/Rome"), ids));
   }
-  if (vehicleId) return findEventsForVehicle(vehicleId);
-  return findRecentEvents();
+  if (vehicleId) return withDrivers(await findEventsForVehicle(vehicleId, ids));
+  return [];
+};
+
+// Los excesos del propio usuario en los ultimos 7 dias (lo que ve el chofer en sus avisos).
+export const listMySpeedingEventsForActor = async (actor) => {
+  const events = await findEventsForDriver(actor.id, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000));
+  return events.map((e) => ({ id: e.id, targa: e.targa, speedKmh: e.speedKmh, occurredAt: e.occurredAt, thresholdKmh: env.SPEEDING_THRESHOLD_KMH }));
 };
 
 // Control de Flota: un resumen chico (por dia y por vehiculo) para armar los acordeones
 // sin traer ningun evento; el detalle se pide despues, a demanda.
-export const getSpeedingSummaryForActor = async () => {
-  const [days, vehicles] = await Promise.all([summarizeEventsByDay(), summarizeEventsByVehicle()]);
+export const getSpeedingSummaryForActor = async (actor) => {
+  const scope = await getOfficeScope(actor);
+  const ids = scope ? scope.vehicleIds : null;
+  const [days, vehicles] = await Promise.all([summarizeEventsByDay(ids), summarizeEventsByVehicle(ids)]);
   return {
     thresholdKmh: env.SPEEDING_THRESHOLD_KMH,
     retentionDays: env.SPEEDING_EVENT_RETENTION_DAYS,

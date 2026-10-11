@@ -16,6 +16,7 @@ import peajeRoutes from "./peaje.routes.js";
 import mancatoRoutes from "./mancato.routes.js";
 import metaRoutes from "./meta.routes.js";
 import multaRoutes from "./multa.routes.js";
+import notificacionRoutes from "./notificacion.routes.js";
 import recordRoutes from "./record.routes.js";
 import seguimientoRoutes from "./seguimiento.routes.js";
 import syncRoutes from "./sync.routes.js";
@@ -29,6 +30,7 @@ const router = Router();
 router.use(rrhhGate);
 
 router.use("/app", appRoutes);
+router.use("/notificaciones", notificacionRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/documents", documentRoutes);
