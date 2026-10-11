@@ -52,6 +52,7 @@ const ASIGNACION_VALUES = [
   "MANUAL",
   "EN_ESPERA",
   "FUERA_DE_HORARIO",
+  "HISTORICO",
   "REVISAR",
 ];
 

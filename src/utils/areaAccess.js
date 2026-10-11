@@ -61,10 +61,11 @@ export const combustibleAreaWhere = (actor) => {
   return { area: { in: enums } };
 };
 
-// Mancato: hereda el area del servicio al que esta asignado. Sin servicio, solo lo ven los Admin.
+// Mancato: hereda el area del servicio al que esta asignado. Los que no tienen servicio (en espera, historicos) los ven
+// todos los Admin y Responsables: son avisos de pago de la empresa y hay que poder verlos todos.
 export const mancatoAreaWhere = (actor) => {
   const where = recordAreaWhere(actor);
-  return where ? { record: { is: where } } : undefined;
+  return where ? { OR: [{ record: { is: where } }, { recordId: null }] } : undefined;
 };
 
 // Multa: tiene su propia area (nullable). Sin area, solo los Admin.

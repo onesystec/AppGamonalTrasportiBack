@@ -17,7 +17,13 @@ const RUTA_POR_DEFECTO_MS = 2 * HOUR;
 const BUSQUEDA_ATRAS_MS = 5 * DAY;
 const BUSQUEDA_ADELANTE_MS = 1 * DAY;
 // Solo se re-evaluan los mancatos recientes.
-const REEVALUAR_DESDE_MS = 90 * DAY;
+const REEVALUAR_DESDE_MS = 120 * DAY;
+
+// Los mancatos de antes de esta fecha (los que venian de AppSheet) no se asignan a ningun servicio: no se evaluan, no
+// quedan "esperando servicio" y no generan alertas. Si la oficina quiere, igual puede asignarlos a mano.
+export const ASIGNACION_DESDE_DAY = "2026-07-01";
+export const ASIGNACION_DESDE = new Date(`${ASIGNACION_DESDE_DAY}T00:00:00.000Z`);
+const sinceAssignable = () => new Date(Math.max(Date.now() - REEVALUAR_DESDE_MS, ASIGNACION_DESDE.getTime()));
 
 const hoursText = (ms) => {
   const hours = Math.round((Math.abs(ms) / HOUR) * 10) / 10;
@@ -219,6 +225,9 @@ export const loadCandidates = (vehicleId, transitAt) => {
 
 // Calcula la asignacion de un mancato nuevo o modificado.
 export const matchMancato = async ({ vehicleId, driverId, fechaHoraTransito }) => {
+  if (fechaHoraTransito && new Date(fechaHoraTransito).toISOString().slice(0, 10) < ASIGNACION_DESDE_DAY) {
+    return enEspera("Anterior al 1 de julio de 2026: no se asigna a un servicio.");
+  }
   if (!fechaHoraTransito) return enEspera("El mancato no tiene hora de transito.");
   if (!vehicleId) return enEspera("La targa no esta registrada en Vehiculos.");
   const candidates = await loadCandidates(vehicleId, fechaHoraTransito);
@@ -269,7 +278,7 @@ export const rematchVehicle = async (vehicleId) => {
   if (!vehicleId) return { revisados: 0, cambiados: 0 };
   const mancatos = await findAssignableMancatos({
     vehicleId,
-    since: new Date(Date.now() - REEVALUAR_DESDE_MS),
+    since: sinceAssignable(),
   });
   let cambiados = 0;
   for (const m of mancatos) {
@@ -290,7 +299,7 @@ export const rematchVehicle = async (vehicleId) => {
 // muchas Fechas de retiro).
 export const rematchAll = async () => {
   const vehicles = await findVehiclesWithAssignableMancatos({
-    since: new Date(Date.now() - REEVALUAR_DESDE_MS),
+    since: sinceAssignable(),
   });
   let revisados = 0;
   let cambiados = 0;

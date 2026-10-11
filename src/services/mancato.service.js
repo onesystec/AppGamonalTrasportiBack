@@ -15,6 +15,8 @@ import {
   updateMancatoById,
 } from "../models/mancato.model.js";
 import {
+  ASIGNACION_DESDE,
+  ASIGNACION_DESDE_DAY,
   listCandidatesForMancato,
   matchMancato,
   rematchAll,
@@ -47,14 +49,19 @@ const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
 
 const waitCutoff = () => new Date(Date.now() - ESPERA_SERVICIO_DIAS * DAY_MS);
 
-// Estado de asignacion que se muestra (ver ESPERA_SERVICIO_DIAS).
+// Estado de asignacion que se muestra (ver ESPERA_SERVICIO_DIAS). Los de antes del 1 de julio de 2026 que no tienen
+// servicio son "historicos": no se asignan, no esperan servicio y no generan alertas.
+const isHistorico = (m) => m.asignacion === "EN_ESPERA" && !m.recordId && dateOnlyToDay(m.fecha) < ASIGNACION_DESDE_DAY;
+
 const displayAsignacion = (m) => {
+  if (isHistorico(m)) return "HISTORICO";
   if (m.asignacion === "MANUAL" && !m.recordId) return "FUERA_DE_HORARIO";
   if (m.asignacion === "EN_ESPERA" && m.createdAt <= waitCutoff()) return "FUERA_DE_HORARIO";
   return m.asignacion;
 };
 
 const displayMotivo = (m, shown) => {
+  if (shown === "HISTORICO") return "Anterior al 1 de julio de 2026: no se asigna a un servicio.";
   if (shown === "FUERA_DE_HORARIO") {
     return m.asignacion === "MANUAL"
       ? "La oficina lo dejo sin servicio: fuera del horario laboral."
@@ -70,19 +77,24 @@ const asignacionWhere = (value) => {
   const cutoff = waitCutoff();
   switch (value) {
     case "EN_ESPERA":
-      return { asignacion: "EN_ESPERA", createdAt: { gt: cutoff } };
+      return { asignacion: "EN_ESPERA", createdAt: { gt: cutoff }, fecha: { gte: ASIGNACION_DESDE } };
+    case "HISTORICO":
+      return { asignacion: "EN_ESPERA", recordId: null, fecha: { lt: ASIGNACION_DESDE } };
     case "FUERA_DE_HORARIO":
       return {
         OR: [
           { asignacion: "MANUAL", recordId: null },
-          { asignacion: "EN_ESPERA", createdAt: { lte: cutoff } },
+          { asignacion: "EN_ESPERA", createdAt: { lte: cutoff }, fecha: { gte: ASIGNACION_DESDE } },
         ],
       };
     case "MANUAL":
       return { asignacion: "MANUAL", recordId: { not: null } };
     case "REVISAR":
       return {
-        OR: [{ asignacion: "SUGERIDO" }, { asignacion: "EN_ESPERA", createdAt: { gt: cutoff } }],
+        OR: [
+          { asignacion: "SUGERIDO" },
+          { asignacion: "EN_ESPERA", createdAt: { gt: cutoff }, fecha: { gte: ASIGNACION_DESDE } },
+        ],
       };
     default:
       return { asignacion: value };
@@ -141,7 +153,8 @@ const buildWhere = (actor, filters, today) => {
 const assertAccess = (actor, mancato) => {
   if (mancato.driverId === actor.id || actor.cargo === "OWNER") return;
   if (actor.cargo === "ADMIN") {
-    const inArea = mancato.record && canAccessRecordArea(actor, mancato.record);
+    // Los que no tienen servicio los ven todos los Admin y Responsables.
+    const inArea = !mancato.recordId || (mancato.record && canAccessRecordArea(actor, mancato.record));
     if (inArea || mancato.createdById === actor.id) return;
   }
   throw new AppError("No tienes permisos para realizar esta accion", 403);
@@ -207,7 +220,7 @@ const toResponse = async (m, today) => {
     tramo: m.tramo,
     asignacionMotivo: displayMotivo(m, asignacionShown),
     esperaHasta:
-      m.asignacion === "EN_ESPERA"
+      asignacionShown === "EN_ESPERA"
         ? new Date(m.createdAt.getTime() + ESPERA_SERVICIO_DIAS * DAY_MS)
         : null,
     servicio: m.record
