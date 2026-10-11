@@ -603,6 +603,20 @@ export const getMancatoStatsForActor = async (actor, query) => {
   const [year, month] = today.split("-").map(Number);
   const month0 = month - 1;
 
+  // Total del año en curso (sin tocar las fechas del filtro) y, si hay un rango o mes elegido, el total de ese periodo.
+  const hasRange = Boolean(query.from || query.to);
+  const yearRows = hasRange
+    ? await findMancatosForStats(buildWhere(actor, { ...query, from: `${year}-01-01`, to: `${year}-12-31` }, today))
+    : rows.filter((r) => dateOnlyToDay(r.fecha).startsWith(String(year)));
+  const sumUp = (list) => {
+    const round = (n) => Math.round(n * 100) / 100;
+    const paid = list.filter((r) => r.pagado);
+    const unpaid = list.filter((r) => !r.pagado);
+    const add = (l) => l.reduce((sum, r) => sum + Number(r.costo), 0);
+    return { count: list.length, total: round(add(list)), pagado: round(add(paid)), porPagar: round(add(unpaid)) };
+  };
+  const totales = { anio: year, anual: sumUp(yearRows), periodo: hasRange ? sumUp(rows) : null };
+
   // Cierre de cada uno de los ultimos meses (el actual llega hasta hoy).
   const serie = [];
   for (let back = SERIES_MONTHS - 1; back >= 0; back -= 1) {
@@ -647,6 +661,7 @@ export const getMancatoStatsForActor = async (actor, query) => {
   const totalPorPagar = totalOf(open);
 
   return {
+    totales,
     totalPorPagar,
     totalPorPagarDeltaPct: pctChange(totalPorPagar, totalOf(openPrev)),
     avisosAbiertos: open.length,
