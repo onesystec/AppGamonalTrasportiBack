@@ -54,3 +54,34 @@ export const peajesEnRuta = async (geometria, { radiusM = 70 } = {}) => {
 };
 
 export const peajeLabel = (peaje) => peaje.nombre ?? (peaje.tipo === "PORTALE" ? "Portico free-flow" : "Peaje sin nombre");
+
+const sameOperator = (a, b) => !a.operador || !b.operador || a.operador === b.operador;
+
+// Cuantos pagos son los peajes por los que pasa una ruta (en el orden en que se cruzan). En una autopista cerrada se toma ticket al
+// entrar y se paga al salir: dos casetas = un pago. Por eso se juntan de a dos casetas seguidas de la misma concesionaria
+// (entrada -> salida). Un portico free-flow es un pago por si solo, y una caseta que queda sin pareja se marca como "barrera unica"
+// (sistema abierto, o la otra caseta no esta en el catalogo): hay que revisarla. Es una estimacion: OpenStreetMap no dice que
+// autopista es cerrada y cual abierta.
+export const agruparPagos = (peajes) => {
+  const pagos = [];
+  for (let i = 0; i < peajes.length; i += 1) {
+    const actual = peajes[i];
+    const siguiente = peajes[i + 1];
+    if (actual.tipo === "PORTALE") {
+      pagos.push({ tipo: "FREE_FLOW", desde: peajeLabel(actual), hasta: null, operador: actual.operador ?? null });
+    } else if (siguiente && siguiente.tipo !== "PORTALE" && sameOperator(actual, siguiente)) {
+      pagos.push({
+        tipo: "ENTRADA_SALIDA",
+        desde: peajeLabel(actual),
+        hasta: peajeLabel(siguiente),
+        operador: actual.operador ?? siguiente.operador ?? null,
+      });
+      i += 1;
+    } else {
+      pagos.push({ tipo: "BARRERA_UNICA", desde: peajeLabel(actual), hasta: null, operador: actual.operador ?? null });
+    }
+  }
+  return pagos;
+};
+
+export const pagoTexto = (pago) => (pago.hasta ? `${pago.desde} → ${pago.hasta}` : pago.desde);

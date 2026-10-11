@@ -7,7 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { distanceMeters, estimateDriveMinutes } from "../utils/stopDetection.js";
 import { findGroupMembers } from "../models/compactado.model.js";
 import { geocodeAddress } from "./geocoding.service.js";
-import { peajeLabel, peajesEnRuta } from "./peajes.service.js";
+import { agruparPagos, pagoTexto, peajeLabel, peajesEnRuta } from "./peajes.service.js";
 import { calculateRoute } from "./routing.service.js";
 
 // Estimacion del tiempo de un servicio SOLO con sus direcciones, para cuando no hay datos de GPS ni del
@@ -156,17 +156,22 @@ const peajesDeLegs = async (legs, sinPeaje) => {
     legs.idaRoute ? peajesEnRuta(legs.idaRoute.geometria) : [],
     legs.backRoute ? peajesEnRuta(legs.backRoute.geometria) : [],
   ]);
-  const names = (list) => [...new Set(list.map(peajeLabel))].slice(0, 8);
+  const pagosIda = agruparPagos(ida);
+  const pagosVuelta = agruparPagos(vuelta);
   return {
     // Lo que declaro el chofer (true = no uso peaje) y si la ruta calculada realmente lo evita.
     idaSinPeaje: sinPeaje.ida,
     vueltaSinPeaje: sinPeaje.vuelta,
     idaEvitado: sinPeaje.ida ? Boolean(legs.idaRoute?.evitoPeajes) : null,
     vueltaEvitado: sinPeaje.vuelta ? Boolean(legs.backRoute?.evitoPeajes) : null,
-    ida: names(ida),
-    vuelta: names(vuelta),
-    idaCantidad: ida.length,
-    vueltaCantidad: vuelta.length,
+    // Pagos estimados (dos casetas de una misma autopista cerrada = un pago): "Milano Sud -> Bologna Casalecchio".
+    ida: pagosIda.slice(0, 8).map(pagoTexto),
+    vuelta: pagosVuelta.slice(0, 8).map(pagoTexto),
+    idaCantidad: pagosIda.length,
+    vueltaCantidad: pagosVuelta.length,
+    // Casetas sueltas sin pareja: puede ser una barrera unica (sistema abierto) o falta la otra en el catalogo.
+    idaRevisar: pagosIda.some((p) => p.tipo === "BARRERA_UNICA"),
+    vueltaRevisar: pagosVuelta.some((p) => p.tipo === "BARRERA_UNICA"),
   };
 };
 
@@ -185,7 +190,10 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   const sinPeaje = sinPeajeOf(members);
   // Los peajes declarados entran en la firma: si el chofer cambia lo que declaro, el circuito se vuelve a calcular.
   const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|") + `|peaje:${sinPeaje.ida ? 1 : 0}${sinPeaje.vuelta ? 1 : 0}`;
-  if (!force && holder.circuito?.firma === firma && holder.circuito.tramos) return holder.circuito;
+  // "idaRevisar" distingue el formato actual de los peajes (pagos) del anterior (casetas sueltas): los viejos se recalculan.
+  if (!force && holder.circuito?.firma === firma && holder.circuito.tramos && holder.circuito.peajes && "idaRevisar" in holder.circuito.peajes) {
+    return holder.circuito;
+  }
 
   const legs = await routeLegs(points, sinPeaje);
   const circuito = {
@@ -326,6 +334,8 @@ export const getCircuitMapData = async (recordId) => {
     evitado: sin ? Boolean(route?.evitoPeajes) : null,
     geometria: route?.geometria ?? null,
     peajes: peajes.map((p) => ({ id: p.id, nombre: peajeLabel(p), operador: p.operador, tipo: p.tipo, lat: p.lat, lng: p.lng })),
+    // Cuantos pagos son (entrada + salida = 1): ver agruparPagos.
+    pagos: agruparPagos(peajes),
   });
   return {
     circuito,
