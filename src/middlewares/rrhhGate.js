@@ -6,7 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 // Recursos Humanos solo puede usar estas partes de la API (lo demas, incluido todo lo financiero y los
 // servicios, se le niega aqui sin depender de cada ruta). Dentro de /users, /documents y /vehiculos los
 // servicios aplican ademas sus propios limites (solo choferes, sin mantenimiento ni posiciones en vivo).
-const RRHH_ALLOWED_PREFIXES = ["/auth", "/users", "/documents", "/vehiculos", "/busta-paga"];
+const RRHH_ALLOWED_PREFIXES = ["/app", "/auth", "/users", "/documents", "/vehiculos", "/busta-paga"];
 
 export const rrhhGate = asyncHandler(async (req, _res, next) => {
   const header = req.headers.authorization;

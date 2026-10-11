@@ -1,4 +1,5 @@
 import { Router } from "express";
+import appRoutes from "./app.routes.js";
 import authRoutes from "./auth.routes.js";
 import bustaPagaRoutes from "./bustaPaga.routes.js";
 import { rrhhGate } from "../middlewares/rrhhGate.js";
@@ -27,6 +28,7 @@ const router = Router();
 // Recursos Humanos solo entra a lo suyo, decidido aca y no ruta por ruta (ver middlewares/rrhhGate.js).
 router.use(rrhhGate);
 
+router.use("/app", appRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/documents", documentRoutes);
