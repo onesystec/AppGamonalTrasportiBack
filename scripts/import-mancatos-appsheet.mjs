@@ -17,7 +17,7 @@ import { romeLocalToDate } from "../src/utils/romeTime.js";
 const args = process.argv.slice(2);
 const APPLY = args.includes("--aplicar");
 const REVERT = args.includes("--revertir");
-const file = args.find((a) => !a.startsWith("--"));
+const file = args.find((a, i) => !a.startsWith("--") && args[i - 1] !== "--excluir");
 const OUT_DIR = join(homedir(), "Downloads");
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -144,7 +144,24 @@ if (!file || !existsSync(file)) {
 }
 
 // ---- lectura de la base (una sola vez) ------------------------------------------------------------------------------------------------
-const csv = parseCsv(readFileSync(file, "utf8"));
+let csv = parseCsv(readFileSync(file, "utf8"));
+// --excluir <viejo.csv>: el archivo nuevo trae de nuevo todas las filas del anterior (y los numeros SIN-NUMERO-<linea> dependen de la linea), asi
+// que se saltan las filas que ya estaban en ese archivo (mismo verbale, fecha, monto y targa) y solo se trabaja con las nuevas.
+const excluirFile = args.includes("--excluir") ? args[args.indexOf("--excluir") + 1] : null;
+if (excluirFile) {
+  const rowKey = (r) => [r["VERBALE O SOLLECITO"], r["FECHA RECEPCIÓN"], r.MONTO, r.TARGA].join("|");
+  const prev = new Map();
+  parseCsv(readFileSync(excluirFile, "utf8")).forEach((r) => prev.set(rowKey(r), (prev.get(rowKey(r)) ?? 0) + 1));
+  csv = csv.filter((r) => {
+    const k = rowKey(r);
+    if ((prev.get(k) ?? 0) > 0) {
+      prev.set(k, prev.get(k) - 1);
+      return false;
+    }
+    return true;
+  });
+  console.log(`Filas nuevas respecto de ${excluirFile}: ${csv.length}`);
+}
 const [users, vehicles, existing, services] = await Promise.all([
   prisma.user.findMany({ select: { id: true, nombre: true, apellido: true, estado: true } }),
   prisma.vehiculo.findMany({ select: { id: true, targa: true } }),
@@ -198,9 +215,21 @@ for (const row of csv) {
   let costo = cleanMonto(row.MONTO);
   const sinMonto = costo == null;
   if (sinMonto) costo = 0;
-  const fechaDay = dayOf(row["FECHA RECEPCIÓN"]);
+  // Solo se guarda 2026. Si la fecha de recepcion esta vacia o tiene un error de año (p. ej. 2016) pero el aviso se creo en 2026, el chofer
+  // se equivoco al escribirla: se usa el mismo dia con el año de la creacion (o, si no hay fecha, el dia de la creacion) y queda anotado.
+  const creationDayRaw = dayOf(row["FECHA CREACIÓN"]);
+  let fechaDay = dayOf(row["FECHA RECEPCIÓN"]);
+  let fechaCorregida = null;
+  if (creationDayRaw?.startsWith("2026") && (!fechaDay || fechaDay.startsWith("2016"))) {
+    fechaCorregida = fechaDay ? `Fecha de recepcion corregida: AppSheet decia ${row["FECHA RECEPCIÓN"]}` : "Sin fecha de recepcion en AppSheet: se usa la fecha de creacion";
+    fechaDay = fechaDay ? `2026${fechaDay.slice(4)}` : creationDayRaw;
+  }
   if (!fechaDay) {
     reject(row, "Sin fecha de transito (FECHA RECEPCIÓN)");
+    continue;
+  }
+  if (!fechaDay.startsWith("2026")) {
+    reject(row, `No es de 2026 (fecha de recepcion ${row["FECHA RECEPCIÓN"]})`);
     continue;
   }
   const estadoKey = fold(row.ESTADO);
@@ -209,8 +238,12 @@ for (const row of csv) {
     reject(row, `Estado desconocido: ${row.ESTADO}`);
     continue;
   }
-  const limiteDay = dayOf(row["FECHA LÍMITE DE PAGO"]) ?? new Date(dayDate(fechaDay).getTime() + 15 * DAY).toISOString().slice(0, 10);
-  const hora = hhmmOf(row.HORA);
+  // Un limite de pago que no tiene sentido (1970, otro año, antes del transito) se reemplaza por fecha + 15 dias.
+  const limiteRaw = dayOf(row["FECHA LÍMITE DE PAGO"]);
+  const limiteValido = limiteRaw && limiteRaw >= fechaDay && limiteRaw.startsWith("2026") || (limiteRaw && limiteRaw >= fechaDay && limiteRaw <= new Date(dayDate(fechaDay).getTime() + 90 * DAY).toISOString().slice(0, 10));
+  const limiteDay = limiteValido ? limiteRaw : new Date(dayDate(fechaDay).getTime() + 15 * DAY).toISOString().slice(0, 10);
+  // "00:00" es la hora que AppSheet pone cuando no hay hora.
+  const hora = hhmmOf(row.HORA) === "00:00" ? null : hhmmOf(row.HORA);
   const targa = targaOf(row.TARGA) || "SIN TARGA";
   const vehicleId = vehicleByTarga.get(targa) ?? null;
   const chofer = row["ID_ TRABAJADOR"];
@@ -225,6 +258,8 @@ for (const row of csv) {
   const comentarios = [
     "Importado de AppSheet",
     `Estado: ${row.ESTADO.trim()}${estado.nota ? ` (${estado.nota})` : ""}`,
+    fechaCorregida,
+    limiteValido ? null : `Limite de pago de AppSheet invalido (${row["FECHA LÍMITE DE PAGO"] || "vacio"}): se usa fecha + 15 dias`,
     sinNumero ? `Sin numero de verbale: en AppSheet decia "${numeroOriginal || "(vacio)"}"` : null,
     numeroRescatado ? `Numero original en AppSheet: ${numeroOriginal}` : null,
     sinMonto ? `Sin monto valido en AppSheet (${row.MONTO.trim() || "vacio"})` : null,
