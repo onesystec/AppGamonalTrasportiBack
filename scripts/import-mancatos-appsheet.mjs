@@ -117,8 +117,8 @@ const edit1 = (a, b) => {
 const buildDriverLookup = (users) => {
   const entries = users.map((u) => ({ id: u.id, full: fold(`${u.nombre} ${u.apellido}`), first: fold(u.nombre).split(" ")[0], last: fold(u.apellido).split(" ").at(-1), activo: u.estado === "ACTIVO" }));
   return (name) => {
-    const full = fold(name);
-    if (!full || full === "GAMONAL TRASPORTI") return null;
+    // Sin nombre o "GAMONAL TRASPORTI": el mancato es de la empresa (perfil "Gamonal Trasporti").
+    const full = fold(name) || "GAMONAL TRASPORTI";
     const exact = entries.filter((e) => e.full === full);
     if (exact.length) return (exact.find((e) => e.activo) ?? exact[0]).id;
     const [first, ...rest] = full.split(" ");
@@ -183,16 +183,21 @@ const reject = (row, motivo) => rejected.push({ linea: row._linea, numero: row["
 
 const prepared = [];
 for (const row of csv) {
-  const numero = cleanNumero(row["VERBALE O SOLLECITO"]);
+  // Un numero que no es real se rescata si se puede ("5453932369 / 5453932385", "50 80 70 27 06", caracteres invisibles); si no, el
+  // mancato se sube igual con un numero propio ("SIN-NUMERO-<linea>") y el texto original queda en los comentarios.
+  const numeroOriginal = row["VERBALE O SOLLECITO"];
+  let numero = cleanNumero(numeroOriginal);
+  let numeroRescatado = false;
   if (!numero) {
-    reject(row, "El numero de verbale no es un numero real (texto suelto, muy corto o de prueba)");
-    continue;
+    const compact = numeroOriginal.split("/")[0].replace(/[\s\u200B-\u200F\u202A-\u202E\uFEFF]/g, "");
+    numero = cleanNumero(compact);
+    numeroRescatado = Boolean(numero);
   }
-  const costo = cleanMonto(row.MONTO);
-  if (costo == null) {
-    reject(row, row.MONTO.trim() === "" ? "Sin monto" : "Monto en cero o invalido");
-    continue;
-  }
+  const sinNumero = !numero;
+  if (sinNumero) numero = `SIN-NUMERO-${row._linea}`;
+  let costo = cleanMonto(row.MONTO);
+  const sinMonto = costo == null;
+  if (sinMonto) costo = 0;
   const fechaDay = dayOf(row["FECHA RECEPCIÓN"]);
   if (!fechaDay) {
     reject(row, "Sin fecha de transito (FECHA RECEPCIÓN)");
@@ -220,6 +225,9 @@ for (const row of csv) {
   const comentarios = [
     "Importado de AppSheet",
     `Estado: ${row.ESTADO.trim()}${estado.nota ? ` (${estado.nota})` : ""}`,
+    sinNumero ? `Sin numero de verbale: en AppSheet decia "${numeroOriginal || "(vacio)"}"` : null,
+    numeroRescatado ? `Numero original en AppSheet: ${numeroOriginal}` : null,
+    sinMonto ? `Sin monto valido en AppSheet (${row.MONTO.trim() || "vacio"})` : null,
     row.MES ? `Mes AppSheet: ${row.MES}` : null,
     row.AREA ? `Área: ${row.AREA.trim()}` : null,
     row["PEAJE/SALIDA"] ? `Peaje/salida: ${row["PEAJE/SALIDA"]}` : null,
@@ -235,6 +243,8 @@ for (const row of csv) {
     _hora: Boolean(hora),
     _mes: fechaDay.slice(0, 7),
     numero,
+    _rescatado: numeroRescatado,
+    _linea0: row._linea,
     targa,
     vehicleId,
     driverId: choferId,
@@ -255,9 +265,15 @@ for (const row of csv) {
 // ---- numeros repetidos: dentro del archivo y contra lo que ya hay en la base ------------------------------------------------------------
 const seen = new Map();
 const unique = [];
+let yaExistian = 0;
 for (const m of prepared) {
+  if (m._rescatado && (existingNumeros.has(m.numero) || seen.has(m.numero))) {
+    m.comentarios += ` · El numero ${m.numero} ya estaba usado: se sube con un numero propio`;
+    m.numero = `SIN-NUMERO-${m._linea}`;
+    m._rescatado = false;
+  }
   if (existingNumeros.has(m.numero)) {
-    rejected.push({ linea: m._linea, numero: m.numero, estado: "", monto: m.costo, chofer: "", targa: m.targa, fecha: m.fecha.toISOString().slice(0, 10), motivo: "El numero ya existe en la app" });
+    yaExistian += 1;
     continue;
   }
   if (seen.has(m.numero)) {
@@ -274,7 +290,10 @@ unique.sort((a, b) => a.fecha - b.fecha || (a.fechaHoraTransito ?? 0) - (b.fecha
 
 const stats = { auto: 0, enEspera: 0, sinHora: 0, sinVehiculo: 0 };
 for (const m of unique) {
-  if (!m.fechaHoraTransito) {
+  if (m._mes < "2026-07") {
+    // Los anteriores al 1 de julio de 2026 no se asignan a ningun servicio (ver ASIGNACION_DESDE en mancatoMatching.service.js).
+    Object.assign(m, { recordId: null, asignacion: "EN_ESPERA", tramo: null, asignacionMotivo: "Anterior al 1 de julio de 2026: no se asigna a un servicio." });
+  } else if (!m.fechaHoraTransito) {
     stats.sinHora += 1;
     Object.assign(m, { recordId: null, asignacion: "EN_ESPERA", tramo: null, asignacionMotivo: "Importado de AppSheet sin hora de transito: no se puede asignar a un servicio." });
   } else if (!m.vehicleId) {
@@ -302,12 +321,12 @@ const unmatchedTargas = [...new Set(unique.filter((m) => !m.vehicleId).map((m) =
 const unmatchedDrivers = new Map();
 csv.forEach((r) => {
   const name = r["ID_ TRABAJADOR"];
-  if (name && !driverId(name) && fold(name) !== "GAMONAL TRASPORTI") unmatchedDrivers.set(name, (unmatchedDrivers.get(name) ?? 0) + 1);
+  if (name && !driverId(name)) unmatchedDrivers.set(name, (unmatchedDrivers.get(name) ?? 0) + 1);
 });
 const sumByMonth = (list) => Math.round(list.reduce((s, m) => s + m.costo, 0) * 100) / 100;
 
 console.log(`\nArchivo: ${csv.length} filas`);
-console.log(`A subir: ${unique.length}  |  No se suben: ${rejected.length}`);
+console.log(`A subir: ${unique.length}  |  Ya estaban en la app: ${yaExistian}  |  No se suben: ${rejected.length}`);
 console.log("No se suben, por motivo:", Object.fromEntries(rejectedByReason));
 console.log("Numeros repetidos en el archivo o ya en la app:", rejected.filter((r) => /repetido|ya existe/.test(r.motivo)).length);
 console.log("\nPor mes (fecha del transito):");
@@ -332,7 +351,7 @@ if (!APPLY) {
 // ---- subida, mes por mes ----------------------------------------------------------------------------------------------------------------
 const uploaded = [];
 for (const [mes, list] of [...byMonth.entries()].sort()) {
-  const data = list.map(({ _linea, _hora, _mes, ...row }) => row);
+  const data = list.map(({ _linea, _linea0, _rescatado, _hora, _mes, ...row }) => row);
   const { count } = await prisma.mancatoPagamento.createMany({ data, skipDuplicates: true });
   uploaded.push(...list.map((m) => m.numero));
   console.log(`  ${mes}: subidos ${count} de ${data.length}`);
