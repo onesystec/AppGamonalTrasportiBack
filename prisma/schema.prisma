@@ -582,6 +582,9 @@ model Record {
   compactadoId     String?
   compactadoOrden  Int?
 
+  // El servicio pasa primero por Brennero (frontera): la ruta se calcula con ese punto de paso (ver constants/brennero.js).
+  pasaPorBrennero  Boolean  @default(false)
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]

@@ -31,6 +31,7 @@ import { LOCATION_FRESH_MINUTES } from "./user.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { env } from "../config/env.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
+import { routePoints } from "../constants/brennero.js";
 import { toRomeParts } from "../constants/appsheetMaps.js";
 import { OPEN_STATES, setGroupOpenEstado } from "../models/compactado.model.js";
 import { viajesAplican } from "../config/viajes.js";
@@ -123,9 +124,9 @@ const salidaColumns = (salida) => ({
 // el payload listo para mezclar en la data que se manda a Prisma. fallbackCiudad: si
 // una parada no geocodifica, geocodeStops la aproxima al centro de esa ciudad en vez
 // de fallar el registro entero (ver geocoding.service.js).
-const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = defaultSalidaFor(), alreadyGeocoded = null) => {
+const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = defaultSalidaFor(), alreadyGeocoded = null, pasaPorBrennero = false) => {
   const stopsGeocoded = alreadyGeocoded ?? (await geocodeStops(direcciones, fallbackCiudad));
-  const ruta = await calculateRoute([salida, ...stopsGeocoded]);
+  const ruta = await calculateRoute(routePoints(salida, stopsGeocoded, pasaPorBrennero));
 
   return {
     stopsCreate: stopsGeocoded.map((s, i) => ({
@@ -318,6 +319,7 @@ const toFullResponse = (record) => {
     fechaServicio: record.fechaServicio,
     eta: record.eta,
     fechaRetiro: record.fechaRetiro,
+    pasaPorBrennero: Boolean(record.pasaPorBrennero),
     retiroPaqueteAt: record.retiroPaqueteAt ?? null,
     mancatos: toMancatosSummary(record.mancatos),
     faltantes: faltantesOf(record),
@@ -501,7 +503,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
     geocodeStops(direcciones, data.ciudad),
   ]);
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-    await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data), geocoded);
+    await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data), geocoded, Boolean(data.pasaPorBrennero));
 
   const record = await createRecordModel({
     ...rest,
@@ -804,6 +806,9 @@ export const updateRecordForActor = async (actor, id, data) => {
     const salidaMoved =
       salidaChange !== undefined &&
       (nextSalida.lat !== currentSalida.lat || nextSalida.lng !== currentSalida.lng);
+    // Marcar o desmarcar "pasa por Brennero" cambia la ruta aunque la salida y las paradas sigan igual.
+    const nextBrennero = payload.pasaPorBrennero ?? record.pasaPorBrennero;
+    const brenneroMoved = nextBrennero !== record.pasaPorBrennero;
 
     if (payload.stops) {
       const { stops: direcciones, ...rest } = payload;
@@ -811,7 +816,7 @@ export const updateRecordForActor = async (actor, id, data) => {
         payload = rest;
       } else {
         const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-          await buildStopsPipeline(direcciones, payload.ciudad ?? record.ciudad, nextSalida);
+          await buildStopsPipeline(direcciones, payload.ciudad ?? record.ciudad, nextSalida, null, nextBrennero);
         payload = {
           ...rest,
           destinazione,
@@ -824,13 +829,13 @@ export const updateRecordForActor = async (actor, id, data) => {
       }
     }
 
-    if (salidaChange !== undefined) {
-      payload = { ...payload, ...salidaColumns(salidaChange) };
+    if (salidaChange !== undefined || brenneroMoved) {
+      if (salidaChange !== undefined) payload = { ...payload, ...salidaColumns(salidaChange) };
       // La salida cambio pero las paradas no: se recalcula la ruta con las paradas ya ubicadas.
-      if (salidaMoved && !("rutaDistanciaKm" in payload)) {
+      if ((salidaMoved || brenneroMoved) && !("rutaDistanciaKm" in payload)) {
         const placed = record.stops.filter((s) => s.lat != null && s.lng != null);
         if (placed.length > 0) {
-          const ruta = await calculateRoute([nextSalida, ...placed]);
+          const ruta = await calculateRoute(routePoints(nextSalida, placed, nextBrennero));
           payload = {
             ...payload,
             rutaDistanciaKm: ruta?.distanciaKm ?? null,
