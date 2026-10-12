@@ -1,7 +1,7 @@
 import { env } from "../config/env.js";
 import { AREA_LABELS } from "../constants/areas.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
-import { findRespaldoPings } from "../models/gpsRespaldo.model.js";
+import { findLastRespaldoPing, findRespaldoPings } from "../models/gpsRespaldo.model.js";
 import { getConfig, setConfig } from "../models/permiso.model.js";
 import { findActiveForSeguimiento, findGroupMembers, markLlegadaGps } from "../models/seguimiento.model.js";
 import { findOfficeUserIdsForArea, findUserLocationById } from "../models/user.model.js";
@@ -26,6 +26,9 @@ const WINDOW_BEFORE_MS = 36 * HOUR_MS;
 const WINDOW_AFTER_MS = 12 * HOUR_MS;
 const LIVE_TTL_MS = 45 * 1000;
 const PHONE_FRESH_MS = 10 * MIN_MS;
+// En la montana o un tunel el celular pierde cobertura y manda sus puntos de golpe cuando vuelve: la ultima posicion se sigue usando hasta este
+// tiempo (marcada con su antiguedad) y la llegada se calcula restando lo que ya paso, para no quedarse sin hora.
+const PHONE_STALE_MAX_MS = 30 * MIN_MS;
 // OneSystec manda un punto cada pocos segundos en marcha y hasta cada hora quieto: una posicion en marcha vieja de mas de 20 min
 // es una senal perdida; una quieta puede tener hasta 70 min y seguir siendo la ultima ubicacion real.
 const ONESYSTEC_MOVING_FRESH_MS = 20 * MIN_MS;
@@ -68,6 +71,12 @@ const phoneTrack = async (driverId, fromMs, now) => {
   const pings = deriveSpeeds(await findRespaldoPings(driverId, new Date(fromMs), new Date(now)));
   const last = pings.at(-1);
   if (last && now - last.at.getTime() <= PHONE_FRESH_MS) return { fuente: "CELULAR", samples: pings, last };
+  // Sin puntos nuevos: la ultima posicion conocida, si no es demasiado vieja.
+  const lastKnown = await findLastRespaldoPing(driverId);
+  if (lastKnown && now - lastKnown.recordedAt.getTime() <= PHONE_STALE_MAX_MS) {
+    const sample = { at: lastKnown.recordedAt, lat: lastKnown.lat, lng: lastKnown.lng, speed: null, ignition: null };
+    return { fuente: "CELULAR", samples: [sample], last: sample, anticuada: true };
+  }
   if (env.PHONE_LOCATION_ENABLED) {
     const phone = await findUserLocationById(driverId);
     if (phone?.ubicacionLat != null && phone.ubicacionActualizada && now - phone.ubicacionActualizada.getTime() <= PHONE_FRESH_MS) {
@@ -283,7 +292,10 @@ const computeGroup = async (group, now) => {
     const route = via ? mergeBrenneroLeg(raw) : raw;
     if (route) {
       geometriaRestante = route.geometria;
-      cumulativeMinutes(route.tramos, points).forEach((minutes, recordId) => arrivals.set(recordId, now + minutes * MIN_MS));
+      // La posicion del celular tiene sus minutos (llega de a golpes): el vehiculo ya avanzo desde entonces, asi que se resta lo transcurrido
+      // (sin bajar de 1 minuto) y la hora de llegada no se corre mientras no hay puntos nuevos.
+      const elapsedMin = track.fuente === "CELULAR" ? Math.max(0, (now - track.last.at.getTime()) / MIN_MS) : 0;
+      cumulativeMinutes(route.tramos, points).forEach((minutes, recordId) => arrivals.set(recordId, now + Math.max(1, minutes - elapsedMin) * MIN_MS));
     }
   } else if (!track && points.length) {
     // Sin ningun GPS: recorrido simulado sobre la ruta planificada, segun la hora de salida y la ETA del ultimo servicio.
