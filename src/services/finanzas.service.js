@@ -21,6 +21,8 @@ import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
 import { getAttendanceByDriver } from "./permiso.service.js";
+import { approvedByDriverForMonth } from "./trabajoAdicional.service.js";
+import { actorAreaKeys } from "../utils/areaAccess.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -590,7 +592,12 @@ const serviceItem = (record, pay) => ({
 // El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
 // los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
 const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto"];
-const withoutMoney = (row) => Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
+const withoutMoney = (row) => {
+  const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
+  // Los trabajos adicionales: el chofer ve cuantos y cuantas horas, no el importe.
+  if (clean.adicionales) clean.adicionales = { count: clean.adicionales.count, horas: clean.adicionales.horas };
+  return clean;
+};
 const redactPagosForChofer = (result) => ({
   month: result.month,
   mesLabel: result.mesLabel,
@@ -599,6 +606,29 @@ const redactPagosForChofer = (result) => ({
   total: { servicios: result.total.servicios, choferes: result.total.choferes },
   porChofer: result.porChofer.map(withoutMoney),
   servicios: result.servicios?.map(withoutMoney) ?? null,
+});
+
+const newPayEntry = (driverId, nombre) => ({
+  driverId,
+  nombre,
+  servicios: 0,
+  horas: 0,
+  horasDia: 0,
+  horasNoche: 0,
+  km: 0,
+  esperaHoras: 0,
+  serviciosPorKm: 0,
+  horasPorAprobar: 0,
+  horasDevueltas: 0,
+  horasSinCargar: 0,
+  pagoBase: 0,
+  pagoEspera: 0,
+  pagoReperibilidad: 0,
+  salidasReperibilidad: 0,
+  total: 0,
+  serviciosSinDato: 0,
+  // Trabajos adicionales aprobados (tareas fuera de los servicios): sus horas se suman a las del chofer y se pagan a tarifa de horas.
+  adicionales: { count: 0, horas: 0, pago: 0 },
 });
 
 export const getPagosChoferesForActor = async (actor, query) => {
@@ -623,28 +653,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
   for (const r of records) {
     const pay = payOf(r, viajes);
     addPay(total, r, pay);
-    const entry =
-      byDriver.get(r.driverId) ??
-      {
-        driverId: r.driverId,
-        nombre: r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer",
-        servicios: 0,
-        horas: 0,
-        horasDia: 0,
-        horasNoche: 0,
-        km: 0,
-        esperaHoras: 0,
-        serviciosPorKm: 0,
-        horasPorAprobar: 0,
-        horasDevueltas: 0,
-        horasSinCargar: 0,
-        pagoBase: 0,
-        pagoEspera: 0,
-        pagoReperibilidad: 0,
-        salidasReperibilidad: 0,
-        total: 0,
-        serviciosSinDato: 0,
-      };
+    const entry = byDriver.get(r.driverId) ?? newPayEntry(r.driverId, r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer");
     entry.servicios += 1;
     entry.horas += pay.horas;
     entry.horasDia += pay.horasDia;
@@ -665,6 +674,26 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.total += pay.total;
     if (pay.kmFuente === "SIN_DATO" || pay.kmFuente === "TRASPASO_SIN_KM") entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
+  }
+
+  // Trabajos adicionales aprobados del mes: suman horas y pago (horas de dia y de noche a la tarifa vigente).
+  const tariff = tariffForMonth(month);
+  const adicionales = await approvedByDriverForMonth(month, {
+    driverId,
+    areaKeys: privileged ? actorAreaKeys(actor) ?? undefined : undefined,
+  });
+  for (const a of adicionales.values()) {
+    const entry = byDriver.get(a.driverId) ?? newPayEntry(a.driverId, a.nombre);
+    const pago = a.horasDia * tariff.horaDiaEur + a.horasNoche * tariff.horaNocheEur;
+    entry.horasDia += a.horasDia;
+    entry.horasNoche += a.horasNoche;
+    entry.horas += a.horasDia + a.horasNoche;
+    entry.adicionales = { count: a.count, horas: round2(a.horasDia + a.horasNoche), pago: round2(pago) };
+    entry.total += pago;
+    total.total += pago;
+    total.base += pago;
+    total.choferes.add(a.driverId);
+    byDriver.set(a.driverId, entry);
   }
 
   const asistencia = await getAttendanceByDriver([...byDriver.keys()], month);

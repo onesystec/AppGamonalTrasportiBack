@@ -138,6 +138,8 @@ model User {
   mancatosComoChofer        MancatoPagamento[]      @relation("MancatoChofer")
   mancatosCreados           MancatoPagamento[]      @relation("MancatoCreadoPor")
   multasComoChofer          Multa[]                 @relation("MultaChofer")
+  trabajosAdicionales       TrabajoAdicional[]      @relation("TrabajoAdicionalChofer")
+  trabajosAdicionalesRevisados TrabajoAdicional[]   @relation("TrabajoAdicionalRevisor")
   multasCreadas             Multa[]                 @relation("MultaCreadaPor")
   combustiblesComoChofer    RegistroCombustible[]   @relation("CombustibleChofer")
   combustiblesCreados       RegistroCombustible[]   @relation("CombustibleCreadoPor")
@@ -225,6 +227,7 @@ model Vehiculo {
   records           Record[]
   mantenimientos    MantenimientoVehiculo[]
   choferesAsignados User[]
+  trabajosAdicionales TrabajoAdicional[]
   areaCEntries      AreaCEntry[]
   speedingEvents    SpeedingEvent[]
   paradas           ParadaVehiculo[]
@@ -996,4 +999,57 @@ model Peaje {
 
   @@index([lat, lng])
   @@map("peajes")
+}
+
+enum TrabajoAdicionalEstado {
+  PENDIENTE
+  APROBADO
+  DEVUELTO
+}
+
+// Trabajo que un chofer hizo fuera de los servicios (por ejemplo una tarea en Farmacia) y que no anoto su responsable: lo carga el
+// propio chofer y el responsable del area lo aprueba. Solo los APROBADOS cuentan en sus horas y en su paga (a tarifa de horas
+// dia/noche, igual que las horas aprobadas de un servicio).
+model TrabajoAdicional {
+  id       String @id @default(uuid())
+  driverId String
+  driver   User   @relation("TrabajoAdicionalChofer", fields: [driverId], references: [id], onDelete: Cascade)
+
+  // DHL | EXTRAS | FARMACIA | OTROS (+ zona MILANO/ROMA en DHL y Extras). "area" es la clave de area de servicio (la misma de
+  // User.areasPermitidas) que decide que Responsable lo ve; Farmacia y Otros caen en "otros".
+  areaTipo   String
+  zona       String?
+  areaOtros  String?
+  area       String
+
+  inicio       DateTime
+  fin          DateTime
+  pausaMin     Int      @default(0)
+  // Lo que declaro el chofer, por si el responsable ajusta los tiempos.
+  inicioDeclarado DateTime
+  finDeclarado    DateTime
+  horasDia     Float    @default(0)
+  horasNoche   Float    @default(0)
+
+  descripcion  String
+  solicitadoPor String?
+  vehicleId    String?
+  vehicle      Vehiculo? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  targa        String?
+  sinVehiculo  Boolean  @default(false)
+  km           Float?
+  fotoKey      String?
+
+  estado        TrabajoAdicionalEstado @default(PENDIENTE)
+  nota          String?
+  revisadoAt    DateTime?
+  revisadoPorId String?
+  revisadoPor   User?    @relation("TrabajoAdicionalRevisor", fields: [revisadoPorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([driverId, inicio])
+  @@index([estado, area])
+  @@map("trabajos_adicionales")
 }
