@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { WORKED_WHERE } from "../utils/workedRecords.js";
 
 export const deleteParadasByRecord = (recordId) => prisma.paradaVehiculo.deleteMany({ where: { recordId } });
 
@@ -16,7 +17,7 @@ export const findVehicleRecordsAround = ({ vehicleId, from, to }) =>
   prisma.record.findMany({
     where: {
       vehicleId,
-      estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] },
+      ...WORKED_WHERE,
       fechaServicio: { lte: to },
       eta: { gte: from },
     },

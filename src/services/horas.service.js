@@ -1,6 +1,7 @@
 import { findGroupMembers, markGroupDelivered, setGroupKm } from "../models/compactado.model.js";
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
+import { wasWorked } from "../utils/workedRecords.js";
 import { computeShiftHours } from "../utils/workHours.js";
 import { viajesAplican } from "../config/viajes.js";
 import { planesDelViaje, repartirKm, repartoMeta } from "../utils/kmReparto.js";
@@ -19,8 +20,8 @@ const MIN_MS = 60000;
 const round1 = (value) => Math.round(value * 10) / 10;
 const hoursText = (min) => `${round1(min / 60)} h`;
 
-// Servicios que no se pueden cargar: anulados o reprogramados no se trabajaron.
-const NOT_WORKED_STATUSES = ["ANNULLATO", "RISCHEDULATO"];
+// Servicios que no se pueden cargar: anulados o reprogramados sin trabajo hecho no se trabajaron. El reprogramado por la
+// oficina (reprogramadoAt) si: el chofer manejo hasta ahi y carga sus horas.
 
 const romeStamp = (date) =>
   new Date(date).toLocaleString("es-AR", {
@@ -45,7 +46,7 @@ export const submitHoursForActor = async (actor, id, body) => {
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
 
-  if (NOT_WORKED_STATUSES.includes(record.estado)) {
+  if (!wasWorked(record)) {
     throw new AppError("Un servicio anulado o reprogramado no tiene horas para cargar", 409);
   }
   // Servicios compactados en un viaje: una sola jornada para todo el viaje, que se carga en el servicio principal.

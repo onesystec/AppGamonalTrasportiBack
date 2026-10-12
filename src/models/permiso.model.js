@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { WORKED_WHERE } from "../utils/workedRecords.js";
 
 const PERSON = { select: { id: true, nombre: true, apellido: true } };
 const INCLUDE = { driver: PERSON, creadoPor: PERSON, revisadoPor: PERSON };
@@ -36,14 +37,14 @@ export const findChoferById = (id) =>
 // Servicios que cuentan como "dia trabajado": todos menos los anulados o reprogramados.
 export const findWorkedRecordsInRange = (driverId, gte, lt) =>
   prisma.record.findMany({
-    where: { driverId, fechaServicio: { gte, lt }, estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] } },
+    where: { driverId, fechaServicio: { gte, lt }, ...WORKED_WHERE },
     select: { fechaServicio: true },
   });
 
 // Primer y ultimo servicio (no anulado) del chofer.
 export const findWorkedRecordRange = async (driverId) => {
   const result = await prisma.record.aggregate({
-    where: { driverId, estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] } },
+    where: { driverId, ...WORKED_WHERE },
     _min: { fechaServicio: true },
     _max: { fechaServicio: true },
   });
@@ -85,7 +86,7 @@ export const findPermisosForDrivers = (driverIds, desde, hasta) =>
 
 export const findWorkedRecordsForDrivers = (driverIds, gte, lt) =>
   prisma.record.findMany({
-    where: { driverId: { in: driverIds }, fechaServicio: { gte, lt }, estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] } },
+    where: { driverId: { in: driverIds }, fechaServicio: { gte, lt }, ...WORKED_WHERE },
     select: { driverId: true, fechaServicio: true },
   });
 
@@ -94,7 +95,7 @@ export const findDriversStart = async (driverIds) => {
     prisma.user.findMany({ where: { id: { in: driverIds } }, select: { id: true, createdAt: true } }),
     prisma.record.groupBy({
       by: ["driverId"],
-      where: { driverId: { in: driverIds }, estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] } },
+      where: { driverId: { in: driverIds }, ...WORKED_WHERE },
       _min: { fechaServicio: true },
     }),
   ]);

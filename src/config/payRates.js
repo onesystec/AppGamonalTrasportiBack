@@ -66,6 +66,6 @@ export const tariffForDisplay = (month) => {
   };
 };
 
-// Solo se paga lo que ya se hizo: entregado o retirado. Anulado, reprogramado, en espera o
-// en curso no generan pago todavia.
+// Solo se paga lo que ya se hizo: entregado o retirado. Anulado, en espera o en curso no generan pago todavia. Un
+// servicio reprogramado por la oficina (con reprogramadoAt) tambien se paga: por los km y las horas que hizo el chofer.
 export const PAYABLE_STATUSES = ["CONSEGNATO", "RITIRATO"];

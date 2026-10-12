@@ -229,3 +229,23 @@ export const kmViajeSchema = z.object({
 });
 
 export const compactadoIdParamSchema = z.object({ compactadoId: z.string().uuid("Viaje invalido") });
+
+// Reprogramacion de un servicio (ver reprogramacion.service.js). Fechas como hora de pared de Roma, igual que el resto.
+const REPROGRAMACION_MOTIVOS = ["CLIENTE_NO_ESTABA", "AVERIA", "TRAFICO_CLIMA", "ERROR_DIRECCION", "PEDIDO_CLIENTE", "OTRO"];
+export const reprogramarSchema = z.object({
+  kmHechos: z.coerce.number({ invalid_type_error: "Indica los km que hizo el chofer" }).positive("Los km tienen que ser mayores a 0"),
+  eta: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La nueva ETA es obligatoria" }) })),
+  fechaRetiro,
+  motivo: z.enum(REPROGRAMACION_MOTIVOS).nullable().optional(),
+  cambioChofer: z.boolean().optional(),
+  nuevoChoferId: z.string().uuid("Chofer invalido").nullable().optional(),
+  cambioVehiculo: z.boolean().optional(),
+  nuevoVehiculoId: z.string().uuid("Vehiculo invalido").nullable().optional(),
+});
+
+export const reprogramacionPreviaQuerySchema = z.object({
+  eta: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),
+  salida: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),
+  driverId: z.string().uuid().optional(),
+  vehicleId: z.string().uuid().optional(),
+});

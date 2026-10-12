@@ -243,6 +243,39 @@ export const ensureCircuitSafe = (recordId, options) =>
     return null;
   });
 
+// Tiempos de un servicio para planificar la salida (o la llegada) de una reprogramacion, con las mismas reglas que la
+// estimacion de arriba: tiempo de ruta x recargo de trafico, minutos fijos por parada y un descanso cada cierto tiempo de
+// conduccion. Con la ETA devuelve a que hora conviene salir; con la salida, a que hora llegaria. null si no hay circuito.
+export const planTiming = async (recordId, { eta = null, salida = null } = {}) => {
+  const circuito = await ensureCircuit(recordId);
+  const record = await findRecordById(recordId);
+  if (!circuito || !record) return null;
+  const factor = env.ESTIMATE_TRAFFIC_FACTOR;
+  const idaMin = Math.round(circuito.idaMin * factor);
+  const vueltaMin = Math.round(circuito.vueltaMin * factor);
+  const paradasMin = (record.stops?.length ?? 1) * env.ESTIMATE_STOP_MIN;
+  const descansosIdaMin = Math.floor(idaMin / env.ESTIMATE_BREAK_EVERY_MIN) * env.ESTIMATE_BREAK_MIN;
+  const hastaEntregaMin = idaMin + paradasMin + descansosIdaMin;
+  const descansosTotalMin = Math.floor((idaMin + vueltaMin) / env.ESTIMATE_BREAK_EVERY_MIN) * env.ESTIMATE_BREAK_MIN;
+  const salidaMs = salida ? new Date(salida).getTime() : eta ? new Date(eta).getTime() - hastaEntregaMin * MIN_MS : null;
+  const etaMs = eta ? new Date(eta).getTime() : salidaMs != null ? salidaMs + hastaEntregaMin * MIN_MS : null;
+  return {
+    salidaAt: salidaMs != null ? new Date(salidaMs).toISOString() : null,
+    etaAt: etaMs != null ? new Date(etaMs).toISOString() : null,
+    finEstimadoAt: etaMs != null ? new Date(etaMs + (vueltaMin + descansosTotalMin - descansosIdaMin) * MIN_MS).toISOString() : null,
+    conduccionIdaMin: idaMin,
+    conduccionVueltaMin: vueltaMin,
+    paradasMin,
+    descansosIdaMin,
+    hastaEntregaMin,
+    factorTrafico: factor,
+    descansoCadaMin: env.ESTIMATE_BREAK_EVERY_MIN,
+    descansoMin: env.ESTIMATE_BREAK_MIN,
+    circuitoKm: circuito.km,
+    rutaFuente: circuito.fuente === "estimada" ? "estimada" : "ruta",
+  };
+};
+
 export const computeEstimacionForRecord = async (recordId) => {
   const record = await findRecordById(recordId);
   if (!record) throw new AppError("Registro no encontrado", 404);

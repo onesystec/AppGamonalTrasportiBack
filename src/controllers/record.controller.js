@@ -21,6 +21,12 @@ import {
   updateRecordForActor,
 } from "../services/record.service.js";
 import { getCircuitMapData } from "../services/rutaEstimada.service.js";
+import {
+  deshacerReprogramacionForActor,
+  gpsKmForRecordForActor,
+  previewReprogramacionForActor,
+  reprogramarRecordForActor,
+} from "../services/reprogramacion.service.js";
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -186,4 +192,25 @@ export const remove = asyncHandler(async (req, res) => {
 export const getLiveEta = asyncHandler(async (req, res) => {
   const eta = await getLiveEtaForRecord(req.user, req.params.id);
   res.status(200).json({ success: true, data: { eta } });
+});
+
+// Reprogramacion (Admin/Responsable): datos para el panel, km del GPS, reprogramar y deshacer.
+export const reprogramacionPrevia = asyncHandler(async (req, res) => {
+  const data = await previewReprogramacionForActor(req.user, req.params.id, req.query);
+  res.status(200).json({ success: true, data });
+});
+
+export const reprogramacionKmGps = asyncHandler(async (req, res) => {
+  const data = await gpsKmForRecordForActor(req.user, req.params.id);
+  res.status(200).json({ success: true, data });
+});
+
+export const reprogramar = asyncHandler(async (req, res) => {
+  const data = await reprogramarRecordForActor(req.user, req.params.id, req.body);
+  res.status(201).json({ success: true, data });
+});
+
+export const deshacerReprogramacion = asyncHandler(async (req, res) => {
+  const record = await deshacerReprogramacionForActor(req.user, req.params.id);
+  res.status(200).json({ success: true, data: { record } });
 });

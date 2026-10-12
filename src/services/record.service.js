@@ -62,7 +62,7 @@ export const assertAccess = (actor, record) => {
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
-const assertDriverActivo = async (driverId) => {
+export const assertDriverActivo = async (driverId) => {
   const driver = await findUserById(driverId);
   if (!driver || driver.estado !== "ACTIVO") {
     throw new AppError("El conductor indicado no existe o esta inactivo", 400);
@@ -177,6 +177,12 @@ const toOrigen = (record) =>
         chofer: record.servicioOrigen.driver,
         finJornada: record.servicioOrigen.horaFinReal ?? null,
       }
+    : null;
+
+// Reprogramacion: del lado del servicio que se reprogramo, el detalle y el servicio nuevo (ver reprogramacion.service.js).
+const toReprogramado = (record) =>
+  record.reprogramadoAt
+    ? { at: record.reprogramadoAt, ...(record.reprogramacion ?? {}) }
     : null;
 
 // Jornada declarada por el chofer y su estado de aprobacion (ver utils/workHours.js).
@@ -349,6 +355,12 @@ const toFullResponse = (record) => {
     relevo: toRelevo(record),
     origen: toOrigen(record),
     traspasoHora: record.traspasoHora ?? null,
+    reprogramado: toReprogramado(record),
+    reprogramadoDe: record.reprogramadoDe
+      ? { recordId: record.reprogramadoDe.id, codigo: record.reprogramadoDe.codigo }
+      : record.reprogramadoDeId
+        ? { recordId: record.reprogramadoDeId, codigo: null }
+        : null,
     comentarios: record.comentarios,
     kilometros: record.kilometros,
     // Km planificados contados para facturar y comparar (DHL / AB Service: los del cliente x2).
@@ -436,6 +448,8 @@ const toChoferResponse = (record) => ({
   eta: record.eta,
   fechaRetiro: record.fechaRetiro,
   retiroPaqueteAt: record.retiroPaqueteAt ?? null,
+  reprogramado: record.reprogramadoAt ? { at: record.reprogramadoAt } : null,
+  reprogramadoDe: record.reprogramadoDe ? { recordId: record.reprogramadoDe.id, codigo: record.reprogramadoDe.codigo } : null,
   mancatos: toMancatosSummary(record.mancatos),
   faltantes: faltantesOf(record),
   compactado: record.compactado ?? null,
@@ -469,7 +483,7 @@ const toChoferResponse = (record) => ({
   updatedAt: record.updatedAt,
 });
 
-const toResponse = (record, actor) => (isPrivileged(actor) ? toFullResponse(record) : toChoferResponse(record));
+export const toResponse = (record, actor) => (isPrivileged(actor) ? toFullResponse(record) : toChoferResponse(record));
 
 // skipActiveCheck: solo para el sync de AppSheet (ver appsheetSync.service.js) - esos
 // registros son historicos (servicios que ya pasaron), no una asignacion nueva, asi

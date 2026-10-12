@@ -585,6 +585,16 @@ model Record {
   // El servicio pasa primero por Brennero (frontera): la ruta se calcula con ese punto de paso (ver constants/brennero.js).
   pasaPorBrennero  Boolean  @default(false)
 
+  // Reprogramacion (ver reprogramacion.service.js). Del lado del servicio que se reprogramo: cuando, y el detalle
+  // ({ kmPlanificado, kmHechos, motivo, nuevoId, nuevoCodigo, nuevaEta, nuevaSalida, cambioChofer, cambioVehiculo, porId }).
+  // Sus kilometros pasan a ser los que el chofer hizo hasta ahi (se facturan y se pagan). Del lado del servicio nuevo:
+  // el servicio del que viene.
+  reprogramadoAt   DateTime?
+  reprogramacion   Json?
+  reprogramadoDeId String?
+  reprogramadoDe   Record?   @relation("Reprogramacion", fields: [reprogramadoDeId], references: [id], onDelete: SetNull)
+  reprogramaciones Record[]  @relation("Reprogramacion")
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]
@@ -594,6 +604,7 @@ model Record {
   @@index([horasEstado])
   @@index([servicioOrigenId])
   @@index([compactadoId])
+  @@index([reprogramadoDeId])
   @@map("records")
 }
 

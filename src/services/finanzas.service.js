@@ -180,7 +180,9 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
 export const computePayIfApproved = (record) =>
   computeServicePay({ ...record, horasEstado: "APROBADAS" });
 
-const isPayable = (record) => PAYABLE_STATUSES.includes(record.estado);
+// Un servicio reprogramado por la oficina (reprogramadoAt) se paga por lo que el chofer hizo hasta ahi.
+const isPayable = (record) =>
+  PAYABLE_STATUSES.includes(record.estado) || (record.estado === "RISCHEDULATO" && Boolean(record.reprogramadoAt));
 
 // ---------------------------------------------------------------- viajes compactados
 // Varios servicios de un chofer en un solo viaje se pagan UNA vez, como un solo servicio: el principal (el de

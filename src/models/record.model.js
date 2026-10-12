@@ -31,8 +31,15 @@ const TRASPASO_SELECT = {
   },
 };
 
+// Reprogramacion (ver Record.reprogramadoAt): el servicio del que viene uno reprogramado. El servicio nuevo del lado del
+// original sale del JSON "reprogramacion".
+const REPROGRAMACION_SELECT = {
+  reprogramadoDe: { select: { id: true, codigo: true } },
+};
+
 const RECORD_INCLUDE = {
   ...TRASPASO_SELECT,
+  ...REPROGRAMACION_SELECT,
   driver: { select: { id: true, nombre: true, apellido: true } },
   vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
   client: { select: { id: true, nombre: true } },
@@ -83,6 +90,9 @@ const RECORD_SELECT_LIST = {
   servicioOrigenId: true,
   traspasoHora: true,
   ...TRASPASO_SELECT,
+  reprogramadoAt: true,
+  reprogramacion: true,
+  reprogramadoDeId: true,
   descripcion: true,
   codigo: true,
   destinazione: true,

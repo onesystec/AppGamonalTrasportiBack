@@ -14,6 +14,10 @@ import {
   listByYear,
   ajustarKmViaje,
   circuitoMapa,
+  deshacerReprogramacion,
+  reprogramacionKmGps,
+  reprogramacionPrevia,
+  reprogramar,
   sinSustentar,
   listCompactables,
   listSyncFailures,
@@ -38,6 +42,8 @@ import {
   declaracionesSchema,
   excepcionSchema,
   idParamSchema,
+  reprogramacionPreviaQuerySchema,
+  reprogramarSchema,
   updateRecordSchema,
   yearMonthDayParamSchema,
   yearMonthParamSchema,
@@ -116,6 +122,18 @@ router.get(
   validate(idParamSchema, "params"),
   getLiveEta
 );
+
+// Reprogramacion (solo Admin/Responsable): datos y sugerencias para el panel, km del GPS, reprogramar y deshacer.
+router.get(
+  "/:id/reprogramacion/previa",
+  authorize("OWNER", "ADMIN"),
+  validate(idParamSchema, "params"),
+  validate(reprogramacionPreviaQuerySchema, "query"),
+  reprogramacionPrevia
+);
+router.get("/:id/reprogramacion/km-gps", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), reprogramacionKmGps);
+router.post("/:id/reprogramar", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(reprogramarSchema), reprogramar);
+router.post("/:id/reprogramacion/deshacer", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), deshacerReprogramacion);
 
 // Los switches de peajes y carburante del chofer: liviano a proposito (no sincroniza con AppSheet ni reasigna
 // peajes), asi el cambio se ve al instante.

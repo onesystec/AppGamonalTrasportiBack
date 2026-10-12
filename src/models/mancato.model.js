@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { WORKED_WHERE } from "../utils/workedRecords.js";
 
 const PERSON_SELECT = { select: { id: true, nombre: true, apellido: true } };
 const SERVICE_SELECT = {
@@ -81,7 +82,7 @@ export const findCandidateServices = ({ vehicleId, from, to }) =>
       // La continuacion de un traspaso copia las fechas del servicio original: no es un servicio
       // distinto para saber de quien es un peaje o una carga de combustible.
       servicioOrigenId: null,
-      estado: { notIn: ["ANNULLATO", "RISCHEDULATO"] },
+      ...WORKED_WHERE,
       OR: [
         { fechaRetiro: { gte: from, lte: to } },
         { fechaServicio: { gte: from, lte: to } },
