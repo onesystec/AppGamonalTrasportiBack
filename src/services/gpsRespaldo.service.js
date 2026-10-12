@@ -13,7 +13,7 @@ import { getGpsHealth } from "./gpsHealth.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { toUserResponse } from "./user.service.js";
 
-// GPS de respaldo del celular. Solo funciona si se cumplen las tres cosas a la vez: (1) el chofer lo
+// GPS de respaldo del celular. Solo funciona si se cumplen las tres cosas a la vez: (1) el usuario lo
 // autorizo, (2) el GPS del vehiculo esta bloqueado o caido y (3) el chofer tiene un servicio en curso.
 // Si falta cualquiera, no se guarda ninguna posicion: el servidor lo comprueba en cada punto, no solo la app.
 const MIN_PING_INTERVAL_MS = 15 * 1000;
@@ -47,14 +47,17 @@ const needsTrackingBackup = async (driverId) => {
   return value;
 };
 
+// Cualquier usuario que hace servicios puede compartir su celular: choferes y tambien Admin y Responsables (por ejemplo cuando uno de ellos sale a hacer un servicio).
+export const PUEDEN_COMPARTIR_CELULAR = ["CHOFER", "ADMIN", "OWNER"];
+
 export const setMyGpsRespaldo = async (actor, permitido) => {
-  if (actor.cargo !== "CHOFER") throw new AppError("Solo los choferes pueden autorizarlo", 403);
+  if (!PUEDEN_COMPARTIR_CELULAR.includes(actor.cargo)) throw new AppError("Tu usuario no puede compartir la ubicacion del celular", 403);
   return toUserResponse(await updateUserGpsRespaldo(actor.id, permitido));
 };
 
 // Estado para la app del chofer: "activo" = tiene que estar enviando su ubicacion ahora mismo.
 export const getMyGpsRespaldo = async (actor) => {
-  const permitido = Boolean(actor.gpsRespaldoPermitido) && actor.cargo === "CHOFER";
+  const permitido = Boolean(actor.gpsRespaldoPermitido) && PUEDEN_COMPARTIR_CELULAR.includes(actor.cargo);
   const base = { habilitado: env.GPS_RESPALDO_ENABLED, permitido, activo: false, motivo: null };
   if (!env.GPS_RESPALDO_ENABLED) return { ...base, motivo: "DESACTIVADO" };
   if (!permitido) return { ...base, motivo: "SIN_PERMISO" };

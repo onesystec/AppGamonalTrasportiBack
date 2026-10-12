@@ -19,7 +19,7 @@ export const hasActiveService = async (driverId, now = Date.now()) =>
 export const findChoferIdsWithConsentAndService = async (now = Date.now()) => {
   const users = await prisma.user.findMany({
     where: {
-      cargo: "CHOFER",
+      cargo: { in: ["CHOFER", "ADMIN", "OWNER"] },
       estado: "ACTIVO",
       gpsRespaldoPermitido: true,
       records: { some: activeServiceWhere(now) },
