@@ -306,9 +306,11 @@ const ORDER_BY_ORDEN = {
 };
 
 // Sin "orden" explicito, cada estado tiene su orden natural (ver ORDER_BY_ESTADO).
-const orderByFor = (query) =>
-  ORDER_BY_ORDEN[query.orden] ??
-  ORDER_BY_ESTADO[query.estado] ?? [{ fechaVencimiento: "asc" }, { createdAt: "asc" }];
+// El id al final desempata: sin eso, dos multas con la misma fecha podrian repetirse o saltarse entre una pagina y la siguiente.
+const orderByFor = (query) => [
+  ...(ORDER_BY_ORDEN[query.orden] ?? ORDER_BY_ESTADO[query.estado] ?? [{ fechaVencimiento: "asc" }, { createdAt: "asc" }]),
+  { id: "asc" },
+];
 
 export const listMultasForActor = async (actor, query) => {
   const today = romeDay();
