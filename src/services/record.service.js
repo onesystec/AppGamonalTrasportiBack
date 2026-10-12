@@ -123,8 +123,8 @@ const salidaColumns = (salida) => ({
 // el payload listo para mezclar en la data que se manda a Prisma. fallbackCiudad: si
 // una parada no geocodifica, geocodeStops la aproxima al centro de esa ciudad en vez
 // de fallar el registro entero (ver geocoding.service.js).
-const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = defaultSalidaFor()) => {
-  const stopsGeocoded = await geocodeStops(direcciones, fallbackCiudad);
+const buildStopsPipeline = async (direcciones, fallbackCiudad, salida = defaultSalidaFor(), alreadyGeocoded = null) => {
+  const stopsGeocoded = alreadyGeocoded ?? (await geocodeStops(direcciones, fallbackCiudad));
   const ruta = await calculateRoute([salida, ...stopsGeocoded]);
 
   return {
@@ -474,8 +474,6 @@ const toResponse = (record, actor) => (isPrivileged(actor) ? toFullResponse(reco
 // que no tiene sentido bloquear la carga porque el chofer hoy este INACTIVO. La API
 // normal de creacion de registros sigue exigiendo chofer activo.
 export const createRecord = async (data, { skipActiveCheck = false, actor = null } = {}) => {
-  if (!skipActiveCheck) await assertDriverActivo(data.driverId);
-
   // actor=null (sync de AppSheet) no valida area: es un proceso de confianza que
   // importa historico de todas las areas, no una creacion manual desde la UI.
   if (actor && !canAccessRecordArea(actor, { spedizzione: data.spedizzione ?? null, extrasPiazzaZona: data.extrasPiazzaZona ?? null })) {
@@ -488,14 +486,22 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   if (!skipActiveCheck) rest.fechaServicio = rest.fechaRetiro ?? rest.fechaServicio ?? rest.eta;
   // Precio por km automatico (tarifa de DHL/AB Service, o la de la categoria del vehiculo en Extras Piazza) si la
   // oficina no escribio uno. Queda grabado en el servicio: cambiar la tarifa despues no toca los ya creados.
-  if (rest.precioKm == null && !skipActiveCheck) {
+  // Lo que no depende una cosa de la otra se hace al mismo tiempo: chequeo del chofer, tarifa, punto de salida y paradas
+  // (cada una es una consulta a la base o a Google, y antes se esperaban de a una).
+  const autoPrice = async () => {
+    if (rest.precioKm != null || skipActiveCheck) return;
     const vehicle = await findVehicleById(data.vehicleId);
     const precio = await precioKmAutomatico({ spedizzione: data.spedizzione, categoria: vehicle?.categoria });
     if (precio != null) rest.precioKm = precio;
-  }
-  const salida = await resolveSalida(salidaInput);
+  };
+  const [, , salida, geocoded] = await Promise.all([
+    skipActiveCheck ? null : assertDriverActivo(data.driverId),
+    autoPrice(),
+    resolveSalida(salidaInput),
+    geocodeStops(direcciones, data.ciudad),
+  ]);
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
-    await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data));
+    await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data), geocoded);
 
   const record = await createRecordModel({
     ...rest,
@@ -511,8 +517,9 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   });
 
   // Los choferes suelen subir un peaje antes de que la oficina cargue el servicio: ahora que
-  // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar.
-  await rematchAssignmentsForVehicle(record.vehicleId);
+  // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar. Se hace DESPUES de responder (revisa decenas de
+  // peajes uno por uno y no cambia nada de lo que se devuelve): quien carga el servicio no tiene por que esperarlo.
+  void rematchAssignmentsForVehicle(record.vehicleId);
 
   return toFullResponse(record);
 };
@@ -879,8 +886,11 @@ export const updateRecordForActor = async (actor, id, data) => {
   // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
   // cambiar a que servicio pertenece un peaje.
   if (RELEVANT_FOR_MATCHING.some((key) => key in payload)) {
-    await rematchAssignmentsForVehicle(record.vehicleId);
-    if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
+    // Despues de responder: no cambia lo que se devuelve y revisa los peajes uno por uno.
+    void (async () => {
+      await rematchAssignmentsForVehicle(record.vehicleId);
+      if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
+    })();
   }
 
   await attachFaltantes([updated]);
@@ -942,5 +952,5 @@ export const deleteRecord = async (actor, id) => {
   await releaseMancatosOfRecord(id);
   await releaseCombustiblesOfRecord(id);
   await deleteRecordById(id);
-  await rematchAssignmentsForVehicle(record.vehicleId);
+  void rematchAssignmentsForVehicle(record.vehicleId);
 };

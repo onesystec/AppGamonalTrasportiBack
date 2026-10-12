@@ -1,5 +1,7 @@
 import { env } from "../config/env.js";
 
+const OSRM_TIMEOUT_MS = 8000;
+
 // Ruta de OSRM (la de siempre: la mas rapida, con peajes si conviene).
 const osrmRoute = async (points) => {
   try {
@@ -8,7 +10,9 @@ const osrmRoute = async (points) => {
     url.searchParams.set("overview", "full");
     url.searchParams.set("geometries", "geojson");
 
-    const response = await fetch(url);
+    // El servidor publico de OSRM a veces se cuelga: sin limite, el servicio quedaba esperando. Si no responde a tiempo se
+    // guarda sin ruta (se puede recalcular despues) en vez de hacer esperar a quien lo carga.
+    const response = await fetch(url, { signal: AbortSignal.timeout(OSRM_TIMEOUT_MS) });
     if (!response.ok) return null;
 
     const data = await response.json();

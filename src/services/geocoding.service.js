@@ -60,12 +60,9 @@ const fetchFromGoogle = async (direccion, fallbackAddress) => {
   );
 };
 
-export const geocodeAddress = async (direccion, fallbackAddress) => {
+// Busca en Google y deja la respuesta en la cache.
+const fetchAndCache = async (direccion, fallbackAddress) => {
   const queryKey = buildQueryKey(direccion);
-
-  const cached = await prisma.geocodeCache.findUnique({ where: { queryKey } });
-  if (cached) return { lat: cached.lat, lng: cached.lng };
-
   const { lat, lng, raw } = await fetchFromGoogle(direccion, fallbackAddress);
 
   // Se cachea bajo la queryKey de la direccion ORIGINAL (no la del fallback): la
@@ -80,6 +77,12 @@ export const geocodeAddress = async (direccion, fallbackAddress) => {
   return { lat, lng };
 };
 
+export const geocodeAddress = async (direccion, fallbackAddress) => {
+  const cached = await prisma.geocodeCache.findUnique({ where: { queryKey: buildQueryKey(direccion) } });
+  if (cached) return { lat: cached.lat, lng: cached.lng };
+  return fetchAndCache(direccion, fallbackAddress);
+};
+
 // Geocodifica en orden secuencial (respeta el orden de las paradas). fallbackAddress
 // (la ciudad del registro) se intenta para cualquier parada que no de resultado, ver
 // fetchFromGoogle - si tampoco esa resuelve, recien ahi se interrumpe y propaga el
@@ -87,15 +90,27 @@ export const geocodeAddress = async (direccion, fallbackAddress) => {
 // Cada parada es un texto o { direccion, lat?, lng? }: con coordenadas (sugerencia con ubicacion exacta) se usan tal
 // cual, sin geocodificar.
 export const geocodeStops = async (stopsInput, fallbackAddress) => {
-  const stops = [];
-  for (const item of stopsInput) {
-    const { direccion, lat: exactLat, lng: exactLng } = typeof item === "string" ? { direccion: item } : item;
-    if (exactLat != null && exactLng != null) {
-      stops.push({ direccion, lat: exactLat, lng: exactLng });
-      continue;
-    }
-    const { lat, lng } = await geocodeAddress(direccion, fallbackAddress);
-    stops.push({ direccion, lat, lng });
+  const items = stopsInput.map((item) => (typeof item === "string" ? { direccion: item } : item));
+  const needsLookup = items.filter((i) => i.lat == null || i.lng == null);
+
+  // Una sola consulta a la cache para todas las paradas; las que no estan se piden a Google al mismo tiempo (antes se
+  // hacia una por una: con 4 paradas nuevas eran 4 esperas seguidas). El orden de las paradas no cambia.
+  const keys = [...new Set(needsLookup.map((i) => buildQueryKey(i.direccion)))];
+  const resolved = new Map();
+  if (keys.length > 0) {
+    const cached = await prisma.geocodeCache.findMany({ where: { queryKey: { in: keys } }, select: { queryKey: true, lat: true, lng: true } });
+    for (const c of cached) resolved.set(c.queryKey, { lat: c.lat, lng: c.lng });
+
+    const firstByKey = new Map();
+    for (const i of needsLookup) if (!resolved.has(buildQueryKey(i.direccion))) firstByKey.set(buildQueryKey(i.direccion), i.direccion);
+    await Promise.all(
+      [...firstByKey].map(async ([key, direccion]) => resolved.set(key, await fetchAndCache(direccion, fallbackAddress)))
+    );
   }
-  return stops;
+
+  return items.map((i) => {
+    if (i.lat != null && i.lng != null) return { direccion: i.direccion, lat: i.lat, lng: i.lng };
+    const { lat, lng } = resolved.get(buildQueryKey(i.direccion));
+    return { direccion: i.direccion, lat, lng };
+  });
 };
