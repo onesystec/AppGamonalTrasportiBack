@@ -50,7 +50,7 @@ export const spedizzioneFilterForActor = (actor) => recordAreaWhere(actor);
 // Filtro de las listas y conteos que usa la oficina: ademas del area del actor, solo los servicios
 // originales. El segundo tramo de un traspaso entre choferes (la "continuacion") no es un servicio
 // mas para el cliente ni para los totales: se ve desde su servicio original.
-const listFilterForActor = (actor) =>
+export const listFilterForActor = (actor) =>
   isPrivileged(actor)
     ? { ...(spedizzioneFilterForActor(actor) ?? {}), servicioOrigenId: null }
     : spedizzioneFilterForActor(actor);
@@ -543,7 +543,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
 // "Extras Piazza" en la planilla/historico no siempre tiene spedizzione cargada (ver
 // areaAccess.js) - si el usuario pide esa seccion en el export, hay
 // que matchear tambien spedizzione null, no solo el string "EXTRA_PIAZZA".
-const seccionesToWhere = (secciones) => {
+export const seccionesToWhere = (secciones) => {
   if (!secciones?.length) return undefined;
   if (secciones.includes("EXTRA_PIAZZA")) {
     return { OR: [{ spedizzione: null }, { spedizzione: { in: secciones } }] };
@@ -562,7 +562,7 @@ const timeToMinutes = (hhmm) => {
 // appsheetSync.service.js), asi que filtrar por su hora dejaria afuera casi todo el
 // historico. Soporta rango que cruza medianoche (ej. 22:00 a 06:00 de un turno
 // nocturno): si fromMin > toMin se interpreta como wraparound en vez de un rango vacio.
-const matchesTimeRange = (record, fromTime, toTime) => {
+export const matchesTimeRange = (record, fromTime, toTime) => {
   if (!fromTime && !toTime) return true;
   const { hour, minute } = toRomeParts(record.eta);
   const minutes = hour * 60 + minute;

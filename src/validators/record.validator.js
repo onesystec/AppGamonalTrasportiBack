@@ -176,6 +176,8 @@ export const exportRecordsQuerySchema = z.object({
   secciones: csvEnumList(SPEDIZZIONE_VALUES),
   zonas: csvEnumList(EXTRAS_PIAZZA_ZONA_VALUES),
   estados: csvEnumList(RECORD_STATUS_VALUES),
+  // "completo": todas las columnas del servicio (ver recordExport.service.js). Sin esto, el formato de siempre.
+  formato: emptyToUndefined(z.enum(["completo"])),
 });
 
 export const idParamSchema = z.object({

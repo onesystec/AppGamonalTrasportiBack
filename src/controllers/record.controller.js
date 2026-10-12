@@ -21,6 +21,7 @@ import {
   updateRecordForActor,
 } from "../services/record.service.js";
 import { getCircuitMapData } from "../services/rutaEstimada.service.js";
+import { exportFullRecordsForActor } from "../services/recordExport.service.js";
 import {
   deshacerReprogramacionForActor,
   gpsKmForRecordForActor,
@@ -78,6 +79,10 @@ export const list = asyncHandler(async (req, res) => {
 // ya vienen normalizados por exportRecordsQuerySchema (validate middleware). Devuelve
 // JSON (mismo shape que el resto de la app); el CSV en si se arma en el frontend.
 export const exportRecords = asyncHandler(async (req, res) => {
+  if (req.query.formato === "completo") {
+    const csv = await exportFullRecordsForActor(req.user, req.query);
+    return res.status(200).json({ success: true, data: { csv } });
+  }
   const records = await exportRecordsForActor(req.user, req.query);
   res.status(200).json({ success: true, data: { records } });
 });

@@ -254,29 +254,57 @@ export const findRecordsResumen = ({ dateRange, spedizzioneFilter } = {}) =>
 // como spedizzione IN ('EXTRA_PIAZZA') OR NULL sin depender de que Prisma soporte
 // null dentro de un "in". El filtro de hora del dia (fromTime/toTime) NO se resuelve
 // aca - se aplica despues en JS sobre este resultado (ver exportRecordsForActor).
-export const findRecordsForExport = ({
-  dateRange,
-  spedizzioneFilter,
-  driverId,
-  clientId,
-  vehicleId,
-  seccionWhere,
-  zonaValues,
-  estadoValues,
-} = {}) =>
+// Zona del export. DHL Milano y AB Service se guardan SIN zona (solo Roma y Extras Piazza la llevan), asi que "Milano" tambien
+// incluye los DHL/AB Service sin zona: antes el filtro Zona = Milano dejaba afuera todo DHL Milano.
+const zonaWhere = (zonaValues) => {
+  if (!zonaValues?.length) return null;
+  const conditions = [];
+  if (zonaValues.includes("ROMA")) conditions.push({ extrasPiazzaZona: "ROMA" });
+  if (zonaValues.includes("MILANO")) {
+    conditions.push({ extrasPiazzaZona: "MILANO" }, { extrasPiazzaZona: null, spedizzione: { in: ["DHL", "AB_SERVICE"] } });
+  }
+  return { OR: conditions };
+};
+
+const exportWhere = ({ dateRange, spedizzioneFilter, driverId, clientId, vehicleId, seccionWhere, zonaValues, estadoValues } = {}) => ({
+  ...(dateRange ? { fechaServicio: { gte: dateRange.gte, lt: dateRange.lt } } : {}),
+  ...(driverId ? { driverId } : {}),
+  ...(clientId ? { clientId } : {}),
+  ...(vehicleId ? { vehicleId } : {}),
+  ...(estadoValues?.length ? { estado: { in: estadoValues } } : {}),
+  // Los filtros que traen un OR propio van en AND para que no se pisen entre si.
+  AND: [spedizzioneFilter, seccionWhere, zonaWhere(zonaValues)].filter(Boolean),
+});
+
+export const findRecordsForExport = (filters = {}) =>
   prisma.record.findMany({
-    where: {
-      ...(dateRange ? { fechaServicio: { gte: dateRange.gte, lt: dateRange.lt } } : {}),
-      ...(spedizzioneFilter ?? {}),
-      ...(driverId ? { driverId } : {}),
-      ...(clientId ? { clientId } : {}),
-      ...(vehicleId ? { vehicleId } : {}),
-      ...(seccionWhere ?? {}),
-      ...(zonaValues?.length ? { extrasPiazzaZona: { in: zonaValues } } : {}),
-      ...(estadoValues?.length ? { estado: { in: estadoValues } } : {}),
-    },
+    where: exportWhere(filters),
     select: RECORD_SELECT_LIST,
     orderBy: { fechaServicio: "asc" },
+  });
+
+// Export completo: TODAS las columnas del servicio (menos el poligono de la ruta, que pesa mucho y no sirve en una planilla) y todo lo
+// relacionado: paradas, peajes y combustible asignados, archivos, traspaso y reprogramacion.
+export const findRecordsForFullExport = (filters = {}) =>
+  prisma.record.findMany({
+    where: exportWhere(filters),
+    omit: { rutaGeometria: true },
+    include: {
+      driver: { select: { id: true, nombre: true, apellido: true } },
+      vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
+      client: { select: { id: true, nombre: true } },
+      stops: { orderBy: { orden: "asc" } },
+      combustibles: { orderBy: { fechaHora: "asc" }, select: { id: true, monto: true, fechaHora: true, metodo: true, asignacion: true } },
+      mancatos: {
+        orderBy: { fechaHoraTransito: "asc" },
+        select: { id: true, numero: true, fechaHoraTransito: true, tramo: true, asignacion: true, costo: true, pagado: true },
+      },
+      files: { select: { tipoArchivo: true } },
+      continuaciones: { select: { codigo: true, estado: true, traspasoHora: true, driver: { select: { nombre: true, apellido: true } } } },
+      servicioOrigen: { select: { codigo: true, driver: { select: { nombre: true, apellido: true } } } },
+      reprogramadoDe: { select: { codigo: true } },
+    },
+    orderBy: [{ fechaServicio: "asc" }, { eta: "asc" }],
   });
 
 // Busqueda liviana por codigo/cliente/chofer/destino, con limite - pensada para tipear
