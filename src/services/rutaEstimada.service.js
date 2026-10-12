@@ -1,3 +1,4 @@
+import { BRENNERO } from "../constants/brennero.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 import { WORK_PLACES } from "../constants/workPlaces.js";
 import { env } from "../config/env.js";
@@ -113,14 +114,17 @@ const circuitPoints = async (members) => {
     if (!retiros.some((r) => distanceMeters(r, pickup) <= CIRCUIT_SAME_PLACE_M)) retiros.push(pickup);
   }
   const paradas = members.flatMap(placedStops);
-  return { base, retiros, paradas };
+  // "¿Pasa por Brennero?": en un viaje compacto basta con que lo marque uno de sus servicios.
+  const brennero = members.some((m) => m.pasaPorBrennero);
+  return { base, retiros, paradas, brennero };
 };
 
 // Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Si el chofer declaro que no uso peaje de ida o de
 // vuelta, ese sentido se calcula sin autopistas de pago (sinPeaje). Sin servidor de rutas se estima en linea recta (con un factor), y
 // queda marcado.
-const routeLegs = async ({ base, retiros, paradas }, sinPeaje = {}) => {
-  const ida = [base, ...retiros, ...paradas];
+const routeLegs = async ({ base, retiros, paradas, brennero }, sinPeaje = {}) => {
+  // Con Brennero, solo la ida pasa por ahi (antes de las paradas del exterior); la vuelta va directo al lugar de espera.
+  const ida = [base, ...retiros, ...(brennero ? [BRENNERO] : []), ...paradas];
   const last = paradas[paradas.length - 1];
   const [idaRoute, backRoute] = await Promise.all([
     calculateRoute(ida, { evitarPeajes: Boolean(sinPeaje.ida) }),
@@ -189,7 +193,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   const holder = members[0];
   const sinPeaje = sinPeajeOf(members);
   // Los peajes declarados entran en la firma: si el chofer cambia lo que declaro, el circuito se vuelve a calcular.
-  const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|") + `|peaje:${sinPeaje.ida ? 1 : 0}${sinPeaje.vuelta ? 1 : 0}`;
+  const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|") + `|peaje:${sinPeaje.ida ? 1 : 0}${sinPeaje.vuelta ? 1 : 0}` + (points.brennero ? "|brennero" : "");
   // "idaRevisar" distingue el formato actual de los peajes (pagos) del anterior (casetas sueltas): los viejos se recalculan.
   if (!force && holder.circuito?.firma === firma && holder.circuito.tramos && holder.circuito.peajes && "idaRevisar" in holder.circuito.peajes) {
     return holder.circuito;
@@ -205,8 +209,8 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     base: { nombre: points.base.nombre, direccion: points.base.direccion },
     // Los tramos del circuito, en orden, para verificar la ruta: lugar de espera -> retiro -> paradas -> lugar de espera.
     tramos: [
-      ...[...points.retiros, ...points.paradas].map((to, i) => ({
-        desde: i === 0 ? points.base.nombre : [...points.retiros, ...points.paradas][i - 1].direccion,
+      ...[...points.retiros, ...(points.brennero ? [BRENNERO] : []), ...points.paradas].map((to, i, all) => ({
+        desde: i === 0 ? points.base.nombre : all[i - 1].direccion,
         hasta: to.direccion,
         km: round1(legs.tramosIda[i].km),
         min: Math.round(legs.tramosIda[i].min),
@@ -317,7 +321,7 @@ export const getCircuitMapData = async (recordId) => {
   const points = await circuitPoints(members);
   if (!points) return null;
   const sinPeaje = sinPeajeOf(members);
-  const ida = [points.base, ...points.retiros, ...points.paradas];
+  const ida = [points.base, ...points.retiros, ...(points.brennero ? [BRENNERO] : []), ...points.paradas];
   const last = points.paradas[points.paradas.length - 1];
   const [idaRoute, backRoute] = await Promise.all([
     calculateRoute(ida, { evitarPeajes: sinPeaje.ida }),
@@ -342,6 +346,7 @@ export const getCircuitMapData = async (recordId) => {
     puntos: [
       { tipo: "SALIDA", nombre: points.base.nombre ?? "Lugar de espera", lat: points.base.lat, lng: points.base.lng },
       ...points.retiros.map((p) => ({ tipo: "RETIRO", nombre: p.direccion, lat: p.lat, lng: p.lng })),
+      ...(points.brennero ? [{ tipo: "PASO", nombre: "Brennero", lat: BRENNERO.lat, lng: BRENNERO.lng }] : []),
       ...points.paradas.map((p) => ({ tipo: "PARADA", nombre: p.direccion ?? "Parada", lat: p.lat, lng: p.lng })),
       { tipo: "REGRESO", nombre: points.base.nombre ?? "Lugar de espera", lat: points.base.lat, lng: points.base.lng },
     ],

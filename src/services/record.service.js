@@ -898,6 +898,9 @@ export const updateRecordForActor = async (actor, id, data) => {
     })();
   }
 
+  // Marcar o desmarcar "pasa por Brennero": el circuito (ida y vuelta de los mapas) se calcula de nuevo en segundo plano.
+  if (updated.pasaPorBrennero !== record.pasaPorBrennero) void ensureCircuitSafe(id);
+
   await attachFaltantes([updated]);
   return toResponse(updated, actor);
 };

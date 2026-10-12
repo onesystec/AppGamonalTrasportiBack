@@ -9,6 +9,7 @@ import { canAccessAreaKey, recordAreaKey, recordAreaWhere } from "../utils/areaA
 import { deriveSpeeds, distanceMeters } from "../utils/stopDetection.js";
 import { findOnesystecVehicleIdByPlate, getVehiclePositions, isOnesystecConfigured } from "./onesystec.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { BRENNERO } from "../constants/brennero.js";
 import { calculateRoute } from "./routing.service.js";
 import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 
@@ -238,6 +239,17 @@ const cumulativeMinutes = (tramos, points) => {
   return byRecord;
 };
 
+// "¿Pasa por Brennero?": la ruta va por ese punto de paso. Desde la posicion del vehiculo, solo si todavia no lo cruzo (esta al sur de
+// Brennero y la primera entrega queda al norte). El tramo hasta Brennero y el siguiente se unen en uno, para que los minutos de cada entrega
+// sigan correspondiendo a su parada.
+const viaBrennero = (pendientes, origin, points) =>
+  pendientes.some((m) => m.pasaPorBrennero) && origin.lat < BRENNERO.lat && points[0]?.lat > BRENNERO.lat;
+const mergeBrenneroLeg = (route) => {
+  if (!route?.tramos || route.tramos.length < 2) return route;
+  const [a, b, ...rest] = route.tramos;
+  return { ...route, tramos: [{ distanciaKm: a.distanciaKm + b.distanciaKm, duracionMin: a.duracionMin + b.duracionMin }, ...rest] };
+};
+
 const isPending = (member) => !DONE_ESTADOS.includes(member.estado) && !member.llegadaGpsAt;
 
 const computeGroup = async (group, now) => {
@@ -265,7 +277,10 @@ const computeGroup = async (group, now) => {
   const arrivals = new Map();
 
   if (track && points.length) {
-    const route = await calculateRoute([{ lat: track.last.lat, lng: track.last.lng }, ...points]);
+    const origin = { lat: track.last.lat, lng: track.last.lng };
+    const via = viaBrennero(pendientes, origin, points);
+    const raw = await calculateRoute([origin, ...(via ? [BRENNERO] : []), ...points]);
+    const route = via ? mergeBrenneroLeg(raw) : raw;
     if (route) {
       geometriaRestante = route.geometria;
       cumulativeMinutes(route.tramos, points).forEach((minutes, recordId) => arrivals.set(recordId, now + minutes * MIN_MS));
@@ -273,7 +288,9 @@ const computeGroup = async (group, now) => {
   } else if (!track && points.length) {
     // Sin ningun GPS: recorrido simulado sobre la ruta planificada, segun la hora de salida y la ETA del ultimo servicio.
     const salida = salidaOf(pendientes[0]);
-    const route = hasCoords(salida) ? await planRoute([{ lat: salida.lat, lng: salida.lng }, ...points]) : null;
+    const via = hasCoords(salida) && viaBrennero(pendientes, salida, points);
+    const rawPlan = hasCoords(salida) ? await planRoute([{ lat: salida.lat, lng: salida.lng }, ...(via ? [BRENNERO] : []), ...points]) : null;
+    const route = via ? mergeBrenneroLeg(rawPlan) : rawPlan;
     if (route) {
       geometriaPlan = route.geometria;
       const factor = env.ESTIMATE_TRAFFIC_FACTOR;
