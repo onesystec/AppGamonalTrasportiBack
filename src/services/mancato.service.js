@@ -38,6 +38,8 @@ const PLAZO_DIAS_DESPUES_DE_LA_FECHA = 15;
 // No se guarda: se deriva al leer (igual que Pendiente/Vencido), asi no hace falta ningun cron
 // y, si el servicio aparece despues, el mancato igual puede asignarse.
 const ESPERA_SERVICIO_DIAS = 7;
+// El chofer tiene que subir el aviso dentro de este tiempo desde el transito; si tarda mas, la oficina lo ve marcado.
+const SUBIDA_LIMITE_HORAS = 48;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -205,6 +207,9 @@ const toResponse = async (m, today) => {
   const asignacionShown = displayAsignacion(m);
   const [foto, comprobante] = await Promise.all([attachment(m.fotoKey), attachment(m.comprobanteKey)]);
   const diasRestantes = dayDiff(today, vencimientoDay);
+  // Horas entre el transito (o el inicio del dia del aviso si no tiene hora) y la subida al sistema.
+  const transitoRef = m.fechaHoraTransito ?? romeLocalToDate(dateOnlyToDay(m.fecha), "00:00");
+  const horasHastaSubida = Math.max(0, Math.floor((m.createdAt - transitoRef) / (60 * 60 * 1000)));
   return {
     id: m.id,
     numero: m.numero,
@@ -231,6 +236,8 @@ const toResponse = async (m, today) => {
     fueraDePlazo: m.fueraDePlazo,
     diasTarde: m.fueraDePlazo ? Math.max(0, dayDiff(vencimientoDay, romeDay(m.createdAt))) : 0,
     pagadoFueraDePlazo: Boolean(m.pagadoAt) && romeDay(m.pagadoAt) > vencimientoDay,
+    horasHastaSubida,
+    subidoTarde: horasHastaSubida > SUBIDA_LIMITE_HORAS,
     // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
     asignacion: asignacionShown,
     tramo: m.tramo,
@@ -273,6 +280,8 @@ const CHOFER_HIDDEN_FIELDS = [
   "comprobante",
   "asignacionMotivo",
   "esperaHasta",
+  "horasHastaSubida",
+  "subidoTarde",
 ];
 const forActor = (actor) => (response) => {
   if (isPrivileged(actor)) return response;
