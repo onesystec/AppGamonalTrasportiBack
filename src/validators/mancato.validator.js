@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO"];
+const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO", "OBSERVADO"];
 
 // Los formularios llegan como multipart: todo viene como string, y un campo opcional sin
 // completar puede venir vacio.
@@ -83,6 +83,8 @@ export const updateMancatoSchema = z.object({
   sitioWeb: z.preprocess(emptyToNull, sitioWeb.nullable().optional()),
   comentarios: z.preprocess(emptyToNull, z.string().trim().max(1000).nullable().optional()),
   pagado: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  // Solo OWNER/ADMIN: no se puede pagar por algun motivo.
+  observado: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
 });
 
 export const idParamSchema = z.object({
@@ -98,6 +100,8 @@ const listFilters = {
   fueraDePlazo: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
   // REVISAR = lo que la oficina debe mirar: sugeridos + en espera de servicio.
   asignacion: z.preprocess(emptyToUndefined, z.enum(ASIGNACION_VALUES).optional()),
+  // Atajo: los que vencen hoy o mañana.
+  vence: z.preprocess(emptyToUndefined, z.enum(["HOY_MANANA"]).optional()),
 };
 
 const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto"];

@@ -61,6 +61,7 @@ export const findMancatosForStats = (where) =>
       createdAt: true,
       pagado: true,
       pagadoAt: true,
+      observado: true,
       asignacion: true,
       recordId: true,
       driverId: true,
