@@ -19,7 +19,6 @@ import multaRoutes from "./multa.routes.js";
 import notificacionRoutes from "./notificacion.routes.js";
 import recordRoutes from "./record.routes.js";
 import seguimientoRoutes from "./seguimiento.routes.js";
-import syncRoutes from "./sync.routes.js";
 import trabajoAdicionalRoutes from "./trabajoAdicional.routes.js";
 import telegramRoutes from "./telegram.routes.js";
 import userRoutes from "./user.routes.js";
@@ -52,7 +51,6 @@ router.use("/paradas", paradaRoutes);
 router.use("/peajes", peajeRoutes);
 router.use("/permisos", permisoRoutes);
 router.use("/trabajos-adicionales", trabajoAdicionalRoutes);
-router.use("/sync", syncRoutes);
 router.use("/telegram", telegramRoutes);
 
 export default router;
