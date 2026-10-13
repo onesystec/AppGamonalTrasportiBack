@@ -27,6 +27,7 @@ import {
 import { calculateRoute } from "./routing.service.js";
 import { computeEstimacionForRecord } from "./rutaEstimada.service.js";
 import { findOnesystecVehicleIdByPlate, getVehiclePositions, isOnesystecConfigured } from "./onesystec.service.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const MIN_MS = 60000;
 const DAY_MS = 24 * 60 * MIN_MS;
@@ -326,9 +327,9 @@ export const getParadasStatus = () => ({
 export const listParadasForActor = async (actor, query) => {
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
 
-  const toDay = query.to ?? new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+  const toDay = query.to ?? romeDay();
   const fromDay =
-    query.from ?? new Date(Date.now() - 6 * DAY_MS).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+    query.from ?? romeDay(new Date(Date.now() - 6 * DAY_MS));
   // Un dia de margen a cada lado, el filtro fino por dia de Roma se hace en el frontend.
   const from = new Date(new Date(`${fromDay}T00:00:00Z`).getTime() - DAY_MS);
   const to = new Date(new Date(`${toDay}T00:00:00Z`).getTime() + 2 * DAY_MS);

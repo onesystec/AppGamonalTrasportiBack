@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { romeDay } from "../utils/romeTime.js";
 
 export const AREA_VALUES = [
   "DHL_MILANO",
@@ -13,7 +14,7 @@ export const AREA_VALUES = [
 // completar puede venir vacio.
 const emptyToUndefined = (value) => (typeof value === "string" && value.trim() === "" ? undefined : value);
 
-const romeToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+const romeToday = () => romeDay();
 
 const dateOnly = z
   .string()

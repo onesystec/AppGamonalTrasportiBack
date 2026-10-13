@@ -10,6 +10,7 @@ import {
   listMancatosForActor,
   updateMancatoForActor,
 } from "../services/mancato.service.js";
+import { sharedForOffice } from "../utils/responseCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const create = asyncHandler(async (req, res) => {
@@ -23,12 +24,12 @@ export const list = asyncHandler(async (req, res) => {
 });
 
 export const meses = asyncHandler(async (req, res) => {
-  const result = await getMancatoMesesForActor(req.user, req.query);
+  const result = await sharedForOffice("mancato-meses", req.user, req.query, () => getMancatoMesesForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { meses: result } });
 });
 
 export const summary = asyncHandler(async (req, res) => {
-  const result = await getMancatoSummaryForActor(req.user, req.query);
+  const result = await sharedForOffice("mancato-summary", req.user, req.query, () => getMancatoSummaryForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { summary: result } });
 });
 
@@ -48,7 +49,7 @@ export const remove = asyncHandler(async (req, res) => {
 });
 
 export const stats = asyncHandler(async (req, res) => {
-  const result = await getMancatoStatsForActor(req.user, req.query);
+  const result = await sharedForOffice("mancato-stats", req.user, req.query, () => getMancatoStatsForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { stats: result } });
 });
 

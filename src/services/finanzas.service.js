@@ -14,7 +14,7 @@ import { spedizzioneFilterForActor } from "./record.service.js";
 import { countCombustibleByAsignacion } from "../models/combustible.model.js";
 import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { esFestivoIT } from "../utils/feriadosIt.js";
-import { romeHHMM } from "../utils/romeTime.js";
+import { romeHHMM, romeDay, romeWeekdayShort } from "../utils/romeTime.js";
 import { computeShiftHours, isDayTime } from "../utils/workHours.js";
 import { kmFacturables } from "../utils/kmFacturables.js";
 import { withEffectiveTolls } from "../utils/tollCost.js";
@@ -30,7 +30,6 @@ const SERIES_MONTHS = 6;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const round2 = (value) => Math.round(value * 100) / 100;
 const pctChange = (current, previous) =>
   previous > 0 ? Math.round(((current - previous) / previous) * 1000) / 10 : null;
@@ -68,7 +67,7 @@ const enTraspaso = (record) =>
 
 const ROME_WEEKDAYS = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 const romeWeekday = (date) =>
-  ROME_WEEKDAYS[new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Rome", weekday: "short" }).format(new Date(date))];
+  ROME_WEEKDAYS[romeWeekdayShort(date)];
 
 // Redondea al multiplo mas cercano (0 = no redondea).
 const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : value);

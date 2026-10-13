@@ -4,10 +4,11 @@ import {
   getPagosChoferesForActor,
 } from "../services/finanzas.service.js";
 import { getTarifasKm, setTarifasKm } from "../services/tarifas.service.js";
+import { sharedForOffice } from "../utils/responseCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const resumen = asyncHandler(async (req, res) => {
-  const result = await getFinanzasResumenForActor(req.user, req.query);
+  const result = await sharedForOffice("finanzas-resumen", req.user, req.query, () => getFinanzasResumenForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { resumen: result } });
 });
 

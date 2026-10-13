@@ -90,18 +90,21 @@ export const getMesLabel = (value) => {
 // el offset real (CET/CEST) de la fecha en cuestion, sea cual sea el TZ del proceso.
 const SHEET_TIMEZONE = "Europe/Rome";
 
+// Creado una sola vez (armar uno en cada llamada deja memoria nativa; ver utils/romeTime.js).
+const SHEET_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: SHEET_TIMEZONE,
+  hourCycle: "h23",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
 const romeOffsetMinutesForUtc = (utcDate) => {
   const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-US", {
-      timeZone: SHEET_TIMEZONE,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    })
+    SHEET_FORMAT
       .formatToParts(utcDate)
       .map((p) => [p.type, p.value])
   );

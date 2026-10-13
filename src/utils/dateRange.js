@@ -25,17 +25,29 @@ export const buildDateRange = (year, month, day) => {
 // timeZone (offset real de esa fecha, ya resuelto el DST). Exportada ademas de usarse
 // aca abajo: telegramAssistant.service.js la reusa para convertir la fecha/hora que
 // dice el chat (hora local Europe/Rome) a un Date real.
+// Un formateador por zona horaria, creado una sola vez (armar uno en cada llamada deja memoria nativa; ver utils/romeTime.js).
+const offsetFormats = new Map();
+const offsetFormatFor = (timeZone) => {
+  if (!offsetFormats.has(timeZone)) {
+    offsetFormats.set(
+      timeZone,
+      new Intl.DateTimeFormat("en-US", {
+        timeZone,
+        hour12: false,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      })
+    );
+  }
+  return offsetFormats.get(timeZone);
+};
+
 export const getTimezoneOffsetMinutes = (date, timeZone) => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour12: false,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  })
+  const parts = offsetFormatFor(timeZone)
     .formatToParts(date)
     .reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {});
 

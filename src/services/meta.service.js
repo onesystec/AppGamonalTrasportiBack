@@ -2,12 +2,12 @@ import { getConfig, setConfig } from "../models/permiso.model.js";
 import { findDoneRecordsForKm, findDrivingUsers } from "../models/meta.model.js";
 import { kmRecorrido } from "../utils/kmFacturables.js";
 import { AppError } from "../utils/AppError.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const CLAVE = "metas.km";
 const NIVELES = ["NOVATO", "MASTER", "SENIOR"];
 
-const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const round1 = (value) => Math.round(value * 10) / 10;
 const num = (value) => (typeof value === "number" && Number.isFinite(value) ? value : 0);
 

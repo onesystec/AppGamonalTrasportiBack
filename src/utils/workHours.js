@@ -1,5 +1,5 @@
 import { tariffForMonth } from "../config/payRates.js";
-import { romeHHMM, romeLocalToDate } from "./romeTime.js";
+import { romeHHMM, romeLocalToDate, romeDay } from "./romeTime.js";
 
 const MIN_MS = 60000;
 const DAY_MS = 24 * 60 * MIN_MS;
@@ -7,7 +7,7 @@ const DAY_MS = 24 * 60 * MIN_MS;
 export const MAX_SHIFT_MIN = 24 * 60;
 const MAX_SPAN_MIN = 48 * 60;
 
-const romeDayOf = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+const romeDayOf = romeDay;
 
 // La banda de dia/noche es la de la tarifa vigente el mes en que empieza la jornada (ver config/payRates.js).
 export const bandFor = (date) => tariffForMonth(romeDayOf(new Date(date)).slice(0, 7)).banda;

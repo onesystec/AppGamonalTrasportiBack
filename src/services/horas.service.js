@@ -23,15 +23,15 @@ const hoursText = (min) => `${round1(min / 60)} h`;
 // Servicios que no se pueden cargar: anulados o reprogramados sin trabajo hecho no se trabajaron. El reprogramado por la
 // oficina (reprogramadoAt) si: el chofer manejo hasta ahi y carga sus horas.
 
-const romeStamp = (date) =>
-  new Date(date).toLocaleString("es-AR", {
-    timeZone: "Europe/Rome",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+const STAMP_FORMAT = new Intl.DateTimeFormat("es-AR", {
+  timeZone: "Europe/Rome",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+const romeStamp = (date) => STAMP_FORMAT.format(new Date(date));
 
 const notify = (record, title, body) =>
   // Best-effort: un fallo de push nunca debe romper la aprobacion.

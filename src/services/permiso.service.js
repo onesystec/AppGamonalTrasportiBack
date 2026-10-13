@@ -19,7 +19,7 @@ import {
   updatePermisoById,
 } from "../models/permiso.model.js";
 import { AppError } from "../utils/AppError.js";
-import { romeLocalToDate } from "../utils/romeTime.js";
+import { romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -30,7 +30,6 @@ const MAX_ANTICIPACION_DIAS = 365;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-const romeDay = (date = new Date()) => new Date(date).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dateToDay = (date) => date.toISOString().slice(0, 10);
 const addDays = (day, n) => dateToDay(new Date(dayToDate(day).getTime() + n * DAY_MS));

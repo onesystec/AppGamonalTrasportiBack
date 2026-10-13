@@ -32,15 +32,15 @@ const MOTIVO_TEXT = {
 
 const round1 = (value) => Math.round(value * 10) / 10;
 const round2 = (value) => Math.round(value * 100) / 100;
-const romeStamp = (date) =>
-  new Date(date).toLocaleString("es-AR", {
-    timeZone: "Europe/Rome",
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
+const STAMP_FORMAT = new Intl.DateTimeFormat("es-AR", {
+  timeZone: "Europe/Rome",
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+const romeStamp = (date) => STAMP_FORMAT.format(new Date(date));
 
 // Quien puede reprogramar: Admin y Responsable (nunca el chofer).
 const assertOffice = (actor) => {

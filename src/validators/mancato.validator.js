@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { romeDay } from "../utils/romeTime.js";
 
 const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO", "OBSERVADO"];
 
@@ -7,7 +8,7 @@ const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO", "OBSERVADO"];
 const emptyToUndefined = (value) => (typeof value === "string" && value.trim() === "" ? undefined : value);
 const emptyToNull = (value) => (typeof value === "string" && value.trim() === "" ? null : value);
 
-const romeToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+const romeToday = () => romeDay();
 
 const dateOnly = z
   .string()

@@ -14,10 +14,14 @@ import { listFilterForActor, matchesTimeRange, seccionesToWhere, toResponse } fr
 const ROME = "Europe/Rome";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const fecha = (v) => (v ? new Date(v).toLocaleDateString("es-AR", { timeZone: ROME, day: "2-digit", month: "2-digit", year: "numeric" }) : "");
-const hora = (v) => (v ? new Date(v).toLocaleTimeString("es-AR", { timeZone: ROME, hour: "2-digit", minute: "2-digit", hour12: false }) : "");
+// Formateadores creados una sola vez (ver utils/romeTime.js): en cada llamada dejaban memoria nativa y una exportacion hace miles.
+const FECHA_FORMAT = new Intl.DateTimeFormat("es-AR", { timeZone: ROME, day: "2-digit", month: "2-digit", year: "numeric" });
+const HORA_FORMAT = new Intl.DateTimeFormat("es-AR", { timeZone: ROME, hour: "2-digit", minute: "2-digit", hour12: false });
+const NUM_FORMAT = new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 });
+const fecha = (v) => (v ? FECHA_FORMAT.format(new Date(v)) : "");
+const hora = (v) => (v ? HORA_FORMAT.format(new Date(v)) : "");
 const fechaHora = (v) => (v ? `${fecha(v)} ${hora(v)}` : "");
-const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? "" : Number(v).toLocaleString("es-AR", { maximumFractionDigits: 2 }));
+const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? "" : NUM_FORMAT.format(Number(v)));
 const sino = (v) => (v ? "Si" : "No");
 const json = (v) => (v == null ? "" : JSON.stringify(v));
 const personName = (p) => (p ? `${p.nombre} ${p.apellido}` : "");

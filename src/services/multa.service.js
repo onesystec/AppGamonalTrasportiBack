@@ -22,6 +22,7 @@ import { actorAreaKeys, canAccessAreaKey, multaAreaWhere, recordAreaWhere } from
 import { AppError } from "../utils/AppError.js";
 import { findOfficeUserIdsForArea } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Si el verbale no trae vencimiento cargado, se usa recepcion + 60 dias (lo habitual para
@@ -30,7 +31,6 @@ const PLAZO_POR_DEFECTO_DIAS = 60;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dayDiff = (fromDay, toDay) => Math.round((dayToDate(toDay) - dayToDate(fromDay)) / DAY_MS);
 const addDays = (day, days) => new Date(dayToDate(day).getTime() + days * DAY_MS);
@@ -567,8 +567,8 @@ export const getMultaStatsForActor = async (actor, query) => {
   };
 };
 
-const hhmm = (date) =>
-  date.toLocaleTimeString("es-AR", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", hour12: false });
+const HHMM_ES = new Intl.DateTimeFormat("es-AR", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit", hour12: false });
+const hhmm = (date) => HHMM_ES.format(date);
 
 // Quien llevaba esa unidad el dia de la infraccion, segun Registros: cada chofer que tuvo
 // servicios con ese vehiculo ese dia (con cuantos y de que hora a que hora). Si no hubo

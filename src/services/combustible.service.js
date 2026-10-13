@@ -21,7 +21,7 @@ import {
   rematchAllCombustible,
 } from "./combustibleMatching.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
-import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
+import { romeHHMM, romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { COMBUSTIBLE_AREA_KEY } from "../constants/areas.js";
 import { canAccessAreaKey, canAccessRecordArea, combustibleAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
@@ -30,7 +30,6 @@ import { AREA_VALUES } from "../validators/combustible.validator.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
 

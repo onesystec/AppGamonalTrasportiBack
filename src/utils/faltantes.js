@@ -5,8 +5,9 @@ import {
   FALTANTES_ESTADOS,
   LITROS_MINIMOS_PARA_EXIGIR_COMBUSTIBLE,
 } from "../config/faltantes.js";
+import { romeDay } from "./romeTime.js";
 
-export const romeDay = (date) => new Date(date).toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+export { romeDay };
 const round1 = (value) => Math.round(value * 10) / 10;
 
 // Km del servicio: los que reporto el chofer, si no los del servicio y, de ultima, los de la ruta.

@@ -41,6 +41,7 @@ import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -626,8 +627,7 @@ export const listRecordsForActor = async (actor, dateRange) => {
 // en curso.
 export const listPendingRecordsForActor = async (actor) => {
   const driverId = isPrivileged(actor) ? undefined : actor.id;
-  const [year, month, day] = new Date()
-    .toLocaleDateString("en-CA", { timeZone: "Europe/Rome" })
+  const [year, month, day] = romeDay()
     .split("-")
     .map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");

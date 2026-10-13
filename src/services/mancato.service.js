@@ -23,7 +23,7 @@ import {
   tramoForService,
 } from "./mancatoMatching.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
-import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
+import { romeHHMM, romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { canAccessRecordArea, mancatoAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
@@ -43,7 +43,6 @@ const SUBIDA_LIMITE_HORAS = 48;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
-const romeDay = (date = new Date()) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dayDiff = (fromDay, toDay) => Math.round((dayToDate(toDay) - dayToDate(fromDay)) / DAY_MS);
 const addDays = (day, days) => new Date(dayToDate(day).getTime() + days * DAY_MS);

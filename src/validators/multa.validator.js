@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AREA_KEYS } from "../constants/areas.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO"];
 const QUIEN_PAGA_VALUES = ["CHOFER_PAGO", "A_DESCONTAR"];
@@ -11,7 +12,7 @@ const emptyToUndefined = (value) => (typeof value === "string" && value.trim() =
 const emptyToNull = (value) => (typeof value === "string" && value.trim() === "" ? null : value);
 const boolString = z.enum(["true", "false"]).transform((value) => value === "true");
 
-const romeToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+const romeToday = () => romeDay();
 
 const dateOnly = z
   .string()

@@ -51,6 +51,7 @@ import { getVehicleLivePositions } from "./velocityFleet.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { pointInPolygon } from "../utils/pointInPolygon.js";
 import { AppError } from "../utils/AppError.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const FILE_FIELDS = ["imagen", "libreto", "assicurazione"];
 
@@ -264,14 +265,16 @@ const invalidateVehiclesCache = () => {
 const AREA_C_START_MINUTES = 7 * 60 + 30; // 07:30
 const AREA_C_END_MINUTES = 19 * 60 + 30; // 19:30
 
+const AREA_C_NOW_FORMAT = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Europe/Rome",
+  weekday: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 const isAreaCActiveNow = () => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Rome",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  })
+  const parts = AREA_C_NOW_FORMAT
     .formatToParts(new Date())
     .reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {});
 
@@ -514,7 +517,6 @@ export const updateAreaCEntryForActor = async (id, data, file) => {
   return toAreaCEntryResponse(updated);
 };
 
-const romeDay = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
 // Elimina una entrada de Area C que no queremos guardar (boton "Eliminar" de Mapa >
 // Area C, tras confirmar en el front). Siempre borra el comprobante de R2. Si la entrada

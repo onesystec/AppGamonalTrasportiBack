@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
+import { romeHHMM, romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { multaAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 
@@ -22,7 +22,6 @@ const NO_DATE_WINDOW_DAYS = 90;
 const MAX_CANDIDATES = 3;
 const MAX_BATCH = 20;
 
-const romeDay = (date) => date.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
 const addDaysDay = (day, n) => new Date(Date.parse(`${day}T00:00:00.000Z`) + n * DAY).toISOString().slice(0, 10);
 const dayDiff = (a, b) => Math.round((Date.parse(`${a}T00:00:00.000Z`) - Date.parse(`${b}T00:00:00.000Z`)) / DAY);

@@ -1,13 +1,13 @@
 import { prisma } from "../config/prisma.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
+import { romeDay } from "../utils/romeTime.js";
 
 // El Area C de Milano se paga por DIA completo (un ticket cubre todas las entradas de
 // ese dia), no por entrada individual - si ya hay un registro de este vehiculo hoy
 // (hora local Europe/Rome, no la del servidor), no hace falta uno nuevo aunque haya
 // salido y vuelto a entrar.
 export const findTodayEntryForVehicle = (vehicleId) => {
-  const [year, month, day] = new Date()
-    .toLocaleDateString("en-CA", { timeZone: "Europe/Rome" })
+  const [year, month, day] = romeDay()
     .split("-")
     .map(Number);
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");

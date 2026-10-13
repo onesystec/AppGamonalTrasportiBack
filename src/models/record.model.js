@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const PERSON = { select: { id: true, nombre: true, apellido: true } };
 
@@ -188,7 +189,7 @@ export const findRecordDedupSignatures = async (since) => {
   });
   return records.map((r) => ({
     driverId: r.driverId,
-    dateKey: r.fechaServicio.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" }),
+    dateKey: romeDay(r.fechaServicio),
     kilometros: r.kilometros,
   }));
 };

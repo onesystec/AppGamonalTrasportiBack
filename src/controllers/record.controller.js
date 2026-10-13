@@ -32,6 +32,7 @@ import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { cachedResponse } from "../utils/responseCache.js";
+import { romeDay } from "../utils/romeTime.js";
 
 const RECORDS_CACHE_TTL_MS = 60 * 1000;
 
@@ -63,7 +64,7 @@ export const list = asyncHandler(async (req, res) => {
           "records",
           resumen ? "resumen" : "completo",
           Number.isFinite(days) ? days : "todo",
-          new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" }),
+          romeDay(),
           // Lo que se devuelve depende solo del cargo y de las areas (no de quien pregunta): todos los
           // Admin comparten una consulta y los Responsables con las mismas areas, otra.
           req.user.cargo === "OWNER" ? "todo" : [...(req.user.areasPermitidas ?? [])].sort().join(","),
