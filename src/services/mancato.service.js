@@ -264,7 +264,7 @@ const toResponse = async (m, today) => {
   };
 };
 
-// Lo que ve el chofer: solo la informacion que el sube (y cuando la subio). El estado, los plazos, el
+// Lo que ve el chofer: solo la informacion que el sube, cuando la subio y si la subio tarde (mas de 48 h). El estado, los plazos, el
 // pago y el comprobante los maneja la oficina y no se le envian. "editable" le dice si todavia puede
 // corregirlo (sin revelar si esta pagado).
 const CHOFER_HIDDEN_FIELDS = [
@@ -280,8 +280,6 @@ const CHOFER_HIDDEN_FIELDS = [
   "comprobante",
   "asignacionMotivo",
   "esperaHasta",
-  "horasHastaSubida",
-  "subidoTarde",
 ];
 const forActor = (actor) => (response) => {
   if (isPrivileged(actor)) return response;
