@@ -1,6 +1,7 @@
-import { findRecordsForFullExport } from "../models/record.model.js";
+import { findRecordIdsForExport, findRecordsForFullExportByIds } from "../models/record.model.js";
 import { prisma } from "../config/prisma.js";
 import { kmFacturables, kmMultiplier } from "../utils/kmFacturables.js";
+import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { attachFaltantes } from "./faltantes.service.js";
 import { listFilterForActor, matchesTimeRange, seccionesToWhere, toResponse } from "./record.service.js";
@@ -205,9 +206,11 @@ const romeRange = (from, to) => {
   };
 };
 
+// Se lee de a EXPORT_CHUNK_SIZE servicios: de cada tanda se arman las filas y se descarta, asi el servidor nunca tiene todo el historico
+// con sus relaciones en memoria a la vez (antes pasaba de 500 MB y reiniciaba la instancia).
 export const exportFullRecordsForActor = async (actor, filters) => {
   const { from, to, fromTime, toTime, driverId, clientId, vehicleId, secciones, zonas, estados } = filters;
-  const records = await findRecordsForFullExport({
+  const ids = await findRecordIdsForExport({
     dateRange: romeRange(from, to),
     spedizzioneFilter: listFilterForActor(actor),
     driverId,
@@ -217,24 +220,31 @@ export const exportFullRecordsForActor = async (actor, filters) => {
     zonaValues: zonas,
     estadoValues: estados,
   });
-  const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
 
-  // Nombres de quien reviso las horas, puso una excepcion o reprogramo (solo guardan el id).
-  const userIds = new Set();
-  for (const r of inRange) {
-    for (const id of [r.horasRevisadaPorId, r.faltantesExcepcionPor, r.reprogramacion?.porId]) if (id) userIds.add(id);
+  // Nombres de quien reviso las horas, puso una excepcion o reprogramo (solo guardan el id): se piden solo los que faltan.
+  const users = new Map();
+  const loadUsers = async (records) => {
+    const missing = new Set();
+    for (const r of records) {
+      for (const id of [r.horasRevisadaPorId, r.faltantesExcepcionPor, r.reprogramacion?.porId]) if (id && !users.has(id)) missing.add(id);
+    }
+    if (!missing.size) return;
+    const found = await prisma.user.findMany({ where: { id: { in: [...missing] } }, select: { id: true, nombre: true, apellido: true } });
+    found.forEach((u) => users.set(u.id, personName(u)));
+  };
+
+  const filas = [];
+  for (const batch of chunk(ids, EXPORT_CHUNK_SIZE)) {
+    const position = new Map(batch.map((id, i) => [id, i]));
+    const records = (await findRecordsForFullExportByIds(batch)).sort((a, b) => position.get(a.id) - position.get(b.id));
+    const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
+    await loadUsers(inRange);
+    // Totales y faltantes calculados como en el resto de la app (ya con los peajes y comprobantes de cada servicio cargados).
+    await attachFaltantes(inRange);
+    for (const record of inRange) {
+      const calculado = toResponse(record, actor);
+      filas.push(COLUMNAS.map(([, valor]) => String(valor(record, calculado, { users }) ?? "")));
+    }
   }
-  const users = new Map(
-    userIds.size
-      ? (await prisma.user.findMany({ where: { id: { in: [...userIds] } }, select: { id: true, nombre: true, apellido: true } })).map((u) => [u.id, personName(u)])
-      : []
-  );
-
-  // Totales y faltantes calculados como en el resto de la app (ya con los peajes y comprobantes de cada servicio cargados).
-  await attachFaltantes(inRange);
-  const filas = inRange.map((record) => {
-    const calculado = toResponse(record, actor);
-    return COLUMNAS.map(([, valor]) => String(valor(record, calculado, { users }) ?? ""));
-  });
   return { columnas: COLUMNAS.map(([titulo]) => titulo), filas };
 };

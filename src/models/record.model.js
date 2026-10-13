@@ -283,11 +283,25 @@ export const findRecordsForExport = (filters = {}) =>
     orderBy: { fechaServicio: "asc" },
   });
 
+// Las exportaciones leen el historico en tandas (primero los ids, despues cada tanda con todas sus relaciones): traer miles de
+// servicios con sus relaciones de una sola vez llenaba la memoria del servidor (512 MB en Render).
+export const findRecordIdsForExport = async (filters = {}) =>
+  (
+    await prisma.record.findMany({
+      where: exportWhere(filters),
+      select: { id: true },
+      orderBy: [{ fechaServicio: "asc" }, { eta: "asc" }, { id: "asc" }],
+    })
+  ).map((r) => r.id);
+
+export const findRecordsForExportByIds = (ids) =>
+  prisma.record.findMany({ where: { id: { in: ids } }, select: RECORD_SELECT_LIST });
+
 // Export completo: TODAS las columnas del servicio (menos el poligono de la ruta, que pesa mucho y no sirve en una planilla) y todo lo
 // relacionado: paradas, peajes y combustible asignados, archivos, traspaso y reprogramacion.
-export const findRecordsForFullExport = (filters = {}) =>
+export const findRecordsForFullExportByIds = (ids) =>
   prisma.record.findMany({
-    where: exportWhere(filters),
+    where: { id: { in: ids } },
     omit: { rutaGeometria: true },
     include: {
       driver: { select: { id: true, nombre: true, apellido: true } },
@@ -304,7 +318,6 @@ export const findRecordsForFullExport = (filters = {}) =>
       servicioOrigen: { select: { codigo: true, driver: { select: { nombre: true, apellido: true } } } },
       reprogramadoDe: { select: { codigo: true } },
     },
-    orderBy: [{ fechaServicio: "asc" }, { eta: "asc" }],
   });
 
 // Busqueda liviana por codigo/cliente/chofer/destino, con limite - pensada para tipear

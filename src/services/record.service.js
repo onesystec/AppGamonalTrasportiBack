@@ -4,7 +4,8 @@ import {
   findRecordById,
   findRecords,
   findRecordsResumen,
-  findRecordsForExport,
+  findRecordIdsForExport,
+  findRecordsForExportByIds,
   findRecordsPending,
   findRecordsSummary,
   releaseCombustiblesOfRecord,
@@ -38,6 +39,7 @@ import { viajesAplican } from "../config/viajes.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
+import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
@@ -588,7 +590,7 @@ export const exportRecordsForActor = async (actor, filters) => {
         }
       : undefined;
 
-  const records = await findRecordsForExport({
+  const ids = await findRecordIdsForExport({
     dateRange,
     spedizzioneFilter: listFilterForActor(actor),
     driverId,
@@ -599,9 +601,16 @@ export const exportRecordsForActor = async (actor, filters) => {
     estadoValues: estados,
   });
 
-  const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
-  await attachFaltantes(await attachFuel(inRange));
-  return inRange.map((record) => toResponse(record, actor));
+  // De a tandas, para no tener todo el historico leido de una vez (ver exportFullRecordsForActor).
+  const out = [];
+  for (const batch of chunk(ids, EXPORT_CHUNK_SIZE)) {
+    const position = new Map(batch.map((id, i) => [id, i]));
+    const records = (await findRecordsForExportByIds(batch)).sort((a, b) => position.get(a.id) - position.get(b.id));
+    const inRange = records.filter((r) => matchesTimeRange(r, fromTime, toTime));
+    await attachFaltantes(await attachFuel(inRange));
+    for (const record of inRange) out.push(toResponse(record, actor));
+  }
+  return out;
 };
 
 export const listRecordsForActor = async (actor, dateRange) => {

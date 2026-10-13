@@ -3,7 +3,8 @@
 //  - El resultado se reutiliza hasta TTL, pero se descarta en cuanto se escribe en una tabla de la que
 //    depende (ver el hook de config/prisma.js), asi nadie ve datos viejos despues de guardar algo.
 
-const MAX_ENTRIES = 60;
+// Cada entrada puede ser un listado de miles de servicios (varios MB): pocas, para que la cache no sea lo que llena la memoria.
+const MAX_ENTRIES = 12;
 
 let version = 0;
 const entries = new Map();

@@ -1,5 +1,10 @@
 import sharp from "sharp";
 
+// Sin cache interna de libvips (por defecto guarda hasta 50 MB de operaciones recientes) y un solo hilo: en una instancia de 512 MB
+// una foto de 50 megapixeles no puede sumar a eso.
+sharp.cache(false);
+sharp.concurrency(1);
+
 const MAX_DIMENSION = 2000;
 const WEBP_QUALITY = 82;
 
