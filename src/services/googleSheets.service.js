@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { google } from "googleapis";
 import { AppError } from "../utils/AppError.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +17,8 @@ export const APPSHEET_SPREADSHEET_ID =
 
 let sheetsClientPromise = null;
 
+// googleapis pesa ~80 MB de memoria apenas se carga y la sincronizacion con la planilla se usa muy de vez en cuando: se carga recien
+// la primera vez que hace falta (no al arrancar el servidor, donde ocupaba memoria de la instancia de 512 MB sin usarse).
 const getSheetsClient = () => {
   if (!sheetsClientPromise) {
     if (!fs.existsSync(KEY_PATH)) {
@@ -26,15 +27,24 @@ const getSheetsClient = () => {
         500
       );
     }
-    const auth = new google.auth.GoogleAuth({
-      keyFile: KEY_PATH,
-      // Antes solo lectura - se necesita el scope completo para poder escribir de
-      // vuelta a la hoja (ver appendSheetRow / appsheetWriteback.service.js). El
-      // service account tambien necesita estar compartido como Editor en la planilla
-      // (esto es en Google Sheets, no alcanza con el scope del lado del codigo).
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
-    sheetsClientPromise = auth.getClient().then((authClient) => google.sheets({ version: "v4", auth: authClient }));
+    sheetsClientPromise = import("googleapis")
+      .then(async ({ google }) => {
+        const auth = new google.auth.GoogleAuth({
+          keyFile: KEY_PATH,
+          // Antes solo lectura - se necesita el scope completo para poder escribir de
+          // vuelta a la hoja (ver appendSheetRow / appsheetWriteback.service.js). El
+          // service account tambien necesita estar compartido como Editor en la planilla
+          // (esto es en Google Sheets, no alcanza con el scope del lado del codigo).
+          scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+        });
+        const authClient = await auth.getClient();
+        return google.sheets({ version: "v4", auth: authClient });
+      })
+      .catch((err) => {
+        // Si falla (credencial invalida, red), el proximo intento vuelve a probar en vez de quedar con el error guardado.
+        sheetsClientPromise = null;
+        throw err;
+      });
   }
   return sheetsClientPromise;
 };
