@@ -38,6 +38,8 @@ const PLAZO_DIAS_DESPUES_DE_LA_FECHA = 15;
 // No se guarda: se deriva al leer (igual que Pendiente/Vencido), asi no hace falta ningun cron
 // y, si el servicio aparece despues, el mancato igual puede asignarse.
 const ESPERA_SERVICIO_DIAS = 7;
+// El chofer tiene que subir el aviso dentro de este tiempo desde el transito; si tarda mas, la oficina lo ve marcado.
+const SUBIDA_LIMITE_HORAS = 48;
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -104,17 +106,30 @@ const asignacionWhere = (value) => {
 const calcVencimiento = (fechaDay) => addDays(fechaDay, PLAZO_DIAS_DESPUES_DE_LA_FECHA);
 
 // Pendiente / Vencido / Pagado nunca se guardan: se derivan de pagado + fechaVencimiento.
+// Observado = la oficina lo marco porque no se puede pagar por algun motivo (si se paga, pasa a Pagado).
 const deriveEstado = (m, today) => {
   if (m.pagado) return "PAGADO";
+  if (m.observado) return "OBSERVADO";
   return dateOnlyToDay(m.fechaVencimiento) < today ? "VENCIDO" : "PENDIENTE";
 };
 
 const estadoWhere = (estado, today) => {
   const todayDate = dayToDate(today);
   if (estado === "PAGADO") return { pagado: true };
-  if (estado === "VENCIDO") return { pagado: false, fechaVencimiento: { lt: todayDate } };
-  if (estado === "PENDIENTE") return { pagado: false, fechaVencimiento: { gte: todayDate } };
+  if (estado === "OBSERVADO") return { pagado: false, observado: true };
+  if (estado === "VENCIDO") return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate } };
+  if (estado === "PENDIENTE") return { pagado: false, observado: false, fechaVencimiento: { gte: todayDate } };
   return {};
+};
+
+// Atajo "Vencen hoy y mañana": sin pagar, no observados y con vencimiento hoy o mañana.
+const venceWhere = (vence, today) => {
+  if (vence !== "HOY_MANANA") return null;
+  return {
+    pagado: false,
+    observado: false,
+    fechaVencimiento: { gte: dayToDate(today), lte: addDays(today, 1) },
+  };
 };
 
 // El chofer solo ve los suyos; OWNER/ADMIN ven todos y pueden filtrar por chofer.
@@ -128,6 +143,8 @@ const buildWhere = (actor, filters, today) => {
   if (areaWhere) and.push({ OR: [areaWhere, { createdById: actor.id }] });
 
   if (filters.estado) and.push(estadoWhere(filters.estado, today));
+  const vence = venceWhere(filters.vence, today);
+  if (vence) and.push(vence);
   if (filters.targa) {
     and.push({ targa: { contains: filters.targa.replace(/\s+/g, "").toUpperCase() } });
   }
@@ -190,6 +207,9 @@ const toResponse = async (m, today) => {
   const asignacionShown = displayAsignacion(m);
   const [foto, comprobante] = await Promise.all([attachment(m.fotoKey), attachment(m.comprobanteKey)]);
   const diasRestantes = dayDiff(today, vencimientoDay);
+  // Horas entre el transito (o el inicio del dia del aviso si no tiene hora) y la subida al sistema.
+  const transitoRef = m.fechaHoraTransito ?? romeLocalToDate(dateOnlyToDay(m.fecha), "00:00");
+  const horasHastaSubida = Math.max(0, Math.floor((m.createdAt - transitoRef) / (60 * 60 * 1000)));
   return {
     id: m.id,
     numero: m.numero,
@@ -208,6 +228,7 @@ const toResponse = async (m, today) => {
     comentarios: m.comentarios,
     estado: deriveEstado(m, today),
     pagado: m.pagado,
+    observado: m.observado,
     pagadoAt: m.pagadoAt,
     // Negativo = vencido hace N dias; 0 = vence hoy.
     diasRestantes,
@@ -215,6 +236,8 @@ const toResponse = async (m, today) => {
     fueraDePlazo: m.fueraDePlazo,
     diasTarde: m.fueraDePlazo ? Math.max(0, dayDiff(vencimientoDay, romeDay(m.createdAt))) : 0,
     pagadoFueraDePlazo: Boolean(m.pagadoAt) && romeDay(m.pagadoAt) > vencimientoDay,
+    horasHastaSubida,
+    subidoTarde: horasHastaSubida > SUBIDA_LIMITE_HORAS,
     // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
     asignacion: asignacionShown,
     tramo: m.tramo,
@@ -239,6 +262,30 @@ const toResponse = async (m, today) => {
     registradoAt: m.createdAt,
     updatedAt: m.updatedAt,
   };
+};
+
+// Lo que ve el chofer: solo la informacion que el sube, cuando la subio y si la subio tarde (mas de 48 h). El estado, los plazos, el
+// pago y el comprobante los maneja la oficina y no se le envian. "editable" le dice si todavia puede
+// corregirlo (sin revelar si esta pagado).
+const CHOFER_HIDDEN_FIELDS = [
+  "estado",
+  "pagado",
+  "pagadoAt",
+  "observado",
+  "fechaVencimiento",
+  "diasRestantes",
+  "fueraDePlazo",
+  "diasTarde",
+  "pagadoFueraDePlazo",
+  "comprobante",
+  "asignacionMotivo",
+  "esperaHasta",
+];
+const forActor = (actor) => (response) => {
+  if (isPrivileged(actor)) return response;
+  const visible = { ...response, editable: !response.pagado };
+  for (const field of CHOFER_HIDDEN_FIELDS) delete visible[field];
+  return visible;
 };
 
 const assertNotFuture = (transitAt, now = new Date()) => {
@@ -311,7 +358,7 @@ export const createMancatoForActor = async (actor, data, files) => {
       // Se subio cuando el plazo ya habia vencido.
       fueraDePlazo: romeDay(now) > dateOnlyToDay(vencimiento),
     });
-    return toResponse(created, romeDay());
+    return toResponse(created, romeDay()).then(forActor(actor));
   } catch (err) {
     await Promise.all(uploaded.map((key) => deleteObject(key).catch(() => {})));
     throw err;
@@ -322,6 +369,7 @@ const ORDER_BY_ESTADO = {
   // Lo mas urgente primero: el que vence antes (o lleva mas tiempo vencido).
   PENDIENTE: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
   VENCIDO: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
+  OBSERVADO: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
   PAGADO: [{ pagadoAt: "desc" }, { createdAt: "desc" }],
 };
 
@@ -351,7 +399,7 @@ export const listMancatosForActor = async (actor, query) => {
     }),
   ]);
 
-  const items = await Promise.all(rows.map((m) => toResponse(m, today)));
+  const items = await Promise.all(rows.map((m) => toResponse(m, today).then(forActor(actor))));
   return { items, total, page, pageSize };
 };
 
@@ -360,7 +408,7 @@ export const listMancatosForActor = async (actor, query) => {
 export const getMancatoSummaryForActor = async (actor, query) => {
   const today = romeDay();
   const entries = await Promise.all(
-    ["VENCIDO", "PENDIENTE", "PAGADO"].map(async (estado) => {
+    ["VENCIDO", "PENDIENTE", "OBSERVADO", "PAGADO"].map(async (estado) => {
       const where = buildWhere(actor, { ...query, estado }, today);
       const [count, total] = await Promise.all([countMancatos(where), sumMancatosCosto(where)]);
       return [estado, { count, total }];
@@ -385,12 +433,13 @@ export const getMancatoMesesForActor = async (actor, query) => {
         total: 0,
         PENDIENTE: { count: 0, total: 0 },
         VENCIDO: { count: 0, total: 0 },
+        OBSERVADO: { count: 0, total: 0 },
         PAGADO: { count: 0, total: 0 },
       });
     }
     const entry = months.get(mes);
     const costo = Number(row.costo);
-    const estado = row.pagado ? "PAGADO" : dateOnlyToDay(row.fechaVencimiento) < today ? "VENCIDO" : "PENDIENTE";
+    const estado = deriveEstado(row, today);
     entry.count += 1;
     entry.total += costo;
     entry[estado].count += 1;
@@ -404,6 +453,7 @@ export const getMancatoMesesForActor = async (actor, query) => {
       total: round(m.total),
       PENDIENTE: { ...m.PENDIENTE, total: round(m.PENDIENTE.total) },
       VENCIDO: { ...m.VENCIDO, total: round(m.VENCIDO.total) },
+      OBSERVADO: { ...m.OBSERVADO, total: round(m.OBSERVADO.total) },
       PAGADO: { ...m.PAGADO, total: round(m.PAGADO.total) },
     }));
 };
@@ -412,7 +462,7 @@ export const getMancatoForActor = async (actor, id) => {
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
   assertAccess(actor, mancato);
-  return toResponse(mancato, romeDay());
+  return toResponse(mancato, romeDay()).then(forActor(actor));
 };
 
 // El chofer solo puede tocar estos campos y solo mientras no este pagado; OWNER/ADMIN
@@ -524,18 +574,20 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
         payload.pagadoAt = new Date();
       }
     }
+    // Solo la oficina marca o quita "Observado".
+    if (privileged && changes.observado !== undefined) payload.observado = changes.observado;
     if (privileged && changes.pagado !== undefined && payload.pagado === undefined) {
       payload.pagado = changes.pagado;
       payload.pagadoAt = changes.pagado ? (current.pagadoAt ?? new Date()) : null;
     }
 
     if (Object.keys(payload).length === 0) {
-      return toResponse(current, romeDay());
+      return toResponse(current, romeDay()).then(forActor(actor));
     }
 
     const updated = await updateMancatoById(id, payload);
     await Promise.all(oldKeys.map((key) => deleteObject(key).catch(() => {})));
-    return toResponse(updated, romeDay());
+    return toResponse(updated, romeDay()).then(forActor(actor));
   } catch (err) {
     await Promise.all(uploaded.map((key) => deleteObject(key).catch(() => {})));
     throw err;

@@ -764,6 +764,8 @@ model MancatoPagamento {
   pagado            Boolean           @default(false)
   pagadoAt          DateTime?
   fueraDePlazo      Boolean           @default(false)
+  // La oficina lo marca cuando no se puede pagar por algun motivo (estado "Observado").
+  observado         Boolean           @default(false)
   // Servicio al que pertenece este peaje (ver mancatoMatching.service.js).
   recordId          String?
   record            Record?           @relation(fields: [recordId], references: [id], onDelete: SetNull)
