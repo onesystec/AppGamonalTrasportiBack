@@ -257,6 +257,30 @@ const toResponse = async (m, today) => {
   };
 };
 
+// Lo que ve el chofer: solo la informacion que el sube (y cuando la subio). El estado, los plazos, el
+// pago y el comprobante los maneja la oficina y no se le envian. "editable" le dice si todavia puede
+// corregirlo (sin revelar si esta pagado).
+const CHOFER_HIDDEN_FIELDS = [
+  "estado",
+  "pagado",
+  "pagadoAt",
+  "observado",
+  "fechaVencimiento",
+  "diasRestantes",
+  "fueraDePlazo",
+  "diasTarde",
+  "pagadoFueraDePlazo",
+  "comprobante",
+  "asignacionMotivo",
+  "esperaHasta",
+];
+const forActor = (actor) => (response) => {
+  if (isPrivileged(actor)) return response;
+  const visible = { ...response, editable: !response.pagado };
+  for (const field of CHOFER_HIDDEN_FIELDS) delete visible[field];
+  return visible;
+};
+
 const assertNotFuture = (transitAt, now = new Date()) => {
   if (transitAt.getTime() > now.getTime() + 10 * 60 * 1000) {
     throw new AppError("La hora del transito no puede ser futura", 400);
@@ -327,7 +351,7 @@ export const createMancatoForActor = async (actor, data, files) => {
       // Se subio cuando el plazo ya habia vencido.
       fueraDePlazo: romeDay(now) > dateOnlyToDay(vencimiento),
     });
-    return toResponse(created, romeDay());
+    return toResponse(created, romeDay()).then(forActor(actor));
   } catch (err) {
     await Promise.all(uploaded.map((key) => deleteObject(key).catch(() => {})));
     throw err;
@@ -368,7 +392,7 @@ export const listMancatosForActor = async (actor, query) => {
     }),
   ]);
 
-  const items = await Promise.all(rows.map((m) => toResponse(m, today)));
+  const items = await Promise.all(rows.map((m) => toResponse(m, today).then(forActor(actor))));
   return { items, total, page, pageSize };
 };
 
@@ -431,7 +455,7 @@ export const getMancatoForActor = async (actor, id) => {
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
   assertAccess(actor, mancato);
-  return toResponse(mancato, romeDay());
+  return toResponse(mancato, romeDay()).then(forActor(actor));
 };
 
 // El chofer solo puede tocar estos campos y solo mientras no este pagado; OWNER/ADMIN
@@ -551,12 +575,12 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
     }
 
     if (Object.keys(payload).length === 0) {
-      return toResponse(current, romeDay());
+      return toResponse(current, romeDay()).then(forActor(actor));
     }
 
     const updated = await updateMancatoById(id, payload);
     await Promise.all(oldKeys.map((key) => deleteObject(key).catch(() => {})));
-    return toResponse(updated, romeDay());
+    return toResponse(updated, romeDay()).then(forActor(actor));
   } catch (err) {
     await Promise.all(uploaded.map((key) => deleteObject(key).catch(() => {})));
     throw err;
