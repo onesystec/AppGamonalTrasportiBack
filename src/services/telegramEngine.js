@@ -44,7 +44,7 @@ const lev = (a, b) => {
 };
 
 // Mismo token, o con 1 letra de diferencia si es una palabra larga (los nombres cortos no se tocan: se confundirian).
-export const tokenClose = (t, name) => t === name || (t.length >= 6 && name.length >= 6 && lev(t, name) <= 1);
+export const tokenClose = (t, name) => t === name || (!/\d/.test(t) && t.length >= 6 && name.length >= 6 && lev(t, name) <= 1);
 
 const addDays = (day, n) => {
   const [y, m, d] = day.split("-").map(Number);
@@ -125,6 +125,81 @@ export const findServiceCode = (text) => {
   return null;
 };
 
+// Cliente segun el formato del codigo (98% de los casos): "26WCIMXP0129810" (año + letras + numero) es World Courier y
+// "S20602155" (S + 8 digitos) es Extras Piazza. Con otros formatos (AP1011-480...) no se decide.
+const clientNameForCode = (code) => (/^\d{2}[A-Z]{3,8}\d{6,9}/.test(code) ? "world courier" : /^S\d{8}/.test(code) ? "extra piazza" : null);
+
+// Ruta de un mensaje de Extras Piazza leyendo sus palabras clave, sin IA:
+//   REC = recuperar/retirar en ese lugar · DLV / DELIVERY / CONSEGNA = entregar en ese lugar (el nombre que sigue es una ubicacion)
+//   "REC A MXP E DLV  BIOREP" -> Malpensa, BIOREP        "CONSEGNA  PALAZZO PIGNANO(CREMONA)" -> Palazzo Pignano (Cremona)
+//   "Ritiro documenti" (el lugar es la linea anterior) y el bloque despues de "Consegna:" (direccion en varias lineas).
+// Tambien la direccion que acompaña a "ORE 7.00" en la primera linea (donde se hace el retiro). Las siglas de aeropuerto se escriben completas.
+const AIRPORTS = {
+  MXP: "Aeroporto di Malpensa",
+  LIN: "Aeroporto di Linate",
+  BGY: "Aeroporto di Bergamo Orio al Serio",
+  FCO: "Aeroporto di Fiumicino",
+  CIA: "Aeroporto di Ciampino",
+  VRN: "Aeroporto di Verona",
+  VCE: "Aeroporto di Venezia",
+  BLQ: "Aeroporto di Bologna",
+  TRN: "Aeroporto di Torino",
+  GOA: "Aeroporto di Genova",
+};
+const cleanPlace = (raw) => {
+  const t = raw.replace(/["“”*]/g, "").replace(/\(([^)]+)\)/g, ", $1").replace(/\s+/g, " ").replace(/^[\s.,:;-]+|[\s.,:;-]+$/g, "");
+  return AIRPORTS[t.toUpperCase()] ?? t;
+};
+const PLACE_STOP = String.raw`(?=\s{2,}|\t|\s+(?:arriva|recuperare|recupero|distinta|polizza|ice)\b|\s+\d{1,2}(?:[.:]\d{2})?\s*$|$)`;
+const DAY_WORDS = /\b(?:domani|oggi|hoy|ma[ñn]ana|pasado)\b/gi;
+
+export const parseExtrasRoute = (text) => {
+  const lines = text.split("\n");
+  const found = [];
+  let hasDelivery = false;
+  let seenPickup = false;
+  lines.forEach((line, i) => {
+    // Direccion de retiro junto a la hora ("LAINATE VIA VARESE 38 ORE 7.00").
+    const ore = /^(.*?)\s*\bORE\s+\d{1,2}[.:h]?\d{0,2}/i.exec(line);
+    if (ore && !seenPickup) {
+      const before = cleanPlace(ore[1].replace(DAY_WORDS, " "));
+      if (/[A-Za-zÀ-ÿ]{3}/.test(before) && before.split(" ").length <= 8) {
+        found.push({ pos: i, place: before });
+        seenPickup = true;
+      }
+    }
+    const rec = /\bREC(?:UPERO|\.)?\s+(?:A\s+|AL\s+|DA\s+)?(.{1,40}?)(?=\s*\+|\s{2,}|\s+E\s+(?:DLV|[Dd][Ee][Ll][Ii][Vv])|\s+(?:DLV|[Dd][Ee][Ll][Ii][Vv])|$)/.exec(line);
+    const dlv = new RegExp(String.raw`\b(?:DLV|DELIVERY|DELIV|CONSEGNA|CONS)\b\.?:?\s*(.+?)${PLACE_STOP}`, "i").exec(line);
+    if (rec && !/^\d+$/.test(rec[1].trim())) found.push({ pos: i + 0.1, place: cleanPlace(rec[1]) });
+    if (dlv && dlv[1].trim() && !/^\d+$/.test(dlv[1].trim()) && !/^:?$/.test(dlv[1].trim())) {
+      found.push({ pos: i + 0.2, place: cleanPlace(dlv[1]) });
+      hasDelivery = true;
+    }
+  });
+  // Estilo "Ritiro ..." / "Consegna:" en lineas separadas.
+  const ritiro = lines.findIndex((l) => /^\s*ritiro\b/i.test(l));
+  if (ritiro > 0) {
+    for (let j = ritiro - 1; j >= 0; j -= 1) {
+      const l = lines[j].trim();
+      if (!l) continue;
+      if (!/^(nuovo servizio|servizio|domani|oggi|hoy|ma[ñn]ana|ore\b)/i.test(l) && !/\d{1,2}[.:]\d{2}/.test(l)) found.push({ pos: j, place: cleanPlace(l) });
+      break;
+    }
+  }
+  const cons = lines.findIndex((l) => /^\s*consegna\s*:?\s*$/i.test(l));
+  if (cons >= 0) {
+    const addr = lines.slice(cons + 1).map((l) => l.trim()).filter(Boolean).filter((l) => !/^(tel|note?|ritiro)\b/i.test(l));
+    if (addr.length) {
+      found.push({ pos: cons + 0.5, place: cleanPlace(addr.slice(0, 4).join(", ")) });
+      hasDelivery = true;
+    }
+  }
+  if (!hasDelivery) return [];
+  const stops = [];
+  for (const { place } of found.sort((a, b) => a.pos - b.pos)) if (place && place !== stops.at(-1)) stops.push(place);
+  return stops;
+};
+
 // found: lo que se entendio de ESTE texto (solo claves presentes). leftover: pedazos largos que no se pudieron ubicar.
 export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = false } = {}) => {
   const found = {};
@@ -145,6 +220,19 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
       text = `${text.slice(0, at)} ${text.slice(at + code.length)}`;
     }
   }
+
+  let routeParsed = [];
+  let clientFromCode = false;
+  if ((tipo === "PM" || tipo === "PR") && found.codigo) {
+    const wanted = clientNameForCode(found.codigo);
+    const c = wanted && ctx.refs.clients.find((x) => norm(x.nombre) === wanted);
+    if (c) {
+      found.clientId = c.id;
+      found.clientFromCode = true;
+      clientFromCode = true;
+    }
+  }
+  if (tipo === "PM" || tipo === "PR") routeParsed = parseExtrasRoute(input);
 
   ({ text, match: m } = take(text, /\b(?:desc(?:ripcion|ripción)?|nota)\s*[:=]\s*([^\n]+)/i));
   if (m) found.descripcion = m[1].trim();
@@ -232,11 +320,13 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   const drivers = onlyDrivers ? ctx.refs.drivers.filter((d) => onlyDrivers.includes(d.id)) : ctx.refs.drivers;
   const usedWords = new Set();
 
-  const client = findPerson(
-    words.map((x) => x.w),
-    personList(ctx.refs.clients, (c) => c.nombre),
-    { preferEarliest: true }
-  );
+  const client = clientFromCode
+    ? null
+    : findPerson(
+        words.map((x) => x.w),
+        personList(ctx.refs.clients, (c) => c.nombre),
+        { preferEarliest: true }
+      );
   if (client?.ambiguous) found.clientAmbiguous = true;
   else if (client) {
     found.clientId = client.id;
@@ -277,8 +367,12 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   };
   if (routeText) routeText.split(SEPARATORS).forEach((p) => addStop(p, true));
   pieces.forEach((p) => addStop(p, false));
-  if (stops.length) found.destinos = stops;
-  return { found, leftover, routeLabeled: Boolean(routeText) };
+  if (routeParsed.length && !routeText) {
+    // Ruta leida de las palabras clave: manda sobre las ciudades sueltas y ya no hace falta la IA.
+    found.destinos = routeParsed;
+    leftover.length = 0;
+  } else if (stops.length) found.destinos = stops;
+  return { found, leftover, routeLabeled: Boolean(routeText) || routeParsed.length > 0 };
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -317,6 +411,7 @@ const merge = (state, found, ctx) => {
   if (found.clientId) {
     next.clientId = found.clientId;
     next.clientAuto = false;
+    next.clientFromCode = Boolean(found.clientFromCode);
   }
   if (found.hora && isExtrasPiazza(next)) next.etaManual = true;
   for (const key of ["fecha", "hora", "horaSalida", "km", "aplicativoN", "descripcion"]) if (found[key] != null) next[key] = found[key];
@@ -365,10 +460,10 @@ export const missingFields = (state) => {
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
-  if (isExtrasPiazza(state)) {
-    if (!retiroReady(state)) missing.push("retiro");
-    else if (state.etaFailed && !state.hora) missing.push("eta");
-  }
+  // La hora de retiro (salida del vehiculo) se pide siempre en Extras Piazza (de ahi sale la ETA) y en DHL y AB Service (ahi la ETA
+  // la da el mensaje); con ella el servicio pasa solo a "En camino" a los 15 minutos.
+  if ((isExtrasPiazza(state) || tipo.kmCliente) && !retiroReady(state)) missing.push("retiro");
+  else if (isExtrasPiazza(state) && state.etaFailed && !state.hora) missing.push("eta");
   return missing;
 };
 
@@ -400,7 +495,9 @@ const question = (field, state, ctx) => {
     case "retiro":
       return state.horaSalida
         ? `¿A qué hora es el retiro? Detecté las ${state.horaSalida} (${fmtFecha(state.fecha)}). Toca el botón si es correcto o escribe otra hora (ej: 7:30).`
-        : "¿A qué hora es el retiro? (ej: 7:00). Con eso calculo la ruta y la hora de llegada al último punto.";
+        : isExtrasPiazza(state)
+          ? "¿A qué hora es el retiro? (ej: 7:00). Con eso calculo la ruta y la hora de llegada al último punto."
+          : "¿A qué hora es el retiro (salida del vehículo)? (ej: 7:00)";
     case "eta":
       return isExtrasPiazza(state)
         ? "No pude calcular la hora de llegada con la ruta. ¿A qué hora llegarías al último punto? (ej: 12:30)"
@@ -426,7 +523,7 @@ export const summary = (state, ctx) => {
     `Resumen · ${tipo.label}${tipo.zonaVariable ? ` (${zona === "ROMA" ? "Roma" : "Milano"})` : ""}`,
     `Chofer: ${driver ? nameOf(driver) : "-"}`,
     `Vehículo: ${vehicle?.targa ?? "-"}`,
-    `Cliente: ${client?.nombre ?? "-"}${state.clientAuto ? " (automático)" : ""}`,
+    `Cliente: ${client?.nombre ?? "-"}${state.clientFromCode ? " (por el formato del código)" : state.clientAuto ? " (automático)" : ""}`,
     ...(isExtrasPiazza(state)
       ? [
           `Retiro: ${fmtFecha(state.fecha)} ${state.horaSalida}`,
@@ -434,7 +531,9 @@ export const summary = (state, ctx) => {
             ? `ETA (la que escribiste): ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}`
             : `Llegada estimada al último punto: ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}${state.rutaMin ? ` (ruta ≈ ${state.rutaKm} km · ${Math.floor(state.rutaMin / 60)} h ${state.rutaMin % 60} min de manejo, sin contar esperas)` : ""}`,
         ]
-      : [`ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`]),
+      : tipo.kmCliente
+        ? [`Retiro: ${fmtFecha(state.fecha)} ${state.horaSalida}`, `ETA: ${fmtFecha(state.fecha)} ${state.hora}`]
+        : [`ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`]),
     `Ruta: ${salidaLabel(state)} → ${state.destinos.join(" → ")}`,
   ];
   if (tipo.aplicativo) lines.push(`Aplicativo: ${state.aplicativoN}`);
@@ -483,6 +582,7 @@ export const HELP_TEXT = [
   "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
   "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
   "Lo que falte te lo pregunto. En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos.",
+  "DHL y AB Service: además de la ETA te pido la hora de RETIRO (salida del vehículo; escribe «salida 7:00» o te la pregunto). Pasados 15 min del retiro el servicio pasa solo a «En camino».",
   "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; te pido confirmarla y calculo la hora de llegada al último punto con la ruta.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
@@ -535,6 +635,7 @@ const FIELD_NAMES = {
   vehicle: "vehículo",
   client: "cliente",
   eta: "ETA",
+  retiro: "hora de retiro (escribe «salida 7:00»)",
   destinos: "ruta",
   km: "km",
   aplicativo: "aplicativo",
@@ -550,7 +651,9 @@ const NAME_STOP = new Set(["eta", "ore", "km", "per", "verso", "app", "order", "
 const EXTRA_STAFF_TOKENS = ["sinelli", ...(process.env.TELEGRAM_NOMBRES_OFICINA ?? "").split(",").map((t) => norm(t)).filter(Boolean)];
 
 export const stripLeadingNames = (text, ctx) => {
-  const words = text.trim().split(/\s+/);
+  // Se recorre palabra por palabra pero se devuelve el resto del texto ORIGINAL: los saltos de linea importan (rutas de Extras Piazza).
+  const tokens = [...text.matchAll(/\S+/g)];
+  const words = tokens.map((t) => t[0]);
   const people = new Set([...ctx.refs.drivers.flatMap((d) => norm(`${d.nombre} ${d.apellido}`).split(" ")).filter((t) => t.length >= 3), ...EXTRA_STAFF_TOKENS]);
   const clientTokens = new Set(ctx.refs.clients.flatMap((c) => norm(c.nombre).split(" ")).filter((t) => t.length >= 2));
   const alpha = (w) => /^[\p{L}'’.-]+$/u.test(w.replace(/^@/, "").replace(/[,;:]+$/, ""));
@@ -569,7 +672,7 @@ export const stripLeadingNames = (text, ctx) => {
     if (next && nw !== "gt" && !next.startsWith("@") && alpha(next) && !NAME_STOP.has(nw) && !clientTokens.has(nw) && (people.has(nw) || /^\p{Lu}\p{Ll}/u.test(next))) i += 1;
     groups += 1;
   }
-  return words.slice(i).join(" ");
+  return i < tokens.length ? text.slice(tokens[i].index) : "";
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -639,6 +742,9 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   const state = await applyDefaults(merge(state0, found, ctx), ctx);
 
   const warnings = notFound ? [notFound] : [];
+  if (!isExtrasPiazza(state) && state.horaSalida && state.hora && !state.etaFecha && state.horaSalida > state.hora) {
+    warnings.push(`El retiro (${state.horaSalida}) es posterior a la ETA (${state.hora}). Revisa las horas.`);
+  }
   if (found.km != null && !(found.km > 0 && found.km < 5000)) {
     warnings.push("Los km tienen que ser un número entre 1 y 4999.");
     state.km = null;

@@ -94,6 +94,8 @@ const createFromState = async (state, who) => {
   else lines.push("No pude calcular los km solos: cárgalos a mano en el app.");
   if (state.tipo === "PM" || state.tipo === "PR") {
     lines.push(`Retiro ${state.horaSalida} · ${state.etaManual ? "ETA" : "llegada estimada al último punto"} ${state.hora}.`);
+  } else if (state.horaSalida) {
+    lines.push(`Retiro ${state.horaSalida} · ETA ${state.hora}. Pasará solo a «En camino» pasado el retiro.`);
   }
   return { id: record.id, text: lines.join("\n") };
 };

@@ -475,6 +475,14 @@ solo que sin avisar al celular. Pasos en Firebase (una sola vez):
      privada" - descarga un JSON. Pegar su contenido completo (en una sola linea) como
      `FIREBASE_SERVICE_ACCOUNT_JSON` en las variables de entorno de Render.
 
+**12. Pendiente -> En camino automatico.** Un servicio "Pendiente" (`IN_SOSPESO`) pasa solo a
+"En camino" (`IN_CONSEGNA`) cuando su hora de retiro (`fechaRetiro`) ya paso hace
+`AUTO_EN_CAMINO_MIN` minutos (por defecto 15; `0` lo apaga). Un timer en el servidor lo revisa
+cada minuto y una vez al arrancar (`estadoAutomatico.service.js`, solo en produccion). Solo
+mira las ultimas 24 h y solo toca servicios Pendientes con hora de retiro: no pisa los
+Retirados, En camino, Entregados, Anulados ni Reprogramados, ni los que no tienen hora de
+retiro. Si Render free duerme el servidor, se pone al dia al despertar.
+
 **11. Carga de servicios por chat de Telegram, con comandos.**
 Un bot privado de Telegram (solo el chat en `TELEGRAM_ALLOWED_CHAT_ID` le puede escribir
 - cualquier otro mensaje se ignora en silencio) carga servicios con el mismo `createRecord`
@@ -498,6 +506,18 @@ IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responde
   (misma ruta/motor que el servicio, salida segun el tipo) calcula la hora de llegada al ultimo
   punto (solo manejo, sin esperas). Si no se puede calcular, pregunta la ETA; una ETA escrita a
   mano manda. En DHL, AB y Otros la hora del mensaje sigue siendo la ETA.
+- Extras Piazza, sin IA: el cliente sale del formato del codigo (`26WCIMXP0129810` = World
+  Courier, `S20602155` = Extras Piazza; otros formatos como `AP1011-480` no se deciden) y la
+  ruta se lee de las palabras clave del mensaje: `REC` = retirar en ese lugar, `DLV` /
+  `DELIVERY` / `CONSEGNA` = entregar en el lugar que sigue (`DLV "BIOREP"` -> BIOREP),
+  `Ritiro` (lugar en la linea anterior), el bloque despues de `Consegna:` y la direccion
+  junto a `ORE 7.00`. Las siglas de aeropuerto (MXP, LIN, BGY, FCO...) se escriben completas
+  (ver `AIRPORTS` en `telegramEngine.js`; ahi se agregan mas). Solo si esto no encuentra una
+  entrega se usa la IA.
+- Hora de retiro: en DHL y AB Service el bot tambien la pide siempre (la confirma si el mensaje
+  trae "salida 11:30"); la ETA sigue siendo la del mensaje y avisa si el retiro queda despues
+  de la ETA. Con el retiro cargado el servicio pasa solo a "En camino" (ver punto 12). En un
+  lote, la linea sin "salida ..." no se carga.
 - Obligatorios: chofer, vehiculo, cliente, ETA y al menos una ciudad. Ademas: DHL y AB
   Service piden los **km (solo ida, los que da el cliente; el app los cuenta x2)**, DHL pide
   el numero de aplicativo, y Extras Piazza / Otros piden descripcion. En Extras Piazza y

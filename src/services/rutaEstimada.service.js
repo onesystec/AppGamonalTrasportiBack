@@ -111,6 +111,8 @@ const circuitPoints = async (members) => {
   const retiros = [];
   for (const m of members) {
     const pickup = pickupOf(m);
+    // Si el retiro es el propio lugar de espera (Extras Piazza Milano) no hay tramo hasta ahi: va directo a la primera parada.
+    if (distanceMeters(base, pickup) <= CIRCUIT_SAME_PLACE_M) continue;
     if (!retiros.some((r) => distanceMeters(r, pickup) <= CIRCUIT_SAME_PLACE_M)) retiros.push(pickup);
   }
   const paradas = members.flatMap(placedStops);

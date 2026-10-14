@@ -148,6 +148,9 @@ const envSchema = z.object({
   // Dias que se conservan las paradas antes de borrarse solas (limpieza diaria).
   PARADA_RETENTION_DAYS: z.coerce.number().default(90),
 
+  // Minutos despues de la hora de retiro (fechaRetiro) en que un servicio todavia "Pendiente" pasa solo a "En camino". 0 = apagado.
+  AUTO_EN_CAMINO_MIN: z.coerce.number().min(0).default(15),
+
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando
   // igual (la campanita web sigue mostrando las mismas alertas), solo que sin avisar

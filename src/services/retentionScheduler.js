@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { deleteParadasOlderThan } from "../models/parada.model.js";
 import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
+import { advancePendingToEnCamino } from "./estadoAutomatico.service.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
 import { runSeguimientoAlerts } from "./seguimiento.service.js";
 
@@ -93,4 +94,21 @@ export const startSeguimientoMonitor = () => {
     runSeguimientoAlerts().catch(() => {});
   };
   setInterval(tick, 2 * 60 * 1000).unref();
+};
+
+// Pendiente -> En camino: pasados AUTO_EN_CAMINO_MIN minutos de la hora de retiro (ver estadoAutomatico.service.js). Corre una vez al
+// arrancar (se pone al dia si el servidor estaba dormido) y luego cada minuto. Solo en produccion, como los demas, para que un
+// servidor local no cambie estados de la base compartida.
+export const startAutoEnCamino = () => {
+  if (env.NODE_ENV !== "production" || !(env.AUTO_EN_CAMINO_MIN > 0)) return;
+  const tick = async () => {
+    try {
+      const count = await advancePendingToEnCamino();
+      if (count > 0) console.log(`[estado] ${count} servicio(s) pasaron a "En camino" (retiro hace mas de ${env.AUTO_EN_CAMINO_MIN} min)`);
+    } catch (err) {
+      console.error("[estado] no se pudo pasar servicios a En camino:", err.message);
+    }
+  };
+  void tick();
+  setInterval(tick, 60 * 1000).unref();
 };
