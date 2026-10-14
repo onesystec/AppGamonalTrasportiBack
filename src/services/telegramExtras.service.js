@@ -4,9 +4,11 @@ import { findOverlappingPermisos, getConfig, setConfig } from "../models/permiso
 import { findUserByEmail } from "../models/user.model.js";
 import { recordAreaWhere } from "../utils/areaAccess.js";
 import { romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
-import { geocodePreview } from "./geocoding.service.js";
+import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
+import { geocodePreview, geocodeStops } from "./geocoding.service.js";
+import { calculateRoute } from "./routing.service.js";
 import { deleteRecord } from "./record.service.js";
-import { TIPOS, norm } from "./telegramEngine.js";
+import { TIPOS, norm, zonaDe } from "./telegramEngine.js";
 
 // Piezas del bot que hablan con la base: quien escribe, choques con otros servicios, /hoy y /deshacer.
 
@@ -72,6 +74,14 @@ const stopWarnings = async (state) => {
   return out;
 };
 
+// Para un codigo repetido, el siguiente libre con la costumbre de la oficina: CODIGO-B, CODIGO-C...
+const nextFreeCode = async (code) => {
+  const base = code.replace(/-[A-Z]$/, "");
+  const taken = new Set((await prisma.record.findMany({ where: { codigo: { startsWith: base } }, select: { codigo: true } })).map((r) => r.codigo));
+  for (const letter of "BCDEFGHIJKLMNOPQRSTUVWXYZ") if (!taken.has(`${base}-${letter}`)) return `${base}-${letter}`;
+  return `${base}-2`;
+};
+
 export const checkConflicts = async (state, refs) => {
   const warnings = [];
   const eta = romeLocalToDate(state.fecha, state.hora);
@@ -105,6 +115,18 @@ export const checkConflicts = async (state, refs) => {
         warnings.push(`Parece duplicado: ya existe el servicio ${o.codigo} de ${driverName} a las ${at} con el mismo vehículo y cliente.`);
       } else if (sameDriver) warnings.push(`${driverName} ya tiene un servicio a las ${at} (${o.codigo}).`);
       else if (sameVehicle) warnings.push(`El vehículo ${vehicle?.targa ?? ""} ya está en un servicio a las ${at} (${o.codigo}).`);
+    }
+    if (state.codigo) {
+      const dup = await prisma.record.findUnique({
+        where: { codigo: state.codigo },
+        select: { eta: true, driver: { select: { nombre: true, apellido: true } } },
+      });
+      if (dup) {
+        const next = await nextFreeCode(state.codigo);
+        warnings.push(
+          `Ya existe un servicio con el código ${state.codigo} (${dup.driver.nombre} ${dup.driver.apellido}, ${romeHHMM(dup.eta)}). Si es otro servicio con el mismo código, escribe: código ${next}`
+        );
+      }
     }
     for (const p of permisos) warnings.push(`${driverName} tiene un ${p.estado === "APROBADO" ? "permiso aprobado" : "permiso pendiente"} ese día.`);
     warnings.push(...stops);
@@ -190,4 +212,21 @@ export const undoLast = async (userKey, who) => {
   }
   await setConfig(undoKey(userKey), { ids: [], at: 0 });
   return lines.length ? ["Deshecho:", ...lines].join("\n") : "Ese servicio ya no existe.";
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Ruta estimada (Extras Piazza): salida -> paradas, en el mismo orden y con el mismo motor que usa el servicio al crearse. Devuelve
+// { distanciaKm, duracionMin } o null si no se pudo (el bot pregunta la ETA a mano).
+// ---------------------------------------------------------------------------------------------------------------------
+export const estimateRoute = async (state) => {
+  try {
+    const tipo = TIPOS[state.tipo];
+    const salida = defaultSalidaFor({ spedizzione: tipo.spedizzione, extrasPiazzaZona: zonaDe(state) ?? undefined });
+    const stops = await geocodeStops(state.destinos, state.destinos.at(-1));
+    const ruta = await calculateRoute([{ lat: salida.lat, lng: salida.lng }, ...stops.map((x) => ({ lat: x.lat, lng: x.lng }))]);
+    return ruta ? { distanciaKm: ruta.distanciaKm, duracionMin: ruta.duracionMin } : null;
+  } catch (err) {
+    console.error("[telegram] No se pudo estimar la ruta:", err.message);
+    return null;
+  }
 };

@@ -10,7 +10,7 @@ import { calculateRoute } from "./routing.service.js";
 import { answerTelegramCallback, clearTelegramButtons, sendTelegramMessage } from "./telegram.service.js";
 import { aiExtractFields } from "./telegramAiExtractor.service.js";
 import { TIPOS, buildRecordInput, handleMessage } from "./telegramEngine.js";
-import { checkConflicts, listToday, rememberCreated, resolveTelegramActor, undoLast } from "./telegramExtras.service.js";
+import { checkConflicts, estimateRoute, listToday, rememberCreated, resolveTelegramActor, undoLast } from "./telegramExtras.service.js";
 
 // Un borrador sin tocar durante tanto tiempo se descarta: nadie espera retomar un servicio de ayer.
 const DRAFT_TTL_MS = 6 * 60 * 60 * 1000;
@@ -46,7 +46,7 @@ const callbackToText = (data, refs) => {
   if (data === "n") return "cancelar";
   if (data === "e") return "editar";
   if (data === "u") return "/deshacer";
-  if (data === "m") return "ambos";
+  if (data === "r") return "sí";
   const [kind, value] = [data.slice(0, 1), data.slice(2)];
   if (kind === "t") return TIPOS[value] ? value : null;
   if (kind === "d") {
@@ -92,6 +92,9 @@ const createFromState = async (state, who) => {
   if (tipo.kmCliente) lines.push(`KM del cliente (solo ida): ${km}. El app los cuenta ×2 = ${km * 2}.`);
   else if (km != null) lines.push(`KM del circuito completo${aprox ? " (aprox., calculado por ciudades)" : ""}: ${km}.`);
   else lines.push("No pude calcular los km solos: cárgalos a mano en el app.");
+  if (state.tipo === "PM" || state.tipo === "PR") {
+    lines.push(`Retiro ${state.horaSalida} · ${state.etaManual ? "ETA" : "llegada estimada al último punto"} ${state.hora}.`);
+  }
   return { id: record.id, text: lines.join("\n") };
 };
 
@@ -132,6 +135,7 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
     today: romeDay(),
     aiExtract: ({ text: body, state }) => aiExtractFields({ text: body, state, refs, today: romeDay() }),
     checkConflicts: (state) => checkConflicts(state, refs),
+    estimateRoute,
   };
 
   let result;

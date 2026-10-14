@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
-import { romeLocalToDate } from "../utils/romeTime.js";
+import { romeDay, romeHHMM, romeLocalToDate } from "../utils/romeTime.js";
 
 // Motor del bot de Telegram: entiende el mensaje con reglas fijas (sin IA) y lleva la conversacion paso a paso.
 // No toca la base ni la red: recibe las listas de choferes/vehiculos/clientes y devuelve el estado nuevo y lo que hay que
@@ -44,7 +44,7 @@ const lev = (a, b) => {
 };
 
 // Mismo token, o con 1 letra de diferencia si es una palabra larga (los nombres cortos no se tocan: se confundirian).
-const tokenClose = (t, name) => t === name || (t.length >= 6 && name.length >= 6 && lev(t, name) <= 1);
+export const tokenClose = (t, name) => t === name || (t.length >= 6 && name.length >= 6 && lev(t, name) <= 1);
 
 const addDays = (day, n) => {
   const [y, m, d] = day.split("-").map(Number);
@@ -54,6 +54,12 @@ const addDays = (day, n) => {
 const pad2 = (n) => String(n).padStart(2, "0");
 const hhmm = (h, m) => `${pad2(Number(h))}:${pad2(Number(m ?? 0))}`;
 const toNumber = (v) => Number(String(v).replace(",", "."));
+
+// Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO. La llegada al ultimo punto se calcula con la ruta.
+export const isExtrasPiazza = (state) => state.tipo === "PM" || state.tipo === "PR";
+
+// El retiro esta listo cuando se confirmo (o, en un lote, cuando el mensaje traia la hora).
+const retiroReady = (state) => Boolean(state.retiroOk || (state.autoRetiro && state.horaSalida));
 
 export const parseCommand = (text, { strict = false } = {}) => {
   const m = /^\s*(\/)?(dm|dr|pm|pr|ab|o)(?:@\w+)?(?=$|[\s,:;.\-–])/i.exec(text);
@@ -107,6 +113,18 @@ const findPerson = (words, people, { preferEarliest = false } = {}) => {
 
 const personList = (items, nameOf) => items.map((it) => ({ id: it.id, tokens: norm(nameOf(it)).split(" ").filter(Boolean) }));
 
+// Codigo propio de los servicios Extras Piazza: llega escrito en el mensaje, casi siempre en la primera linea.
+//   26WCIMXP0129810 · S20602155 · AP1011-480 (y variantes con sufijo cuando el mismo codigo se repite: ...-B, ...-C)
+const SERVICE_CODE = /\b(\d{2}[A-Z]{3,8}\d{6,9}|S\d{8}|AP\d{3,5}-\d{2,4})(-[A-Z])?\b/i;
+export const findServiceCode = (text) => {
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  for (const chunk of [lines.slice(0, 2).join("\n"), text]) {
+    const m = SERVICE_CODE.exec(chunk);
+    if (m) return `${m[1]}${m[2] ?? ""}`.toUpperCase();
+  }
+  return null;
+};
+
 // found: lo que se entendio de ESTE texto (solo claves presentes). leftover: pedazos largos que no se pudieron ubicar.
 export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = false } = {}) => {
   const found = {};
@@ -115,6 +133,18 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   let text = ` ${input.replace(/@/g, " ").replace(/\bGT\b/gi, " ")} `;
   const today = ctx.today;
   let m;
+
+  // Codigo escrito a mano ("codigo: ABC-1") en cualquier tipo; en Extras Piazza ademas se busca solo.
+  ({ text, match: m } = take(text, /\bc[oó]d(?:igo)?\s*[:=]\s*([A-Za-z0-9][A-Za-z0-9._-]{3,30})/i));
+  if (m) found.codigo = m[1].toUpperCase();
+  else if (tipo === "PM" || tipo === "PR") {
+    const code = findServiceCode(text);
+    if (code) {
+      found.codigo = code;
+      const at = text.toUpperCase().indexOf(code);
+      text = `${text.slice(0, at)} ${text.slice(at + code.length)}`;
+    }
+  }
 
   ({ text, match: m } = take(text, /\b(?:desc(?:ripcion|ripción)?|nota)\s*[:=]\s*([^\n]+)/i));
   if (m) found.descripcion = m[1].trim();
@@ -172,11 +202,14 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   if (m && Number(m[1]) <= 23) found.hora = hhmm(m[1], m[2]);
   const free = [];
   for (;;) {
-    ({ text, match: m } = take(text, /\b([01]?\d|2[0-3])[:.h]([0-5]\d)\b/i));
+    ({ text, match: m } = take(text, /\b(?:ore\s+)?([01]?\d|2[0-3])[:.h]([0-5]\d)\b/i));
     if (!m) break;
     free.push(hhmm(m[1], m[2]));
   }
-  if (free.length === 1) {
+  if (tipo === "PM" || tipo === "PR") {
+    // Las demas horas del texto ("arriva a lin alle 9.10") son notas del recorrido, no datos del servicio.
+    if (!found.horaSalida && free.length) found.horaSalida = free[0];
+  } else if (free.length === 1) {
     if (!found.hora) found.hora = free[0];
     else if (!found.horaSalida) found.horaSalida = free[0];
   } else if (free.length >= 2) {
@@ -285,9 +318,12 @@ const merge = (state, found, ctx) => {
     next.clientId = found.clientId;
     next.clientAuto = false;
   }
+  if (found.hora && isExtrasPiazza(next)) next.etaManual = true;
   for (const key of ["fecha", "hora", "horaSalida", "km", "aplicativoN", "descripcion"]) if (found[key] != null) next[key] = found[key];
   if (found.destinos) next.destinos = found.destinos;
   if (found.refs) next.refs = found.refs;
+  if (found.codigo) next.codigo = found.codigo;
+  if (found.retiroOk) next.retiroOk = true;
   return next;
 };
 
@@ -312,7 +348,7 @@ const applyDefaults = async (state, ctx) => {
       next.clientAuto = true;
     }
   }
-  if (!next.fecha && next.hora) next.fecha = ctx.today;
+  if (!next.fecha && (next.hora || next.horaSalida)) next.fecha = ctx.today;
   return next;
 };
 
@@ -323,11 +359,16 @@ export const missingFields = (state) => {
   if (!state.driverId) missing.push("driver");
   if (!state.vehicleId) missing.push("vehicle");
   if (!state.clientId) missing.push("client");
-  if (!state.hora) missing.push("eta");
+  // Extras Piazza: la ETA sale de la ruta; solo se pregunta si no se pudo calcular.
+  if (!isExtrasPiazza(state) && !state.hora) missing.push("eta");
   if (!state.destinos?.length) missing.push("destinos");
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
+  if (isExtrasPiazza(state)) {
+    if (!retiroReady(state)) missing.push("retiro");
+    else if (state.etaFailed && !state.hora) missing.push("eta");
+  }
   return missing;
 };
 
@@ -356,6 +397,14 @@ const question = (field, state, ctx) => {
       const names = ctx.refs.clients.map((c) => c.nombre);
       return names.length && names.length <= 12 ? `¿Para qué cliente? (${names.join(", ")})` : "¿Para qué cliente?";
     }
+    case "retiro":
+      return state.horaSalida
+        ? `¿A qué hora es el retiro? Detecté las ${state.horaSalida} (${fmtFecha(state.fecha)}). Toca el botón si es correcto o escribe otra hora (ej: 7:30).`
+        : "¿A qué hora es el retiro? (ej: 7:00). Con eso calculo la ruta y la hora de llegada al último punto.";
+    case "eta":
+      return isExtrasPiazza(state)
+        ? "No pude calcular la hora de llegada con la ruta. ¿A qué hora llegarías al último punto? (ej: 12:30)"
+        : QUESTIONS.eta;
     case "km":
       return `¿Cuántos km indica el cliente? Solo la ida: el app los multiplica ×2 al facturar.`;
     case "aplicativo":
@@ -378,14 +427,23 @@ export const summary = (state, ctx) => {
     `Chofer: ${driver ? nameOf(driver) : "-"}`,
     `Vehículo: ${vehicle?.targa ?? "-"}`,
     `Cliente: ${client?.nombre ?? "-"}${state.clientAuto ? " (automático)" : ""}`,
-    `ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`,
+    ...(isExtrasPiazza(state)
+      ? [
+          `Retiro: ${fmtFecha(state.fecha)} ${state.horaSalida}`,
+          state.etaManual
+            ? `ETA (la que escribiste): ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}`
+            : `Llegada estimada al último punto: ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}${state.rutaMin ? ` (ruta ≈ ${state.rutaKm} km · ${Math.floor(state.rutaMin / 60)} h ${state.rutaMin % 60} min de manejo, sin contar esperas)` : ""}`,
+        ]
+      : [`ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`]),
     `Ruta: ${salidaLabel(state)} → ${state.destinos.join(" → ")}`,
   ];
   if (tipo.aplicativo) lines.push(`Aplicativo: ${state.aplicativoN}`);
   if (tipo.kmCliente) lines.push(`KM del cliente (solo ida): ${state.km}  ·  el app los cuenta ×2 = ${state.km * 2}`);
   else if (state.km > 0) lines.push(`KM: ${state.km}`);
   else lines.push("KM: se calculan solos (circuito completo, aproximado por ciudades)");
-  lines.push(`Descripción: ${descripcionFinal(state)}`);
+  if (tipo.code === "PM" || tipo.code === "PR" || state.codigo) lines.push(`Código: ${state.codigo ?? "automático"}`);
+  const desc = descripcionFinal(state);
+  lines.push(`Descripción: ${desc.length > 220 ? `${desc.slice(0, 220).trim()}…` : desc}`);
   lines.push("", "¿Confirmo? Responde sí o no. También puedes escribir lo que cambia (ej: ETA 15:00, km 90, chofer Rossi).");
   return lines.join("\n");
 };
@@ -425,6 +483,7 @@ export const HELP_TEXT = [
   "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
   "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
   "Lo que falte te lo pregunto. En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos.",
+  "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; te pido confirmarla y calculo la hora de llegada al último punto con la ruta.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
 ].join("\n");
@@ -464,6 +523,7 @@ const questionButtons = (field, state, ctx) => {
     const sorted = [...ctx.refs.vehicles].sort((a, b) => (b.id === usual) - (a.id === usual));
     return gridButtons(sorted.map((v) => ({ text: label(v), data: `v:${v.id}` })), 2);
   }
+  if (field === "retiro" && state.horaSalida) return [[{ text: `✅ ${state.horaSalida}`, data: "r" }]];
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
     return gridButtons(ctx.refs.clients.map((c) => ({ text: c.nombre, data: `c:${c.id}` })), 2);
   }
@@ -521,14 +581,25 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   let notFound = null;
   let routeLabeled = false;
   const state0 = prevState;
-  // Mensaje nuevo: se saltan los nombres de la oficina con que abre.
+  // Mensaje nuevo: el texto despues del comando ES la descripcion del servicio, tal cual; y se saltan los nombres de la oficina con
+  // que abre para entender el resto.
+  const rawBody = body.trim();
   if (isNew) body = stripLeadingNames(body, ctx);
   if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
   else if (pending === "km" && /^\s*\d+(?:[.,]\d+)?\s*(?:km)?\s*$/i.test(body)) found = { km: toNumber(body) };
   else if (pending === "aplicativo" && /^\s*\d{1,2}\s*$/.test(body)) found = { aplicativoN: Number(body) };
+  else if (pending === "eta" && isExtrasPiazza(state0) && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
+    const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
+    found = { hora: hhmm(t[1], t[2]) };
+  } else if (pending === "retiro" && YES.test(norm(body)) && state0.horaSalida) found = { retiroOk: true };
+  else if (pending === "retiro" && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
+    const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
+    found = { horaSalida: hhmm(t[1], t[2]), retiroOk: true };
+  }
   else {
     const only = pending === "driver" && state0.driverCandidates?.length ? state0.driverCandidates : undefined;
     ({ found, leftover, routeLabeled } = extractFields(body, ctx, { tipo: state0.tipo, onlyDrivers: only, allowDriver: pending === "driver" }));
+    if (pending === "retiro" && found.horaSalida) found.retiroOk = true;
     // Respuesta pelada a lo que se pregunto: la ruta se lee entera como ciudades.
     if (pending === "destinos" && !found.destinos && leftover.length) found.destinos = leftover.splice(0);
     // Mientras se espera un chofer/vehiculo/cliente, ciudades sueltas sin "ruta:" nunca son la ruta (suele ser un nombre que no se
@@ -553,13 +624,16 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
       if (ai) {
         usedAi = true;
         const { destinos, ...rest } = ai;
+        if (isExtrasPiazza(state0)) {
+          if (rest.hora && !found.horaSalida && !rest.horaSalida) found.horaSalida = rest.hora;
+          delete rest.hora;
+        }
         if (destinos?.length && (weakRoute || !found.destinos)) found.destinos = destinos;
         for (const [k, v] of Object.entries(rest)) if (v != null && found[k] == null) found[k] = v;
       }
     }
   }
-  // El texto del pedido que nadie pudo ubicar queda como descripcion (recortado).
-  if (leftover.length && !found.descripcion) found.descripcion = leftover.join(" ").slice(0, 400);
+  if (isNew && rawBody && !found.descripcion) found.descripcion = rawBody;
 
   const hadInput = Object.keys(found).length > 0;
   const state = await applyDefaults(merge(state0, found, ctx), ctx);
@@ -576,7 +650,28 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
       state.aplicativoN = null;
     }
   }
-  return { state, hadInput, warnings, missing: missingFields(state) };
+  const withEta = await ensureEta(state, ctx);
+  return { state: withEta, hadInput, warnings, missing: missingFields(withEta) };
+};
+
+// Extras Piazza: con la hora de retiro y la ruta se calcula la llegada al ultimo punto (manejo, sin esperas). Solo se vuelve a
+// calcular si cambia el retiro o la ruta; una ETA escrita a mano no se toca.
+const ensureEta = async (state, ctx) => {
+  if (!isExtrasPiazza(state) || state.etaManual || !retiroReady(state) || !state.destinos?.length) return state;
+  const key = `${state.fecha}|${state.horaSalida}|${zonaDe(state)}|${state.destinos.join(">")}`;
+  if (state.etaKey === key && state.hora) return state;
+  const est = ctx.estimateRoute ? await ctx.estimateRoute(state) : null;
+  if (!est) return { ...state, etaFailed: true, etaKey: key };
+  const end = new Date(romeLocalToDate(state.fecha, state.horaSalida).getTime() + Math.round(est.duracionMin) * 60000);
+  return {
+    ...state,
+    etaFailed: false,
+    etaKey: key,
+    hora: romeHHMM(end),
+    etaFecha: romeDay(end),
+    rutaKm: Math.round(est.distanciaKm * 10) / 10,
+    rutaMin: Math.round(est.duracionMin),
+  };
 };
 
 // Resumen de confirmacion con los avisos (de lo entendido y de choques con otros servicios).
@@ -627,7 +722,7 @@ const handleBatch = async (text, ctx) => {
   const notes = [];
   for (const [i, group] of splitGroups(text).entries()) {
     const cmd = parseCommand(group, { strict: true });
-    const adv = await advance(newState(cmd.tipo.code), cmd.rest, ctx, { pending: null, isNew: true });
+    const adv = await advance({ ...newState(cmd.tipo.code), autoRetiro: true }, cmd.rest, ctx, { pending: null, isNew: true });
     if (adv.missing.length) {
       problems.push(`Línea ${i + 1} (${cmd.tipo.label}): falta ${adv.missing.map((f) => FIELD_NAMES[f]).join(", ")}.`);
       continue;
@@ -754,9 +849,9 @@ export const buildRecordInput = (state) => {
     driverId: state.driverId,
     vehicleId: state.vehicleId,
     clientId: state.clientId,
-    eta: romeLocalToDate(state.fecha, state.hora),
+    eta: romeLocalToDate(state.etaFecha ?? state.fecha, state.hora),
     descripcion: descripcionFinal(state),
-    codigo: `TG-${randomUUID().slice(0, 8).toUpperCase()}`,
+    codigo: state.codigo ?? `TG-${randomUUID().slice(0, 8).toUpperCase()}`,
     ciudad: state.destinos.at(-1),
     spedizzione: tipo.spedizzione,
     stops: state.destinos,

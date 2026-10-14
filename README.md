@@ -491,6 +491,13 @@ IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responde
 - El vehiculo tambien se elige siempre (botones, con el habitual del chofer primero y una
   estrella); no se propone solo. Los vehiculos de Farmacia (area o grupo Farmacia) no
   aparecen en el bot.
+- Descripcion: el texto escrito despues del comando se guarda tal cual como descripcion.
+- Extras Piazza (PM/PR): el codigo del servicio (`26WCIMXP0129810`, `S20602155`, `AP1011-480`,
+  con sufijo `-B`/`-C` si se repite) se detecta solo, sin IA, y se guarda como codigo. La hora
+  del mensaje es la hora de RETIRO y el bot siempre la pide confirmar; con el retiro y la ruta
+  (misma ruta/motor que el servicio, salida segun el tipo) calcula la hora de llegada al ultimo
+  punto (solo manejo, sin esperas). Si no se puede calcular, pregunta la ETA; una ETA escrita a
+  mano manda. En DHL, AB y Otros la hora del mensaje sigue siendo la ETA.
 - Obligatorios: chofer, vehiculo, cliente, ETA y al menos una ciudad. Ademas: DHL y AB
   Service piden los **km (solo ida, los que da el cliente; el app los cuenta x2)**, DHL pide
   el numero de aplicativo, y Extras Piazza / Otros piden descripcion. En Extras Piazza y
