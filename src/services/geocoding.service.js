@@ -83,6 +83,14 @@ export const geocodeAddress = async (direccion, fallbackAddress) => {
   return fetchAndCache(direccion, fallbackAddress);
 };
 
+// Como ubico Google una direccion (el texto formateado, ej. "26900 Lodi LO, Italia"), para mostrarselo a quien la escribio antes
+// de cargar el servicio. Usa la misma cache que la carga real: no cuesta una consulta extra.
+export const geocodePreview = async (direccion, fallbackAddress) => {
+  await geocodeAddress(direccion, fallbackAddress);
+  const row = await prisma.geocodeCache.findUnique({ where: { queryKey: buildQueryKey(direccion) }, select: { raw: true } });
+  return row?.raw?.formatted_address ?? null;
+};
+
 // Geocodifica en orden secuencial (respeta el orden de las paradas). fallbackAddress
 // (la ciudad del registro) se intenta para cualquier parada que no de resultado, ver
 // fetchFromGoogle - si tampoco esa resuelve, recien ahi se interrumpe y propaga el

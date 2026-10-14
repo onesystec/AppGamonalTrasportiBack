@@ -475,20 +475,44 @@ solo que sin avisar al celular. Pasos en Firebase (una sola vez):
      privada" - descarga un JSON. Pegar su contenido completo (en una sola linea) como
      `FIREBASE_SERVICE_ACCOUNT_JSON` en las variables de entorno de Render.
 
-**11. Carga de servicios por chat de Telegram, con Claude interpretando el mensaje.**
+**11. Carga de servicios por chat de Telegram, con comandos.**
 Un bot privado de Telegram (solo el chat en `TELEGRAM_ALLOWED_CHAT_ID` le puede escribir
-- cualquier otro mensaje se ignora en silencio) recibe el servicio en lenguaje natural,
-usa la API de Claude (`telegramAssistant.service.js`) para matchear chofer/vehiculo/
-cliente contra lo que ya existe en la app, repregunta lo que falte, pide confirmacion
-con un resumen antes de cargar nada, y recien ahi crea el `Record` real (mismo
-`createRecord` que usa el formulario del front - mismo calculo de ruta, misma escritura
-a AppSheet). El hilo de la conversacion se guarda en `TelegramDraft` (una fila por chat,
-se borra sola al confirmar o cancelar) porque Render free se puede dormir entre
-mensajes. Costo: la API de Anthropic (cuenta separada de cualquier suscripcion de
-Claude, ver `.env.example`) cobra por uso - centavos de dolar por servicio cargado a
-este volumen. Requiere `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID`,
-`TELEGRAM_WEBHOOK_SECRET` y `ANTHROPIC_API_KEY` configurados - sin eso, el webhook
-simplemente no hace nada. Pasos (una sola vez):
+- cualquier otro mensaje se ignora en silencio) carga servicios con el mismo `createRecord`
+que usa el formulario del front. El mensaje empieza con el tipo de servicio, que elige el
+formulario: `DM` DHL Milano, `DR` DHL Roma, `PM` Extras Piazza Milano, `PR` Extras Piazza
+Roma, `AB` AB Service, `O` Otros. Ejemplo: `DM Rossi, AB123CD, ETA 14:30, Lodi - Piacenza,
+85 km, aplicativo 5`. El bot entiende el mensaje con reglas fijas (`telegramEngine.js`, sin
+IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responder "si".
+- Obligatorios: chofer, vehiculo, cliente, ETA y al menos una ciudad. Ademas: DHL y AB
+  Service piden los **km (solo ida, los que da el cliente; el app los cuenta x2)**, DHL pide
+  el numero de aplicativo, y Extras Piazza / Otros piden descripcion. En Extras Piazza y
+  Otros los km se calculan solos (circuito completo salida -> paradas -> vuelta, aproximado
+  por ciudades). Sin dato: el cliente por defecto de DHL/AB es el cliente "DHL" / "AB
+  Service", y el vehiculo es el asignado al chofer (o el ultimo que uso).
+- Salida: AB Service Milano parte de AB Service; todo lo de zona Roma (DHL, AB Service y
+  Extras Piazza) parte de DHL Roma; el resto de Via Walter Tobagi.
+- La IA (`telegramAiExtractor.service.js`, modelo `TELEGRAM_AI_MODEL`, por defecto Haiku)
+  es solo un respaldo: se llama unicamente cuando quedo texto largo sin entender y todavia
+  falta un dato obligatorio. Si no hay `ANTHROPIC_API_KEY` o falla, el bot sigue preguntando.
+- Botones: tipos de servicio, elegir chofer/cliente cuando hay dudas, Confirmar / Editar /
+  Cancelar y Deshacer. Varios servicios en un mensaje: una linea por servicio, cada una con
+  su comando; se cargan juntos tras confirmar (las lineas incompletas se avisan y no se cargan).
+- Avisos antes de confirmar (no bloquean): servicio duplicado, chofer o vehiculo ya ocupado
+  (+-90 min), chofer con permiso ese dia, vehiculo en mantenimiento o fuera de servicio, y
+  ciudades que Google no ubica bien (se sugiere escribir la provincia).
+- `/hoy` lista los servicios de hoy. `/deshacer` (o el boton) anula lo ultimo que cargo esa
+  persona dentro de los 10 minutos, solo si sigue pendiente.
+- Quien carga: con `TELEGRAM_USER_MAP` (`{"<id de Telegram>":"correo@usuario"}`) cada persona
+  del grupo se vincula a un usuario Admin/Responsable: el servicio se carga como ese usuario
+  (un Responsable solo en sus areas) y queda anotado en comentarios. Si alguien no esta en el
+  mapa, el bot le responde su id de Telegram para que el Admin lo agregue. Sin la variable,
+  cualquiera del grupo carga como antes. Cada persona tiene su propio borrador.
+- Menu de comandos de Telegram (`/dm`, `/hoy`...): `node --env-file=.env scripts/telegram-set-commands.mjs`.
+- El estado de la conversacion se guarda en `TelegramDraft` (una fila por chat, se borra al
+  confirmar/cancelar o a las 6 h sin uso) porque Render free se puede dormir entre mensajes.
+Requiere `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID`,
+y `TELEGRAM_WEBHOOK_SECRET` configurados (`ANTHROPIC_API_KEY` es opcional) - sin eso, el
+webhook simplemente no hace nada. Pasos (una sola vez):
   1. Hablar con `@BotFather` en Telegram: `/newbot` (token), despues `/setprivacy` >
      elegir el bot > **Disable** (si no, el bot solo ve comandos/menciones, no mensajes
      normales).

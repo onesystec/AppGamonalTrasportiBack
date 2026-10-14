@@ -171,6 +171,9 @@ const envSchema = z.object({
   // URL con /setWebhook) - sin que coincida, se rechaza: evita que cualquiera que
   // adivine la URL del endpoint pueda mandar mensajes falsos.
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
+  // Quien es cada persona del grupo: JSON { "<id de Telegram>": "<correo del usuario en el app>" }. Con esto el servicio se carga
+  // "como" ese usuario (un Responsable solo carga en sus areas) y se sabe quien lo cargo. Vacio = cualquiera del grupo carga.
+  TELEGRAM_USER_MAP: z.string().optional(),
   // Cuenta de API separada de Anthropic (console.anthropic.com), no la suscripcion de
   // Claude - factura por uso, aparte.
   ANTHROPIC_API_KEY: z.string().optional(),

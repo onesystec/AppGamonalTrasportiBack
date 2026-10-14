@@ -2,26 +2,43 @@ import { env } from "../config/env.js";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
-// Le contesta al chat vía la API de Telegram (ver telegramAssistant.service.js, que
-// arma el texto). Best-effort a propósito, igual que el resto de las integraciones
-// externas de la app: si Telegram está caído no tiene sentido tirar un 500, ya
-// perdimos el mensaje de todas formas.
-export const sendTelegramMessage = async (chatId, text) => {
+// Llamada a la API de Telegram. Best-effort a proposito, igual que el resto de las integraciones externas de la app: si
+// Telegram esta caido no tiene sentido tirar un 500, ya perdimos el mensaje de todas formas.
+const callTelegram = async (method, body) => {
   if (!env.TELEGRAM_BOT_TOKEN) return;
   try {
-    const res = await fetch(`${TELEGRAM_API}/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`${TELEGRAM_API}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const body = await res.text();
-      console.error("No se pudo responder en Telegram:", res.status, body);
+      const text = await res.text();
+      console.error(`Telegram ${method} fallo:`, res.status, text);
     }
   } catch (err) {
-    console.error("No se pudo responder en Telegram:", err.message);
+    console.error(`Telegram ${method} fallo:`, err.message);
   }
 };
+
+// Le contesta al chat (ver telegramAssistant.service.js, que arma el texto). buttons: filas de { text, data } que salen como
+// teclado debajo del mensaje; al apretar uno, Telegram manda "data" de vuelta (callback_query).
+export const sendTelegramMessage = (chatId, text, { buttons } = {}) =>
+  callTelegram("sendMessage", {
+    chat_id: chatId,
+    text,
+    ...(buttons?.length
+      ? { reply_markup: { inline_keyboard: buttons.map((row) => row.map((b) => ({ text: b.text, callback_data: b.data }))) } }
+      : {}),
+  });
+
+// Quita el reloj de "cargando" del boton apretado.
+export const answerTelegramCallback = (callbackId, text) =>
+  callTelegram("answerCallbackQuery", { callback_query_id: callbackId, ...(text ? { text } : {}) });
+
+// Saca los botones de un mensaje ya usado, para que no se aprieten dos veces.
+export const clearTelegramButtons = (chatId, messageId) =>
+  callTelegram("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } });
 
 // El header que Telegram manda en cada request al webhook (configurado al registrar
 // la URL con /setWebhook, ver README) - si no coincide, no es un mensaje real de
