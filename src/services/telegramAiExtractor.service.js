@@ -28,11 +28,6 @@ const TOOL = {
     type: "object",
     additionalProperties: false,
     properties: {
-      driverIds: nullable({
-        type: "array",
-        items: { type: "string" },
-        description: "ids exactos de la lista de personas que van a manejar (puede haber dos o mas mencionadas con @); ignora el sufijo GT",
-      }),
       vehicleId: nullable({ type: "string", description: "id exacto de la lista de vehiculos" }),
       clientId: nullable({ type: "string", description: "id exacto de la lista de clientes" }),
       fecha: nullable({ type: "string", description: "YYYY-MM-DD" }),
@@ -50,7 +45,7 @@ const TOOL = {
       km: nullable({ type: "number", description: "km que dice el mensaje, solo si los menciona" }),
       aplicativoN: nullable({ type: "integer", description: "numero de aplicativo" }),
     },
-    required: ["driverIds", "vehicleId", "clientId", "fecha", "hora", "horaSalida", "destinos", "descripcion", "km", "aplicativoN"],
+    required: ["vehicleId", "clientId", "fecha", "hora", "horaSalida", "destinos", "descripcion", "km", "aplicativoN"],
   },
 };
 
@@ -58,9 +53,7 @@ export const aiExtractFields = async ({ text, state, refs, today }) => {
   try {
     const anthropic = await getClient();
     if (!anthropic) return null;
-    const system = `Extraes datos de un mensaje de Telegram (suele ser una orden de transporte en italiano o español, a veces larga) que carga un servicio de transporte (${TIPOS[state.tipo].label}). Las hora tipo "ORE 13.14" son la ETA. Hoy es ${today} (Europe/Rome). Usa SOLO los ids de estas listas, tolerando errores de tipeo; si hay duda, null. No inventes nada.
-Personas que pueden manejar:
-${refs.drivers.map((d) => `${d.id} | ${d.nombre} ${d.apellido}`).join("\n")}
+    const system = `Extraes datos de un mensaje de Telegram (suele ser una orden de transporte en italiano o español, a veces larga) que carga un servicio de transporte (${TIPOS[state.tipo].label}). Las hora tipo "ORE 13.14" son la ETA. Hoy es ${today} (Europe/Rome). Los nombres de personas con que abre el mensaje son de la oficina: ignóralos, nunca elijas chofer. Usa SOLO los ids de estas listas, tolerando errores de tipeo; si hay duda, null. No inventes nada.
 Vehiculos:
 ${refs.vehicles.map((v) => `${v.id} | ${v.targa}`).join("\n")}
 Clientes:
@@ -88,11 +81,6 @@ ${refs.clients.map((c) => `${c.id} | ${c.nombre}`).join("\n")}`;
     const out = {};
     for (const [k, v] of Object.entries(toolUse.input)) {
       if (v == null) continue;
-      if (k === "driverIds") {
-        const valid = v.filter((id) => refs.drivers.some((d) => d.id === id));
-        if (valid.length) out.driverIds = valid;
-        continue;
-      }
       if (k === "vehicleId") {
         const vehicle = refs.vehicles.find((x) => x.id === v);
         if (!vehicle) continue;

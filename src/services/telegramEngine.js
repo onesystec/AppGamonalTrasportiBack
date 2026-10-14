@@ -108,7 +108,7 @@ const findPerson = (words, people, { preferEarliest = false } = {}) => {
 const personList = (items, nameOf) => items.map((it) => ({ id: it.id, tokens: norm(nameOf(it)).split(" ").filter(Boolean) }));
 
 // found: lo que se entendio de ESTE texto (solo claves presentes). leftover: pedazos largos que no se pudieron ubicar.
-export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
+export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = false } = {}) => {
   const found = {};
   const leftover = [];
   // Las menciones (@Romario) y el "GT" (Gamonal Trasporti) que se agrega a los nombres no son datos.
@@ -184,7 +184,15 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
     if (!found.hora) found.hora = free[free.length - 1];
   }
 
-  // Palabras sueltas: chofer y cliente se buscan por nombre; lo que sobra son ciudades.
+  // El chofer NUNCA se adivina del mensaje (los nombres con que abre son de la oficina): solo vale si se escribe "chofer X" o si es
+  // la respuesta a la pregunta del bot (allowDriver).
+  let labeledDriver = null;
+  if (!allowDriver) {
+    ({ text, match: m } = take(text, /\b(?:chofer|autista|conductor|driver)\s*[:=]?\s+([\p{L}'’]+(?:\s+[\p{L}'’]+)?)/iu));
+    if (m) labeledDriver = m[1].split(/\s+/);
+  }
+
+  // Palabras sueltas: cliente se busca por nombre; lo que sobra son ciudades.
   text = text.replace(/\b(?:chofer|autista|conductor|driver|cliente|targa|vehiculo|vehículo)\b\s*[:=]?/gi, " ");
   let pieces = text.split(SEPARATORS).map((p) => p.trim()).filter(Boolean);
   const words = pieces.flatMap((p, pi) => p.split(/\s+/).map((w) => ({ w, pi })));
@@ -202,29 +210,20 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
     for (const k of client.used) usedWords.add(k);
   }
 
-  // Chofer(es): con "@" o "X y Y" se aceptan varios; si no, uno solo.
-  const several = /@|\s(?:y|e|&|\+)\s/i.test(input);
-  let pool = drivers;
-  const ids = [];
-  for (let guard = 0; guard < 4; guard += 1) {
-    const avail = words.map((_, i) => i).filter((i) => !usedWords.has(i));
+  const driverWords = allowDriver
+    ? words.map((x, i) => ({ w: x.w, i })).filter(({ i }) => !usedWords.has(i))
+    : labeledDriver?.map((w) => ({ w, i: null }));
+  if (driverWords?.length) {
     const r = findPerson(
-      avail.map((i) => words[i].w),
-      personList(pool, (d) => `${d.nombre} ${d.apellido}`)
+      driverWords.map((x) => x.w),
+      personList(drivers, (d) => `${d.nombre} ${d.apellido}`)
     );
-    if (!r) break;
-    for (const k of r.used) usedWords.add(avail[k]);
-    if (r.ambiguous) {
-      if (!ids.length) found.driverCandidates = r.ambiguous;
-      break;
+    if (r) {
+      if (r.ambiguous) found.driverCandidates = r.ambiguous;
+      else found.driverId = r.id;
+      for (const k of r.used) if (driverWords[k].i != null) usedWords.add(driverWords[k].i);
     }
-    ids.push({ id: r.id, pos: Math.min(...[...r.used].map((k) => avail[k])) });
-    pool = pool.filter((d) => d.id !== r.id);
-    if (!several) break;
   }
-  ids.sort((a, b) => a.pos - b.pos);
-  if (ids.length === 1) found.driverId = ids[0].id;
-  else if (ids.length > 1) found.driverIds = ids.map((x) => x.id);
 
   const rebuilt = new Map();
   words.forEach((x, i) => {
@@ -278,16 +277,6 @@ const merge = (state, found, ctx) => {
       next.vehicleAuto = false;
     }
   }
-  if (found.driverIds && !found.driverId) {
-    next.multiDrivers = found.driverIds;
-    next.driverId = null;
-    next.driverCandidates = null;
-    if (next.vehicleAuto) {
-      next.vehicleId = null;
-      next.vehicleAuto = false;
-    }
-  }
-  if (found.driverId) next.multiDrivers = null;
   if (found.driverCandidates && !next.driverId) next.driverCandidates = found.driverCandidates;
   if (found.targa) {
     const v = ctx.refs.vehicles.find((x) => norm(x.targa).replace(/ /g, "") === found.targa.toLowerCase());
@@ -345,17 +334,14 @@ const applyDefaults = async (state, ctx) => {
 export const missingFields = (state) => {
   const tipo = TIPOS[state.tipo];
   const missing = [];
-  // Con dos choferes mencionados se pregunta primero lo comun (ruta, ETA...) y al final cuantos servicios cargar.
-  const choosing = Boolean(state.multiDrivers?.length) && !state.driverId;
-  if (!choosing && !state.driverId) missing.push("driver");
-  if (!choosing && !state.vehicleId) missing.push("vehicle");
+  if (!state.driverId) missing.push("driver");
+  if (!state.vehicleId) missing.push("vehicle");
   if (!state.clientId) missing.push("client");
   if (!state.hora) missing.push("eta");
   if (!state.destinos?.length) missing.push("destinos");
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
-  if (choosing) missing.push("driverChoice");
   return missing;
 };
 
@@ -376,10 +362,6 @@ const question = (field, state, ctx) => {
         return `Hay más de un chofer que coincide: ${names}. ¿Cuál es? (escribe nombre y apellido)`;
       }
       return "¿Qué chofer hace el servicio?";
-    case "driverChoice": {
-      const names = state.multiDrivers.map((id) => nameOf(ctx.refs.drivers.find((d) => d.id === id)));
-      return `Mencionaste a ${names.join(" y ")}. ¿Cargo un servicio para cada uno (con los mismos datos) o solo para uno?`;
-    }
     case "vehicle":
       return state.unknownTarga ? `No encuentro la targa ${state.unknownTarga} en el app. ¿Cuál es la targa?` : "¿Con qué vehículo? (targa)";
     case "client": {
@@ -452,7 +434,8 @@ export const HELP_TEXT = [
   "AB · AB Service",
   "O · Otros",
   "",
-  "Ejemplo: DM Rossi, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
+  "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
+  "Los nombres con que abre el mensaje se ignoran: el chofer siempre te lo pregunto yo (o escribe chofer: Nombre).",
   "Lo que falte te lo pregunto. En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
@@ -483,12 +466,6 @@ const gridButtons = (items, perRow) => {
 const driverButtons = (ids, ctx) => ids.map((id) => [{ text: nameOf(ctx.refs.drivers.find((d) => d.id === id)), data: `d:${id}` }]);
 
 const questionButtons = (field, state, ctx) => {
-  if (field === "driverChoice") {
-    return [
-      [{ text: `👥 Uno para cada uno (${state.multiDrivers.length})`, data: "m" }],
-      ...state.multiDrivers.map((id) => [{ text: `Solo ${nameOf(ctx.refs.drivers.find((d) => d.id === id))}`, data: `d:${id}` }]),
-    ];
-  }
   if (field === "driver" && state.driverCandidates?.length) return driverButtons(state.driverCandidates, ctx);
   if (field === "driver" && ctx.refs.drivers.length <= 24) {
     return gridButtons(ctx.refs.drivers.map((d) => ({ text: nameOf(d), data: `d:${d.id}` })), 2);
@@ -500,8 +477,7 @@ const questionButtons = (field, state, ctx) => {
 };
 
 const FIELD_NAMES = {
-  driver: "chofer",
-  driverChoice: "chofer",
+  driver: "chofer (escribe «chofer: Nombre»)",
   vehicle: "vehículo",
   client: "cliente",
   eta: "ETA",
@@ -509,6 +485,37 @@ const FIELD_NAMES = {
   km: "km",
   aplicativo: "aplicativo",
   descripcion: "descripción",
+};
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Los mensajes abren con los nombres de la oficina a quien va dirigido ("@Romario GT @Jared Bolaños GT ..."): no son el chofer.
+// Se saltan los primeros nombres (con "@" o de alguna persona del app, con su apellido) hasta la primera palabra que no lo es.
+// ---------------------------------------------------------------------------------------------------------------------
+const NAME_STOP = new Set(["eta", "ore", "km", "per", "verso", "app", "order", "ordine", "shipment", "asap", "ruta", "desc", "hoy", "oggi", "domani", "manana", "sale", "salida", "retiro", "aplicativo", "para", "con", "il", "la", "un", "una", "el", "de", "del", "di", "a", "e", "y", "in"]);
+// Apodos de la oficina que no estan escritos igual en el app (ej. "Mauro Sinelli"); se pueden sumar con TELEGRAM_NOMBRES_OFICINA.
+const EXTRA_STAFF_TOKENS = ["sinelli", ...(process.env.TELEGRAM_NOMBRES_OFICINA ?? "").split(",").map((t) => norm(t)).filter(Boolean)];
+
+export const stripLeadingNames = (text, ctx) => {
+  const words = text.trim().split(/\s+/);
+  const people = new Set([...ctx.refs.drivers.flatMap((d) => norm(`${d.nombre} ${d.apellido}`).split(" ")).filter((t) => t.length >= 3), ...EXTRA_STAFF_TOKENS]);
+  const clientTokens = new Set(ctx.refs.clients.flatMap((c) => norm(c.nombre).split(" ")).filter((t) => t.length >= 2));
+  const alpha = (w) => /^[\p{L}'’.-]+$/u.test(w.replace(/^@/, "").replace(/[,;:]+$/, ""));
+  let i = 0;
+  for (let groups = 0; i < words.length && groups < 5; ) {
+    const w = norm(words[i]);
+    if (w === "gt" || w === "") {
+      i += 1;
+      continue;
+    }
+    if (!(words[i].startsWith("@") || people.has(w)) || !alpha(words[i])) break;
+    i += 1;
+    const next = words[i];
+    const nw = next ? norm(next) : "";
+    // Un segundo nombre/apellido pegado al primero: conocido, o con mayuscula inicial y sin ser cliente ni palabra clave.
+    if (next && nw !== "gt" && !next.startsWith("@") && alpha(next) && !NAME_STOP.has(nw) && !clientTokens.has(nw) && (people.has(nw) || /^\p{Lu}\p{Ll}/u.test(next))) i += 1;
+    groups += 1;
+  }
+  return words.slice(i).join(" ");
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -520,21 +527,23 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   let notFound = null;
   let routeLabeled = false;
   const state0 = prevState;
+  // Mensaje nuevo: se saltan los nombres de la oficina con que abre.
+  if (isNew) body = stripLeadingNames(body, ctx);
   if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
   else if (pending === "km" && /^\s*\d+(?:[.,]\d+)?\s*(?:km)?\s*$/i.test(body)) found = { km: toNumber(body) };
   else if (pending === "aplicativo" && /^\s*\d{1,2}\s*$/.test(body)) found = { aplicativoN: Number(body) };
   else {
     const only = pending === "driver" && state0.driverCandidates?.length ? state0.driverCandidates : undefined;
-    ({ found, leftover, routeLabeled } = extractFields(body, ctx, { tipo: state0.tipo, onlyDrivers: only }));
+    ({ found, leftover, routeLabeled } = extractFields(body, ctx, { tipo: state0.tipo, onlyDrivers: only, allowDriver: pending === "driver" }));
     // Respuesta pelada a lo que se pregunto: la ruta se lee entera como ciudades.
     if (pending === "destinos" && !found.destinos && leftover.length) found.destinos = leftover.splice(0);
     // Mientras se espera un chofer/vehiculo/cliente, ciudades sueltas sin "ruta:" nunca son la ruta (suele ser un nombre que no se
     // encontro o una pregunta). Con la ruta ya cargada tampoco la reemplazan, salvo al confirmar con 2 o mas ciudades.
-    const identity = { driver: ["driverId", "choferes"], driverChoice: ["driverId", "choferes"], vehicle: ["targa", "vehículos"], client: ["clientId", "clientes"] }[pending];
+    const identity = { driver: ["driverId", "choferes"], vehicle: ["targa", "vehículos"], client: ["clientId", "clientes"] }[pending];
     const replacesRoute = state0.stage === "confirm" && found.destinos?.length >= 2;
     const keepsRoute = Boolean(state0.destinos?.length) && !replacesRoute && pending !== "destinos" && !isNew;
     if (found.destinos && !routeLabeled && (identity || keepsRoute)) {
-      if (identity && !found[identity[0]] && !found.driverCandidates && !found.driverIds) notFound = `No encontré «${found.destinos.join(" ")}» entre los ${identity[1]}.`;
+      if (identity && !found[identity[0]] && !found.driverCandidates) notFound = `No encontré «${found.destinos.join(" ")}» entre los ${identity[1]}.`;
       delete found.destinos;
     }
   }
@@ -549,12 +558,8 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
       const ai = await ctx.aiExtract({ text: body, state: draft, leftover });
       if (ai) {
         usedAi = true;
-        const { driverIds, destinos, ...rest } = ai;
+        const { destinos, ...rest } = ai;
         if (destinos?.length && (weakRoute || !found.destinos)) found.destinos = destinos;
-        if (!found.driverId && !found.driverIds && driverIds?.length) {
-          if (driverIds.length === 1) found.driverId = driverIds[0];
-          else found.driverIds = driverIds;
-        }
         for (const [k, v] of Object.entries(rest)) if (v != null && found[k] == null) found[k] = v;
       }
     }
@@ -717,27 +722,6 @@ export const handleMessage = async (prevState, rawText, ctx) => {
       buttons: gridButtons(ctx.refs.drivers.map((d) => ({ text: nameOf(d), data: `d:${d.id}` })), 2),
       action: null,
     };
-  }
-
-  // Dos choferes mencionados y quiere un servicio para cada uno.
-  if (pending === "driverChoice" && /^(ambos|todos|los dos|cada uno|uno para cada uno)\b/.test(n)) {
-    const items = [];
-    const problems = [];
-    const notes = [];
-    for (const id of state.multiDrivers) {
-      const adv2 = await advance({ ...state, driverId: id, multiDrivers: null, vehicleId: null, vehicleAuto: false, stage: "collect", pending: null }, "", ctx, {
-        pending: null,
-        isNew: false,
-      });
-      const d = ctx.refs.drivers.find((x) => x.id === id);
-      if (adv2.missing.length) {
-        problems.push(`${nameOf(d)}: falta ${adv2.missing.map((f) => FIELD_NAMES[f]).join(", ")}.`);
-        continue;
-      }
-      for (const c of [...adv2.warnings, ...((await ctx.checkConflicts?.(adv2.state)) ?? [])]) notes.push(`${nameOf(d)}: ${c}`);
-      items.push(adv2.state);
-    }
-    return finishBatch(items, problems, notes, ctx);
   }
 
   const adv = await advance(state, body, ctx, { pending, isNew: Boolean(cmd) });

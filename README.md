@@ -483,6 +483,11 @@ formulario: `DM` DHL Milano, `DR` DHL Roma, `PM` Extras Piazza Milano, `PR` Extr
 Roma, `AB` AB Service, `O` Otros. Ejemplo: `DM Rossi, AB123CD, ETA 14:30, Lodi - Piacenza,
 85 km, aplicativo 5`. El bot entiende el mensaje con reglas fijas (`telegramEngine.js`, sin
 IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responder "si".
+- Los mensajes abren con los nombres de la oficina ("@Romario GT @Jared Bolaños GT ...",
+  "Emerson Gamonal Mauro Sinelli ..."): se ignoran. El chofer NUNCA se elige solo: el bot
+  siempre pregunta (con botones, entre las personas activas que pueden manejar: choferes,
+  Responsables y Admin) o se escribe `chofer: Nombre` en el mensaje. Apodos de la oficina que
+  no coinciden con el app (ej. "Sinelli"): variable opcional `TELEGRAM_NOMBRES_OFICINA`.
 - Obligatorios: chofer, vehiculo, cliente, ETA y al menos una ciudad. Ademas: DHL y AB
   Service piden los **km (solo ida, los que da el cliente; el app los cuenta x2)**, DHL pide
   el numero de aplicativo, y Extras Piazza / Otros piden descripcion. En Extras Piazza y
