@@ -484,8 +484,13 @@ Retirados, En camino, Entregados, Anulados ni Reprogramados, ni los que no tiene
 retiro. Si Render free duerme el servidor, se pone al dia al despertar.
 
 **11. Carga de servicios por chat de Telegram, con comandos.**
-Un bot privado de Telegram (solo el chat en `TELEGRAM_ALLOWED_CHAT_ID` le puede escribir
-- cualquier otro mensaje se ignora en silencio) carga servicios con el mismo `createRecord`
+Los servicios se cargan por **chat privado** con el bot (cada persona tiene su propia
+conversacion, sin cruces). Pueden escribirle por privado solo los miembros del grupo en
+`TELEGRAM_ALLOWED_CHAT_ID` (el bot se lo pregunta a Telegram con `getChatMember`; cada persona
+abre el bot y toca "Iniciar" una vez). En el **grupo** el bot solo publica un resumen de lo
+que se carga ("Mauro cargo: ...", y "anulo: ..." con /deshacer) y, si alguien intenta cargar
+ahi, le contesta una vez cada 10 min con el enlace al chat privado; la charla del grupo se
+ignora. Cualquier otro chat se ignora en silencio. Carga servicios con el mismo `createRecord`
 que usa el formulario del front. El mensaje empieza con el tipo de servicio, que elige el
 formulario: `DM` DHL Milano, `DR` DHL Roma, `PM` Extras Piazza Milano, `PR` Extras Piazza
 Roma, `AB` AB Service, `O` Otros. Ejemplo: `DM Rossi, AB123CD, ETA 14:30, Lodi - Piacenza,
@@ -548,9 +553,8 @@ IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responde
 Requiere `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_CHAT_ID`,
 y `TELEGRAM_WEBHOOK_SECRET` configurados (`ANTHROPIC_API_KEY` es opcional) - sin eso, el
 webhook simplemente no hace nada. Pasos (una sola vez):
-  1. Hablar con `@BotFather` en Telegram: `/newbot` (token), despues `/setprivacy` >
-     elegir el bot > **Disable** (si no, el bot solo ve comandos/menciones, no mensajes
-     normales).
+  1. Hablar con `@BotFather` en Telegram: `/newbot` (token). Ya no hace falta desactivar el
+     modo privacidad: en el chat privado el bot ve todos los mensajes.
   2. Crear un grupo privado con el bot adentro, mandar un mensaje cualquiera, y pegarle
      a `https://api.telegram.org/bot<token>/getUpdates` para sacar el `chat_id`
      (numero negativo) - ese va en `TELEGRAM_ALLOWED_CHAT_ID`.

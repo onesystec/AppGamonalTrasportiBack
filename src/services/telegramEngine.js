@@ -570,6 +570,25 @@ const recap = (state, ctx) => {
   return `Tengo: ${parts.join(" · ")}`;
 };
 
+// Una linea para avisar en el grupo lo que se cargo.
+export const groupLine = (state, ctx) => {
+  const tipo = TIPOS[state.tipo];
+  const driver = ctx.refs.drivers.find((d) => d.id === state.driverId);
+  const vehicle = ctx.refs.vehicles.find((v) => v.id === state.vehicleId);
+  const client = ctx.refs.clients.find((c) => c.id === state.clientId);
+  return [
+    tipo.label,
+    driver ? nameOf(driver) : null,
+    vehicle?.targa,
+    client?.nombre,
+    state.horaSalida ? `retiro ${state.horaSalida}` : null,
+    state.hora ? `ETA ${state.etaFecha && state.etaFecha !== state.fecha ? `${fmtFecha(state.etaFecha)} ` : ""}${state.hora}` : null,
+    state.destinos.join(" → "),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+};
+
 export const HELP_TEXT = [
   "Para cargar un servicio empieza el mensaje con el tipo:",
   "DM · DHL Milano",

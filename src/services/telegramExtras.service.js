@@ -193,9 +193,10 @@ export const undoLast = async (userKey, who) => {
   const row = await getConfig(undoKey(userKey));
   const last = row?.valor;
   if (!last?.ids?.length || Date.now() - last.at > UNDO_WINDOW_MS) {
-    return "No hay nada para deshacer (solo se puede en los 10 minutos siguientes a cargar).";
+    return { text: "No hay nada para deshacer (solo se puede en los 10 minutos siguientes a cargar).", anulados: [] };
   }
   const lines = [];
+  const anulados = [];
   for (const id of last.ids) {
     const record = await prisma.record.findUnique({ where: { id }, select: { id: true, codigo: true, estado: true } });
     if (!record) continue;
@@ -206,12 +207,13 @@ export const undoLast = async (userKey, who) => {
     try {
       await deleteRecord(actorOrSystem(who), id);
       lines.push(`${record.codigo}: anulado.`);
+      anulados.push(record.codigo);
     } catch (err) {
       lines.push(`${record.codigo}: no se pudo anular (${err.message}).`);
     }
   }
   await setConfig(undoKey(userKey), { ids: [], at: 0 });
-  return lines.length ? ["Deshecho:", ...lines].join("\n") : "Ese servicio ya no existe.";
+  return { text: lines.length ? ["Deshecho:", ...lines].join("\n") : "Ese servicio ya no existe.", anulados };
 };
 
 // ---------------------------------------------------------------------------------------------------------------------

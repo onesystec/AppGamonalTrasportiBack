@@ -7,9 +7,9 @@ import { findVehicles } from "../models/vehicle.model.js";
 import { romeDay } from "../utils/romeTime.js";
 import { createRecord } from "./record.service.js";
 import { calculateRoute } from "./routing.service.js";
-import { answerTelegramCallback, clearTelegramButtons, sendTelegramMessage } from "./telegram.service.js";
+import { answerTelegramCallback, clearTelegramButtons, getBotUsername, notifyGroup, sendTelegramMessage } from "./telegram.service.js";
 import { aiExtractFields } from "./telegramAiExtractor.service.js";
-import { TIPOS, buildRecordInput, handleMessage } from "./telegramEngine.js";
+import { TIPOS, buildRecordInput, groupLine, handleMessage, parseCommand } from "./telegramEngine.js";
 import { checkConflicts, estimateRoute, listToday, rememberCreated, resolveTelegramActor, undoLast } from "./telegramExtras.service.js";
 
 // Un borrador sin tocar durante tanto tiempo se descarta: nadie espera retomar un servicio de ayer.
@@ -69,8 +69,8 @@ const circuitKm = async (record) => {
   return Math.round((record.ruta.distanciaKm + back.distanciaKm) * 10) / 10;
 };
 
-// Crea un servicio. Devuelve { id, text } (text: lo que se le cuenta a quien lo pidio).
-const createFromState = async (state, who) => {
+// Crea un servicio. Devuelve { id, text, aviso } (text: lo que se le cuenta a quien lo pidio; aviso: la linea para el grupo).
+const createFromState = async (state, who, refs) => {
   const tipo = TIPOS[state.tipo];
   const quien = `Cargado por Telegram${who.name ? ` por ${who.name}` : ""}.`;
   const record = await createRecord({ ...buildRecordInput(state), comentarios: quien }, { actor: who.actor });
@@ -97,7 +97,24 @@ const createFromState = async (state, who) => {
   } else if (state.horaSalida) {
     lines.push(`Retiro ${state.horaSalida} · ETA ${state.hora}. Pasará solo a «En camino» pasado el retiro.`);
   }
-  return { id: record.id, text: lines.join("\n") };
+  return { id: record.id, text: lines.join("\n"), aviso: `${groupLine(state, { refs })} (código ${record.codigo})` };
+};
+
+// La carga se hace por chat privado con el bot; en el grupo solo se publica un resumen de lo que se carga.
+const groupHintAt = new Map();
+const GROUP_HINT_EVERY_MS = 10 * 60 * 1000;
+export const handleGroupMessage = async ({ chatId, from, text }) => {
+  // Solo se reacciona a quien intenta cargar un servicio o usar un comando; el resto de la charla del grupo se ignora.
+  if (!parseCommand(text, { strict: true }) && !/^\/(dm|dr|pm|pr|ab|o|hoy|deshacer|ayuda|start)\b/i.test(text)) return;
+  const key = String(from?.id ?? chatId);
+  if (Date.now() - (groupHintAt.get(key) ?? 0) < GROUP_HINT_EVERY_MS) return;
+  groupHintAt.set(key, Date.now());
+  const username = await getBotUsername();
+  const nombre = from?.first_name ? `${from.first_name}, ` : "";
+  await sendTelegramMessage(
+    chatId,
+    `${nombre}los servicios se cargan por chat privado conmigo${username ? `: https://t.me/${username}` : ""} (toca «Iniciar» la primera vez). Aquí en el grupo solo aviso lo que se carga.`
+  );
 };
 
 // Punto de entrada del webhook (ver telegram.controller.js). Llega un mensaje de texto o un boton apretado (data).
@@ -127,7 +144,9 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
     return;
   }
   if (/^\/(deshacer|undo)\b/i.test(input)) {
-    await sendTelegramMessage(chatId, await undoLast(userKey, who));
+    const undone = await undoLast(userKey, who);
+    await sendTelegramMessage(chatId, undone.text);
+    if (undone.anulados.length) await notifyGroup(`↩️ ${who.name} anuló: ${undone.anulados.join(", ")}`);
     return;
   }
 
@@ -165,10 +184,12 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
   if (result.state.batch) {
     const ids = [];
     const lines = [];
+    const avisos = [];
     for (const [i, state] of result.state.batch.entries()) {
       try {
-        const out = await createFromState(state, who);
+        const out = await createFromState(state, who, refs);
         ids.push(out.id);
+        avisos.push(out.aviso);
         lines.push(`${i + 1}) ${out.text}`);
       } catch (err) {
         console.error("[telegram] No se pudo crear un servicio del lote:", err.message);
@@ -178,14 +199,16 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
     await deleteDraft(draftKey);
     if (ids.length) await rememberCreated(userKey, ids);
     await sendTelegramMessage(chatId, lines.join("\n\n"), { buttons: ids.length ? UNDO_BUTTONS : undefined });
+    if (avisos.length) await notifyGroup([`✅ ${who.name} cargó ${avisos.length === 1 ? "un servicio" : `${avisos.length} servicios`}:`, ...avisos.map((a) => `• ${a}`)].join("\n"));
     return;
   }
 
   try {
-    const out = await createFromState(result.state, who);
+    const out = await createFromState(result.state, who, refs);
     await deleteDraft(draftKey);
     await rememberCreated(userKey, [out.id]);
     await sendTelegramMessage(chatId, out.text, { buttons: UNDO_BUTTONS });
+    await notifyGroup(`✅ ${who.name} cargó: ${out.aviso}`);
   } catch (err) {
     console.error("[telegram] No se pudo crear el servicio:", err.message);
     // Se conserva el borrador para corregir el dato que fallo (ej. una ciudad que no se ubica) sin repetir todo.

@@ -49,11 +49,19 @@ const getAccessToken = async () => {
 };
 
 const authFetch = async (path, options = {}) => {
-  const token = await getAccessToken();
-  return fetch(`${BASE_URL}${path}`, {
-    ...options,
-    headers: { ...options.headers, Authorization: `Bearer ${token}` },
-  });
+  const request = (token) =>
+    fetch(`${BASE_URL}${path}`, {
+      ...options,
+      headers: { ...options.headers, Authorization: `Bearer ${token}` },
+    });
+
+  const res = await request(await getAccessToken());
+  // 401 = Velocity Fleet rechazo el access token que teniamos guardado (vencio o lo revocaron antes de los 29 dias): se descarta,
+  // se pide uno nuevo con el refresh token y se reintenta una sola vez. Sin esto el token malo quedaba en memoria hasta reiniciar.
+  if (res.status !== 401) return res;
+  cachedAccessToken = null;
+  accessTokenExpiresAt = 0;
+  return request(await getAccessToken());
 };
 
 // El customer_id (no el "number") se necesita para /device-live-positions - se
