@@ -55,11 +55,11 @@ const pad2 = (n) => String(n).padStart(2, "0");
 const hhmm = (h, m) => `${pad2(Number(h))}:${pad2(Number(m ?? 0))}`;
 const toNumber = (v) => Number(String(v).replace(",", "."));
 
-export const parseCommand = (text) => {
+export const parseCommand = (text, { strict = false } = {}) => {
   const m = /^\s*(\/)?(dm|dr|pm|pr|ab|o)(?:@\w+)?(?=$|[\s,:;.\-–])/i.exec(text);
   if (!m) return null;
-  // "O" suelta es una palabra comun: solo cuenta en mayuscula o con barra.
-  if (m[2].toLowerCase() === "o" && !m[1] && m[2] !== "O") return null;
+  // "O" suelta es una palabra comun: solo cuenta en mayuscula o con barra (y en lineas de un lote, solo con barra).
+  if (m[2].toLowerCase() === "o" && !m[1] && (m[2] !== "O" || strict)) return null;
   return { tipo: TIPOS[m[2].toUpperCase()], rest: text.slice(m[0].length) };
 };
 
@@ -78,7 +78,7 @@ const LEADING_FILLER = /^(?:(?:chofer|autista|conductor|driver|cliente|targa|veh
 const DEPOT_WORDS = new Set(["peschiera borromeo", "peschiera", "base", "deposito", "depósito", "dhl milano", "dhl roma", "ab service"]);
 
 // Chofer / cliente nombrados dentro de un texto. Recorre las palabras y devuelve cuales se usaron para sacarlas del texto.
-const findPerson = (words, people) => {
+const findPerson = (words, people, { preferEarliest = false } = {}) => {
   const wn = words.map((w) => norm(w));
   let best = [];
   let bestScore = 0;
@@ -97,6 +97,10 @@ const findPerson = (words, people) => {
     } else if (score === bestScore) best.push({ p, used });
   }
   if (best.length === 0) return null;
+  if (best.length > 1 && preferEarliest) {
+    best.sort((a, b) => Math.min(...a.used) - Math.min(...b.used));
+    if (Math.min(...best[0].used) < Math.min(...best[1].used)) best = [best[0]];
+  }
   if (best.length > 1) return { ambiguous: best.map((b) => b.p.id), used: best[0].used };
   return { id: best[0].p.id, used: best[0].used };
 };
@@ -107,7 +111,8 @@ const personList = (items, nameOf) => items.map((it) => ({ id: it.id, tokens: no
 export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
   const found = {};
   const leftover = [];
-  let text = ` ${input} `;
+  // Las menciones (@Romario) y el "GT" (Gamonal Trasporti) que se agrega a los nombres no son datos.
+  let text = ` ${input.replace(/@/g, " ").replace(/\bGT\b/gi, " ")} `;
   const today = ctx.today;
   let m;
 
@@ -117,10 +122,24 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
   ({ text, match: m } = take(text, /\b(?:ruta|destinos?|recorrido|itinerario)\s*[:=]\s*([^\n;]+)/i));
   const routeText = m ? m[1] : null;
 
-  ({ text, match: m } = take(text, /(\d+(?:[.,]\d+)?)\s*km\b|\bkm\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i));
-  if (m) found.km = toNumber(m[1] ?? m[2]);
+  // Numeros de pedido del cliente: se guardan en la descripcion.
+  const refsFound = [];
+  for (;;) {
+    ({ text, match: m } = take(text, /\b(order|ordine|shipment)\s*[:=#]?\s*(\d{5,})\b/i));
+    if (!m) break;
+    refsFound.push(`${m[1].toLowerCase() === "shipment" ? "Shipment" : "Order"} ${m[2]}`);
+  }
+  if (refsFound.length) found.refs = refsFound;
 
-  ({ text, match: m } = take(text, /\b(?:aplicativo|aplic|apl|app)\.?\s*[:=#]?\s*(\d{1,2})\b/i));
+  // "KM 89" gana sobre "13.14 KM" (una hora pegada a la palabra km).
+  ({ text, match: m } = take(text, /\bkm\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i));
+  if (m) found.km = toNumber(m[1]);
+  else {
+    ({ text, match: m } = take(text, /(\d+(?:[.,]\d+)?)\s*km\b/i));
+    if (m) found.km = toNumber(m[1]);
+  }
+
+  ({ text, match: m } = take(text, /\b(?:aplicativo|aplic|apl|app)\.?\s*(?:milano|roma)?\s*[:=#]?\s*(\d{1,2})\b/i));
   if (m) found.aplicativoN = Number(m[1]);
 
   ({ text, match: m } = take(text, /\b([A-Z]{2})\s?(\d{3})\s?([A-Z]{2})\b/i));
@@ -147,9 +166,9 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
     }
   }
 
-  ({ text, match: m } = take(text, /\b(?:sale|salida|retiro|ritiro|parte|partenza)\s*(?:a\s+las?|alle|:)?\s*(\d{1,2})(?:[:.h]([0-5]\d))?\b/i));
+  ({ text, match: m } = take(text, /\b(?:sale|salida|retiro|ritiro|parte|partenza)\s*(?:a\s+las?|alle|ore|hora|:)?\s*(\d{1,2})(?:[:.h]([0-5]\d))?\b/i));
   if (m && Number(m[1]) <= 23) found.horaSalida = hhmm(m[1], m[2]);
-  ({ text, match: m } = take(text, /\b(?:eta|llegada|llega|entrega|consegna)\s*(?:a\s+las?|alle|:)?\s*(\d{1,2})(?:[:.h]([0-5]\d))?\b/i));
+  ({ text, match: m } = take(text, /\b(?:eta|llegada|llega|entrega|consegna)\s*(?:a\s+las?|alle|ore|hora|orario|:)?\s*(\d{1,2})(?:[:.h]([0-5]\d))?\b/i));
   if (m && Number(m[1]) <= 23) found.hora = hhmm(m[1], m[2]);
   const free = [];
   for (;;) {
@@ -174,7 +193,8 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
 
   const client = findPerson(
     words.map((x) => x.w),
-    personList(ctx.refs.clients, (c) => c.nombre)
+    personList(ctx.refs.clients, (c) => c.nombre),
+    { preferEarliest: true }
   );
   if (client?.ambiguous) found.clientAmbiguous = true;
   else if (client) {
@@ -182,17 +202,29 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
     for (const k of client.used) usedWords.add(k);
   }
 
-  const freeWords = words.filter((_, i) => !usedWords.has(i));
-  const driver = findPerson(
-    freeWords.map((x) => x.w),
-    personList(drivers, (d) => `${d.nombre} ${d.apellido}`)
-  );
-  if (driver) {
-    if (driver.ambiguous) found.driverCandidates = driver.ambiguous;
-    else found.driverId = driver.id;
-    const originalIdx = words.map((_, i) => i).filter((i) => !usedWords.has(i));
-    for (const k of driver.used) usedWords.add(originalIdx[k]);
+  // Chofer(es): con "@" o "X y Y" se aceptan varios; si no, uno solo.
+  const several = /@|\s(?:y|e|&|\+)\s/i.test(input);
+  let pool = drivers;
+  const ids = [];
+  for (let guard = 0; guard < 4; guard += 1) {
+    const avail = words.map((_, i) => i).filter((i) => !usedWords.has(i));
+    const r = findPerson(
+      avail.map((i) => words[i].w),
+      personList(pool, (d) => `${d.nombre} ${d.apellido}`)
+    );
+    if (!r) break;
+    for (const k of r.used) usedWords.add(avail[k]);
+    if (r.ambiguous) {
+      if (!ids.length) found.driverCandidates = r.ambiguous;
+      break;
+    }
+    ids.push({ id: r.id, pos: Math.min(...[...r.used].map((k) => avail[k])) });
+    pool = pool.filter((d) => d.id !== r.id);
+    if (!several) break;
   }
+  ids.sort((a, b) => a.pos - b.pos);
+  if (ids.length === 1) found.driverId = ids[0].id;
+  else if (ids.length > 1) found.driverIds = ids.map((x) => x.id);
 
   const rebuilt = new Map();
   words.forEach((x, i) => {
@@ -203,7 +235,7 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers } = {}) => {
   const stops = [];
   const addStop = (raw, force) => {
     let s = raw.replace(LEADING_FILLER, "").replace(/^[\s.:\-–]+|[\s.:\-–]+$/g, "").trim();
-    if (s.length < 2) return;
+    if (s.length < 2 || s.includes("?")) return;
     if (DEPOT_WORDS.has(s.toLowerCase()) && stops.length === 0) return;
     if (!force && (s.split(/\s+/).length > 8 || s.length > 80)) {
       leftover.push(s);
@@ -246,6 +278,16 @@ const merge = (state, found, ctx) => {
       next.vehicleAuto = false;
     }
   }
+  if (found.driverIds && !found.driverId) {
+    next.multiDrivers = found.driverIds;
+    next.driverId = null;
+    next.driverCandidates = null;
+    if (next.vehicleAuto) {
+      next.vehicleId = null;
+      next.vehicleAuto = false;
+    }
+  }
+  if (found.driverId) next.multiDrivers = null;
   if (found.driverCandidates && !next.driverId) next.driverCandidates = found.driverCandidates;
   if (found.targa) {
     const v = ctx.refs.vehicles.find((x) => norm(x.targa).replace(/ /g, "") === found.targa.toLowerCase());
@@ -261,6 +303,7 @@ const merge = (state, found, ctx) => {
   }
   for (const key of ["fecha", "hora", "horaSalida", "km", "aplicativoN", "descripcion"]) if (found[key] != null) next[key] = found[key];
   if (found.destinos) next.destinos = found.destinos;
+  if (found.refs) next.refs = found.refs;
   return next;
 };
 
@@ -302,14 +345,17 @@ const applyDefaults = async (state, ctx) => {
 export const missingFields = (state) => {
   const tipo = TIPOS[state.tipo];
   const missing = [];
-  if (!state.driverId) missing.push("driver");
-  if (!state.vehicleId) missing.push("vehicle");
+  // Con dos choferes mencionados se pregunta primero lo comun (ruta, ETA...) y al final cuantos servicios cargar.
+  const choosing = Boolean(state.multiDrivers?.length) && !state.driverId;
+  if (!choosing && !state.driverId) missing.push("driver");
+  if (!choosing && !state.vehicleId) missing.push("vehicle");
   if (!state.clientId) missing.push("client");
   if (!state.hora) missing.push("eta");
   if (!state.destinos?.length) missing.push("destinos");
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
+  if (choosing) missing.push("driverChoice");
   return missing;
 };
 
@@ -330,6 +376,10 @@ const question = (field, state, ctx) => {
         return `Hay más de un chofer que coincide: ${names}. ¿Cuál es? (escribe nombre y apellido)`;
       }
       return "¿Qué chofer hace el servicio?";
+    case "driverChoice": {
+      const names = state.multiDrivers.map((id) => nameOf(ctx.refs.drivers.find((d) => d.id === id)));
+      return `Mencionaste a ${names.join(" y ")}. ¿Cargo un servicio para cada uno (con los mismos datos) o solo para uno?`;
+    }
     case "vehicle":
       return state.unknownTarga ? `No encuentro la targa ${state.unknownTarga} en el app. ¿Cuál es la targa?` : "¿Con qué vehículo? (targa)";
     case "client": {
@@ -365,12 +415,19 @@ export const summary = (state, ctx) => {
   if (tipo.kmCliente) lines.push(`KM del cliente (solo ida): ${state.km}  ·  el app los cuenta ×2 = ${state.km * 2}`);
   else if (state.km > 0) lines.push(`KM: ${state.km}`);
   else lines.push("KM: se calculan solos (circuito completo, aproximado por ciudades)");
-  lines.push(`Descripción: ${state.descripcion ?? descripcionPorDefecto(state)}`);
+  lines.push(`Descripción: ${descripcionFinal(state)}`);
   lines.push("", "¿Confirmo? Responde sí o no. También puedes escribir lo que cambia (ej: ETA 15:00, km 90, chofer Rossi).");
   return lines.join("\n");
 };
 
 export const descripcionPorDefecto = (state) => `${TIPOS[state.tipo].label}: ${state.destinos.join(" - ")}`;
+
+// Descripcion final: la escrita (o la automatica) mas los numeros de pedido del cliente que no esten ya dentro.
+export const descripcionFinal = (state) => {
+  const base = state.descripcion ?? descripcionPorDefecto(state);
+  const extra = (state.refs ?? []).filter((r) => !base.includes(r.split(" ")[1]));
+  return extra.length ? `${base} · ${extra.join(" · ")}` : base;
+};
 
 const recap = (state, ctx) => {
   const parts = [TIPOS[state.tipo].label];
@@ -423,9 +480,18 @@ const gridButtons = (items, perRow) => {
   return rows;
 };
 
+const driverButtons = (ids, ctx) => ids.map((id) => [{ text: nameOf(ctx.refs.drivers.find((d) => d.id === id)), data: `d:${id}` }]);
+
 const questionButtons = (field, state, ctx) => {
-  if (field === "driver" && state.driverCandidates?.length) {
-    return state.driverCandidates.map((id) => [{ text: nameOf(ctx.refs.drivers.find((d) => d.id === id)), data: `d:${id}` }]);
+  if (field === "driverChoice") {
+    return [
+      [{ text: `👥 Uno para cada uno (${state.multiDrivers.length})`, data: "m" }],
+      ...state.multiDrivers.map((id) => [{ text: `Solo ${nameOf(ctx.refs.drivers.find((d) => d.id === id))}`, data: `d:${id}` }]),
+    ];
+  }
+  if (field === "driver" && state.driverCandidates?.length) return driverButtons(state.driverCandidates, ctx);
+  if (field === "driver" && ctx.refs.drivers.length <= 24) {
+    return gridButtons(ctx.refs.drivers.map((d) => ({ text: nameOf(d), data: `d:${d.id}` })), 2);
   }
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
     return gridButtons(ctx.refs.clients.map((c) => ({ text: c.nombre, data: `c:${c.id}` })), 2);
@@ -435,6 +501,7 @@ const questionButtons = (field, state, ctx) => {
 
 const FIELD_NAMES = {
   driver: "chofer",
+  driverChoice: "chofer",
   vehicle: "vehículo",
   client: "cliente",
   eta: "ETA",
@@ -451,38 +518,49 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   let found = {};
   let leftover = [];
   let notFound = null;
+  let routeLabeled = false;
   const state0 = prevState;
   if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
   else if (pending === "km" && /^\s*\d+(?:[.,]\d+)?\s*(?:km)?\s*$/i.test(body)) found = { km: toNumber(body) };
   else if (pending === "aplicativo" && /^\s*\d{1,2}\s*$/.test(body)) found = { aplicativoN: Number(body) };
   else {
     const only = pending === "driver" && state0.driverCandidates?.length ? state0.driverCandidates : undefined;
-    let routeLabeled;
     ({ found, leftover, routeLabeled } = extractFields(body, ctx, { tipo: state0.tipo, onlyDrivers: only }));
     // Respuesta pelada a lo que se pregunto: la ruta se lee entera como ciudades.
     if (pending === "destinos" && !found.destinos && leftover.length) found.destinos = leftover.splice(0);
-    // Con la ruta ya cargada, ciudades sueltas sin "ruta:" no la reemplazan (suelen ser un nombre que no se encontro).
+    // Mientras se espera un chofer/vehiculo/cliente, ciudades sueltas sin "ruta:" nunca son la ruta (suele ser un nombre que no se
+    // encontro o una pregunta). Con la ruta ya cargada tampoco la reemplazan, salvo al confirmar con 2 o mas ciudades.
+    const identity = { driver: ["driverId", "choferes"], driverChoice: ["driverId", "choferes"], vehicle: ["targa", "vehículos"], client: ["clientId", "clientes"] }[pending];
     const replacesRoute = state0.stage === "confirm" && found.destinos?.length >= 2;
-    if (found.destinos && state0.destinos?.length && !routeLabeled && !replacesRoute && pending !== "destinos" && !isNew) {
-      const miss = { driver: ["driverId", "chofer"], vehicle: ["targa", "vehiculo"], client: ["clientId", "cliente"] }[pending];
-      if (miss && !found[miss[0]] && !found.driverCandidates) notFound = `No encontré «${found.destinos.join(" ")}» entre los ${miss[1]}s.`;
+    const keepsRoute = Boolean(state0.destinos?.length) && !replacesRoute && pending !== "destinos" && !isNew;
+    if (found.destinos && !routeLabeled && (identity || keepsRoute)) {
+      if (identity && !found[identity[0]] && !found.driverCandidates && !found.driverIds) notFound = `No encontré «${found.destinos.join(" ")}» entre los ${identity[1]}.`;
       delete found.destinos;
     }
   }
 
-  // IA solo si quedo texto largo sin ubicar y todavia falta algo obligatorio.
+  // IA solo si quedo texto largo sin ubicar y todavia falta algo (o la ruta es solo una suposicion). Lo que la IA encuentra pisa
+  // la ruta supuesta; lo demas solo completa lo que falta.
+  const weakRoute = Boolean(found.destinos) && !routeLabeled && leftover.length > 0;
   let usedAi = false;
   if (leftover.length && ctx.aiExtract) {
     const draft = await applyDefaults(merge(state0, found, ctx), ctx);
-    if (missingFields(draft).length) {
+    if (missingFields(draft).length || weakRoute) {
       const ai = await ctx.aiExtract({ text: body, state: draft, leftover });
       if (ai) {
         usedAi = true;
-        for (const [k, v] of Object.entries(ai)) if (v != null && found[k] == null) found[k] = v;
+        const { driverIds, destinos, ...rest } = ai;
+        if (destinos?.length && (weakRoute || !found.destinos)) found.destinos = destinos;
+        if (!found.driverId && !found.driverIds && driverIds?.length) {
+          if (driverIds.length === 1) found.driverId = driverIds[0];
+          else found.driverIds = driverIds;
+        }
+        for (const [k, v] of Object.entries(rest)) if (v != null && found[k] == null) found[k] = v;
       }
     }
   }
-  if (leftover.length && !usedAi && !found.descripcion && !TIPOS[state0.tipo].kmCliente) found.descripcion = leftover.join(" ");
+  // El texto del pedido que nadie pudo ubicar queda como descripcion (recortado).
+  if (leftover.length && !found.descripcion) found.descripcion = leftover.join(" ").slice(0, 400);
 
   const hadInput = Object.keys(found).length > 0;
   const state = await applyDefaults(merge(state0, found, ctx), ctx);
@@ -537,19 +615,19 @@ const batchOverlaps = (items, ctx) => {
 const splitGroups = (text) => {
   const groups = [];
   for (const line of text.split("\n")) {
-    if (parseCommand(line)) groups.push(line);
+    if (parseCommand(line, { strict: true })) groups.push(line);
     else if (groups.length && line.trim()) groups[groups.length - 1] += `, ${line.trim()}`;
   }
   return groups;
 };
-const isBatch = (text) => text.split("\n").filter((l) => parseCommand(l)).length >= 2;
+const isBatch = (text) => text.split("\n").filter((l) => parseCommand(l, { strict: true })).length >= 2;
 
 const handleBatch = async (text, ctx) => {
   const items = [];
   const problems = [];
   const notes = [];
   for (const [i, group] of splitGroups(text).entries()) {
-    const cmd = parseCommand(group);
+    const cmd = parseCommand(group, { strict: true });
     const adv = await advance(newState(cmd.tipo.code), cmd.rest, ctx, { pending: null, isNew: true });
     if (adv.missing.length) {
       problems.push(`Línea ${i + 1} (${cmd.tipo.label}): falta ${adv.missing.map((f) => FIELD_NAMES[f]).join(", ")}.`);
@@ -559,9 +637,14 @@ const handleBatch = async (text, ctx) => {
     items.push(adv.state);
     for (const c of conflicts) notes.push(`Servicio ${items.length}: ${c}`);
   }
+  return finishBatch(items, problems, notes, ctx);
+};
+
+// Arma la respuesta de un lote ya entendido (items completos, problems = lineas que faltan).
+const finishBatch = (items, problems, notes, ctx) => {
   notes.push(...batchOverlaps(items, ctx));
   if (items.length === 0) {
-    return { state: null, reply: ["No pude cargar ninguna línea:", ...problems, "Reenvíalas completas."].join("\n"), action: null };
+    return { state: null, reply: ["No pude cargar ninguna:", ...problems, "Reenvíalas completas."].join("\n"), action: null };
   }
   const lines = [`Entendí ${items.length} servicio${items.length > 1 ? "s" : ""}:`, ...items.map((s, i) => `${i + 1}) ${oneLine(s, ctx)}`)];
   if (notes.length) lines.push("", ...notes.map((c) => `⚠️ ${c}`));
@@ -625,6 +708,38 @@ export const handleMessage = async (prevState, rawText, ctx) => {
   }
 
   const pending = cmd ? null : state.pending;
+
+  // Pidio la lista de choferes.
+  if (pending === "driver" && /\b(lista|opciones|quienes|choferes)\b/.test(n)) {
+    return {
+      state,
+      reply: "Estos son los choferes activos. Toca uno o escribe su nombre.",
+      buttons: gridButtons(ctx.refs.drivers.map((d) => ({ text: nameOf(d), data: `d:${d.id}` })), 2),
+      action: null,
+    };
+  }
+
+  // Dos choferes mencionados y quiere un servicio para cada uno.
+  if (pending === "driverChoice" && /^(ambos|todos|los dos|cada uno|uno para cada uno)\b/.test(n)) {
+    const items = [];
+    const problems = [];
+    const notes = [];
+    for (const id of state.multiDrivers) {
+      const adv2 = await advance({ ...state, driverId: id, multiDrivers: null, vehicleId: null, vehicleAuto: false, stage: "collect", pending: null }, "", ctx, {
+        pending: null,
+        isNew: false,
+      });
+      const d = ctx.refs.drivers.find((x) => x.id === id);
+      if (adv2.missing.length) {
+        problems.push(`${nameOf(d)}: falta ${adv2.missing.map((f) => FIELD_NAMES[f]).join(", ")}.`);
+        continue;
+      }
+      for (const c of [...adv2.warnings, ...((await ctx.checkConflicts?.(adv2.state)) ?? [])]) notes.push(`${nameOf(d)}: ${c}`);
+      items.push(adv2.state);
+    }
+    return finishBatch(items, problems, notes, ctx);
+  }
+
   const adv = await advance(state, body, ctx, { pending, isNew: Boolean(cmd) });
 
   if (state.stage === "confirm" && !cmd && !adv.hadInput) {
@@ -657,7 +772,7 @@ export const buildRecordInput = (state) => {
     vehicleId: state.vehicleId,
     clientId: state.clientId,
     eta: romeLocalToDate(state.fecha, state.hora),
-    descripcion: state.descripcion ?? descripcionPorDefecto(state),
+    descripcion: descripcionFinal(state),
     codigo: `TG-${randomUUID().slice(0, 8).toUpperCase()}`,
     ciudad: state.destinos.at(-1),
     spedizzione: tipo.spedizzione,

@@ -20,8 +20,9 @@ const UNDO_BUTTONS = [[{ text: "↩️ Deshacer", data: "u" }]];
 let refsCache = null;
 const loadRefs = async () => {
   if (refsCache && Date.now() - refsCache.at < REFS_TTL_MS) return refsCache.value;
-  const [users, vehicles, clients] = await Promise.all([findAllUsers("CHOFER"), findVehicles(), findClients()]);
-  const value = { drivers: users.filter((u) => u.estado === "ACTIVO"), vehicles, clients };
+  // "Chofer" es cualquiera que maneja: choferes, Responsables y Admin (igual que en el calendario del app).
+  const [users, vehicles, clients] = await Promise.all([findAllUsers(), findVehicles(), findClients()]);
+  const value = { drivers: users.filter((u) => u.estado === "ACTIVO" && ["CHOFER", "ADMIN", "OWNER"].includes(u.cargo)), vehicles, clients };
   refsCache = { at: Date.now(), value };
   return value;
 };
@@ -45,6 +46,7 @@ const callbackToText = (data, refs) => {
   if (data === "n") return "cancelar";
   if (data === "e") return "editar";
   if (data === "u") return "/deshacer";
+  if (data === "m") return "ambos";
   const [kind, value] = [data.slice(0, 1), data.slice(2)];
   if (kind === "t") return TIPOS[value] ? value : null;
   if (kind === "d") {
