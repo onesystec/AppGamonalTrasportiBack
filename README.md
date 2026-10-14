@@ -488,6 +488,9 @@ IA), pregunta lo que falte de a una cosa, muestra un resumen y carga al responde
   siempre pregunta (con botones, entre las personas activas que pueden manejar: choferes,
   Responsables y Admin) o se escribe `chofer: Nombre` en el mensaje. Apodos de la oficina que
   no coinciden con el app (ej. "Sinelli"): variable opcional `TELEGRAM_NOMBRES_OFICINA`.
+- El vehiculo tambien se elige siempre (botones, con el habitual del chofer primero y una
+  estrella); no se propone solo. Los vehiculos de Farmacia (area o grupo Farmacia) no
+  aparecen en el bot.
 - Obligatorios: chofer, vehiculo, cliente, ETA y al menos una ciudad. Ademas: DHL y AB
   Service piden los **km (solo ida, los que da el cliente; el app los cuenta x2)**, DHL pide
   el numero de aplicativo, y Extras Piazza / Otros piden descripcion. En Extras Piazza y

@@ -22,14 +22,14 @@ const loadRefs = async () => {
   if (refsCache && Date.now() - refsCache.at < REFS_TTL_MS) return refsCache.value;
   // "Chofer" es cualquiera que maneja: choferes, Responsables y Admin (igual que en el calendario del app).
   const [users, vehicles, clients] = await Promise.all([findAllUsers(), findVehicles(), findClients()]);
-  const value = { drivers: users.filter((u) => u.estado === "ACTIVO" && ["CHOFER", "ADMIN", "OWNER"].includes(u.cargo)), vehicles, clients };
+  // Los vehiculos de Farmacia (area o grupo) no se usan en el bot.
+  const value = {
+    drivers: users.filter((u) => u.estado === "ACTIVO" && ["CHOFER", "ADMIN", "OWNER"].includes(u.cargo)),
+    vehicles: vehicles.filter((v) => v.area !== "FARMACIA" && v.grupo !== "FARMACIA"),
+    clients,
+  };
   refsCache = { at: Date.now(), value };
   return value;
-};
-
-const lastVehicleOf = async (driverId) => {
-  const last = await prisma.record.findFirst({ where: { driverId }, orderBy: { createdAt: "desc" }, select: { vehicleId: true } });
-  return last?.vehicleId ?? null;
 };
 
 const readState = (draft) => {
@@ -54,6 +54,7 @@ const callbackToText = (data, refs) => {
     return d ? `${d.nombre} ${d.apellido}` : null;
   }
   if (kind === "c") return refs.clients.find((x) => x.id === value)?.nombre ?? null;
+  if (kind === "v") return refs.vehicles.find((x) => x.id === value)?.targa ?? null;
   return null;
 };
 
@@ -129,7 +130,6 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
   const ctx = {
     refs,
     today: romeDay(),
-    defaultVehicleFor: lastVehicleOf,
     aiExtract: ({ text: body, state }) => aiExtractFields({ text: body, state, refs, today: romeDay() }),
     checkConflicts: (state) => checkConflicts(state, refs),
   };

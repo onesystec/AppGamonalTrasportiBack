@@ -272,17 +272,12 @@ const merge = (state, found, ctx) => {
   if (found.driverId && found.driverId !== next.driverId) {
     next.driverId = found.driverId;
     next.driverCandidates = null;
-    if (next.vehicleAuto) {
-      next.vehicleId = null;
-      next.vehicleAuto = false;
-    }
   }
   if (found.driverCandidates && !next.driverId) next.driverCandidates = found.driverCandidates;
   if (found.targa) {
     const v = ctx.refs.vehicles.find((x) => norm(x.targa).replace(/ /g, "") === found.targa.toLowerCase());
     if (v) {
       next.vehicleId = v.id;
-      next.vehicleAuto = false;
       next.unknownTarga = null;
     } else next.unknownTarga = found.targa;
   }
@@ -315,15 +310,6 @@ const applyDefaults = async (state, ctx) => {
     if (id) {
       next.clientId = id;
       next.clientAuto = true;
-    }
-  }
-  if (next.driverId && !next.vehicleId && !next.unknownTarga) {
-    const driver = ctx.refs.drivers.find((d) => d.id === next.driverId);
-    let vehicleId = driver?.vehiculoAsignadoId ?? null;
-    if (!vehicleId || !ctx.refs.vehicles.some((v) => v.id === vehicleId)) vehicleId = (await ctx.defaultVehicleFor?.(next.driverId)) ?? null;
-    if (vehicleId && ctx.refs.vehicles.some((v) => v.id === vehicleId)) {
-      next.vehicleId = vehicleId;
-      next.vehicleAuto = true;
     }
   }
   if (!next.fecha && next.hora) next.fecha = ctx.today;
@@ -363,7 +349,9 @@ const question = (field, state, ctx) => {
       }
       return "¿Qué chofer hace el servicio?";
     case "vehicle":
-      return state.unknownTarga ? `No encuentro la targa ${state.unknownTarga} en el app. ¿Cuál es la targa?` : "¿Con qué vehículo? (targa)";
+      return state.unknownTarga
+        ? `No encuentro la targa ${state.unknownTarga} entre los vehículos del bot (los de Farmacia no están). ¿Con qué vehículo? Toca uno o escribe la targa.`
+        : "¿Con qué vehículo? Toca uno o escribe la targa.";
     case "client": {
       const names = ctx.refs.clients.map((c) => c.nombre);
       return names.length && names.length <= 12 ? `¿Para qué cliente? (${names.join(", ")})` : "¿Para qué cliente?";
@@ -388,7 +376,7 @@ export const summary = (state, ctx) => {
   const lines = [
     `Resumen · ${tipo.label}${tipo.zonaVariable ? ` (${zona === "ROMA" ? "Roma" : "Milano"})` : ""}`,
     `Chofer: ${driver ? nameOf(driver) : "-"}`,
-    `Vehículo: ${vehicle?.targa ?? "-"}${state.vehicleAuto ? " (el habitual del chofer)" : ""}`,
+    `Vehículo: ${vehicle?.targa ?? "-"}`,
     `Cliente: ${client?.nombre ?? "-"}${state.clientAuto ? " (automático)" : ""}`,
     `ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`,
     `Ruta: ${salidaLabel(state)} → ${state.destinos.join(" → ")}`,
@@ -435,7 +423,7 @@ export const HELP_TEXT = [
   "O · Otros",
   "",
   "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
-  "Los nombres con que abre el mensaje se ignoran: el chofer siempre te lo pregunto yo (o escribe chofer: Nombre).",
+  "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
   "Lo que falte te lo pregunto. En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
@@ -467,8 +455,14 @@ const driverButtons = (ids, ctx) => ids.map((id) => [{ text: nameOf(ctx.refs.dri
 
 const questionButtons = (field, state, ctx) => {
   if (field === "driver" && state.driverCandidates?.length) return driverButtons(state.driverCandidates, ctx);
-  if (field === "driver" && ctx.refs.drivers.length <= 24) {
+  if (field === "driver" && ctx.refs.drivers.length <= 40) {
     return gridButtons(ctx.refs.drivers.map((d) => ({ text: nameOf(d), data: `d:${d.id}` })), 2);
+  }
+  if (field === "vehicle" && ctx.refs.vehicles.length <= 40) {
+    const usual = ctx.refs.drivers.find((d) => d.id === state.driverId)?.vehiculoAsignadoId;
+    const label = (v) => `${v.id === usual ? "⭐ " : ""}${v.targa}${v.modelo && !/completar/i.test(v.modelo) ? ` · ${v.modelo}` : ""}`;
+    const sorted = [...ctx.refs.vehicles].sort((a, b) => (b.id === usual) - (a.id === usual));
+    return gridButtons(sorted.map((v) => ({ text: label(v), data: `v:${v.id}` })), 2);
   }
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
     return gridButtons(ctx.refs.clients.map((c) => ({ text: c.nombre, data: `c:${c.id}` })), 2);
@@ -713,6 +707,11 @@ export const handleMessage = async (prevState, rawText, ctx) => {
   }
 
   const pending = cmd ? null : state.pending;
+
+  // Pidio la lista de vehiculos.
+  if (pending === "vehicle" && /\b(lista|opciones|vehiculos|cuales)\b/.test(n)) {
+    return { state, reply: "Estos son los vehículos. Toca uno o escribe la targa.", buttons: questionButtons("vehicle", state, ctx), action: null };
+  }
 
   // Pidio la lista de choferes.
   if (pending === "driver" && /\b(lista|opciones|quienes|choferes)\b/.test(n)) {
