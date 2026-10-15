@@ -29,10 +29,10 @@ import { canAccessRecordArea, mancatoAreaWhere, recordAreaWhere } from "../utils
 import { AppError } from "../utils/AppError.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// Como dicen los avisos ("entro e non oltre il 15° giorno successivo alla data del
-// transito"): se puede pagar hasta el dia 15 POSTERIOR a la fecha, o sea fecha + 15. Se
-// paga hasta el final de ese ultimo dia.
-const PLAZO_DIAS_DESPUES_DE_LA_FECHA = 15;
+// Regla de la empresa: el vencimiento es la fecha del aviso (la del transito, no la de
+// subida) + 13 dias. Los avisos dan hasta el dia 15 posterior; la empresa paga con dos dias
+// de margen. Se paga hasta el final de ese ultimo dia.
+const PLAZO_DIAS_DESPUES_DE_LA_FECHA = 13;
 // Un mancato que no concuerda con ningun servicio espera este tiempo (desde que se subio) a que
 // la oficina cargue el servicio; pasado el plazo se muestra como "fuera del horario laboral".
 // No se guarda: se deriva al leer (igual que Pendiente/Vencido), asi no hace falta ningun cron
