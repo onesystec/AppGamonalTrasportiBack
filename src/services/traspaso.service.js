@@ -31,11 +31,11 @@ const assertRelevoDriver = async (driverId) => {
   return driver;
 };
 
-const notifyRelevo = (record, driverId, fromName) =>
+const notifyRelevo = (record, driverId, fromName, lugar) =>
   // Best-effort: un fallo de push nunca debe romper el guardado del servicio.
   sendPushToUserIds([driverId], {
     title: "Se te asigno un servicio",
-    body: `${record.codigo}: ${fromName} te paso el servicio. Indica a que hora recibiste el paquete.`,
+    body: `${record.codigo}: ${fromName} te paso el servicio.${lugar ? ` Recoge el paquete en ${lugar}.` : ""}`,
     data: { type: "traspaso", recordId: record.id },
   }).catch(() => {});
 
@@ -88,7 +88,7 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
         ...(lugar !== undefined ? { traspasoLugar: lugar || null } : {}),
       },
     });
-    notifyRelevo(existing, relevoDriverId, fromName);
+    notifyRelevo(existing, relevoDriverId, fromName, lugar || existing.traspasoLugar);
     return;
   }
 
@@ -122,5 +122,5 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
       })),
     },
   });
-  notifyRelevo(continuation, relevoDriverId, fromName);
+  notifyRelevo(continuation, relevoDriverId, fromName, lugar);
 };

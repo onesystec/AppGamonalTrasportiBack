@@ -2,8 +2,10 @@ import { findGroupMembers, markGroupDelivered, setGroupKm } from "../models/comp
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
 import { wasWorked } from "../utils/workedRecords.js";
+import { romeDay } from "../utils/romeTime.js";
 import { computeShiftHours } from "../utils/workHours.js";
 import { viajesAplican } from "../config/viajes.js";
+import { tariffForMonth } from "../config/payRates.js";
 import { planesDelViaje, repartirKm, repartoMeta } from "../utils/kmReparto.js";
 import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
@@ -72,7 +74,9 @@ export const submitHoursForActor = async (actor, id, body) => {
   // ejemplo, el chofer que recibe un paquete en el camino y lo lleva junto con su propio servicio).
   const toCheck = tripMembers?.length ? tripMembers : [{ ...record, continuaciones: record.continuaciones }];
   for (const m of toCheck) {
-    if (m.servicioOrigenId) {
+    // Con pago por km el chofer que recibe ya no indica la hora: el servicio arranca solo y no se le piden horas.
+    const sinHoraPorKm = tariffForMonth(romeDay(m.fechaServicio).slice(0, 7)).pagoPorKm;
+    if (m.servicioOrigenId && !(sinHoraPorKm && !m.traspasoHora)) {
       if (!m.traspasoHora) {
         throw new AppError(
           m.id === record.id
