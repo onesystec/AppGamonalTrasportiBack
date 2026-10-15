@@ -63,6 +63,8 @@ const retiroReady = (state) => Boolean(state.retiroOk || (state.autoRetiro && st
 // El dia del servicio se pregunta siempre (de ahi sale la distribucion por dias); vale tambien si el mensaje lo traia ("domani", "18/10")
 // y en un lote, donde la fecha por defecto es hoy.
 const fechaReady = (state) => Boolean(state.fechaOk || (state.autoRetiro && state.fecha));
+// Extras Piazza: la ruta (ciudades) se confirma siempre, aunque se haya leido del mensaje; escrita con "ruta: ..." ya cuenta como confirmada.
+const rutaReady = (state) => Boolean(state.rutaOk || state.autoRetiro);
 // Extras Piazza: la llegada calculada con la ruta se confirma (o se corrige) antes de cargar.
 const etaConfirmed = (state) => Boolean(state.etaOk || state.etaManual || state.autoRetiro);
 
@@ -429,6 +431,8 @@ const merge = (state, found, ctx) => {
   if (found.codigo) next.codigo = found.codigo;
   if (found.retiroOk) next.retiroOk = true;
   if (found.etaOk) next.etaOk = true;
+  if (found.rutaOk) next.rutaOk = true;
+  else if (found.destinos && isExtrasPiazza(next)) next.rutaOk = false;
   if (found.fecha) next.fechaOk = true;
   return next;
 };
@@ -470,7 +474,7 @@ export const missingFields = (state) => {
   if (!retiroReady(state)) missing.push("retiro");
   if (!isExtrasPiazza(state) && !state.hora) missing.push("eta");
   if (!state.clientId) missing.push("client");
-  if (!state.destinos?.length) missing.push("destinos");
+  if (!state.destinos?.length || (isExtrasPiazza(state) && !rutaReady(state))) missing.push("destinos");
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
@@ -506,6 +510,13 @@ const question = (field, state, ctx) => {
       const names = ctx.refs.clients.map((c) => c.nombre);
       return names.length && names.length <= 12 ? `¿Para qué cliente? (${names.join(", ")})` : "¿Para qué cliente?";
     }
+    case "destinos":
+      if (isExtrasPiazza(state)) {
+        return state.destinos?.length
+          ? `Ruta: ${salidaLabel(state)} → ${state.destinos.join(" → ")}. ¿Es la ruta por ciudades? Toca el botón si es correcta o escríbela otra vez en ciudades y en orden (ej: Lainate - Brescia - Verona). La salida va sola.`
+          : "¿Cuál es la ruta por ciudades? En orden, ej: Lainate - Brescia - Verona (la salida va sola, no hace falta ponerla).";
+      }
+      return QUESTIONS.destinos;
     case "fecha":
       return "¿Qué día es el servicio (el día del retiro)? Toca una opción o escribe la fecha (ej: 18/10).";
     case "etaConfirm":
@@ -623,7 +634,7 @@ export const HELP_TEXT = [
   "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
   "Lo que falte te lo pregunto. Después del vehículo siempre confirmo el DÍA del servicio, la hora de RETIRO (salida del vehículo) y la ETA; si ya los escribiste en el mensaje (domani, 18/10, salida 7:00, ETA 14:30) no los repito, salvo la confirmación del retiro.",
   "En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos. Pasados 15 min del retiro el servicio pasa solo a «En camino».",
-  "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; calculo la hora de llegada al último punto con la ruta y te pido confirmarla o corregirla.",
+  "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; siempre te confirmo la ruta por ciudades, calculo la hora de llegada al último punto con ella y te pido confirmarla o corregirla.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
 ].join("\n");
@@ -672,6 +683,7 @@ const questionButtons = (field, state, ctx) => {
       [{ text: `Pasado · ${day(2)}`, data: "f:pasado" }, { text: `Ayer · ${day(-1)}`, data: "f:ayer" }],
     ];
   }
+  if (field === "destinos" && isExtrasPiazza(state) && state.destinos?.length) return [[{ text: "✅ Ruta correcta", data: "r" }]];
   if (field === "etaConfirm") return [[{ text: `✅ ${state.hora}`, data: "r" }]];
   if (field === "retiro" && state.horaSalida) return [[{ text: `✅ ${state.horaSalida}`, data: "r" }]];
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
@@ -747,6 +759,7 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
     const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
     found = { hora: hhmm(t[1], t[2]) };
   } else if (pending === "etaConfirm" && YES.test(norm(body))) found = { etaOk: true };
+  else if (pending === "destinos" && isExtrasPiazza(state0) && state0.destinos?.length && YES.test(norm(body))) found = { rutaOk: true };
   else if (pending === "retiro" && YES.test(norm(body)) && state0.horaSalida) found = { retiroOk: true };
   else if (pending === "retiro" && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
     const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
@@ -769,7 +782,13 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
     }
   }
 
-  // IA solo si quedo texto largo sin ubicar y todavia falta algo (o la ruta es solo una suposicion). Lo que la IA encuentra pisa
+  // Extras Piazza: la ruta que escribe la persona (respondiendo a la pregunta, o con "ruta: ...") queda confirmada; la leida del
+  // mensaje o puesta por la IA se le pregunta siempre.
+  if (isExtrasPiazza(state0) && found.destinos && (pending === "destinos" || /\b(?:ruta|destinos?|recorrido|itinerario)\s*[:=]/i.test(body))) {
+    found.rutaOk = true;
+  }
+
+    // IA solo si quedo texto largo sin ubicar y todavia falta algo (o la ruta es solo una suposicion). Lo que la IA encuentra pisa
   // la ruta supuesta; lo demas solo completa lo que falta.
   const weakRoute = Boolean(found.destinos) && !routeLabeled && leftover.length > 0;
   let usedAi = false;
