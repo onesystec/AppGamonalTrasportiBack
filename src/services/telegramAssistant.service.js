@@ -22,10 +22,10 @@ const loadRefs = async () => {
   if (refsCache && Date.now() - refsCache.at < REFS_TTL_MS) return refsCache.value;
   // "Chofer" es cualquiera que maneja: choferes, Responsables y Admin (igual que en el calendario del app).
   const [users, vehicles, clients] = await Promise.all([findAllUsers(), findVehicles(), findClients()]);
-  // Los vehiculos de Farmacia (area o grupo) no se usan en el bot.
+  // Solo vehiculos activos (DISPONIBLE; fuera los que estan en mantenimiento o fuera de servicio) y sin los de Farmacia (area o grupo).
   const value = {
     drivers: users.filter((u) => u.estado === "ACTIVO" && ["CHOFER", "ADMIN", "OWNER"].includes(u.cargo)),
-    vehicles: vehicles.filter((v) => v.area !== "FARMACIA" && v.grupo !== "FARMACIA"),
+    vehicles: vehicles.filter((v) => v.estado === "DISPONIBLE" && v.area !== "FARMACIA" && v.grupo !== "FARMACIA"),
     clients,
   };
   refsCache = { at: Date.now(), value };
@@ -49,6 +49,7 @@ const callbackToText = (data, refs) => {
   if (data === "r") return "sí";
   const [kind, value] = [data.slice(0, 1), data.slice(2)];
   if (kind === "t") return TIPOS[value] ? value : null;
+  if (kind === "f") return { hoy: "hoy", manana: "mañana", pasado: "pasado mañana", ayer: "ayer" }[value] ?? null;
   if (kind === "d") {
     const d = refs.drivers.find((x) => x.id === value);
     return d ? `${d.nombre} ${d.apellido}` : null;

@@ -60,6 +60,11 @@ export const isExtrasPiazza = (state) => state.tipo === "PM" || state.tipo === "
 
 // El retiro esta listo cuando se confirmo (o, en un lote, cuando el mensaje traia la hora).
 const retiroReady = (state) => Boolean(state.retiroOk || (state.autoRetiro && state.horaSalida));
+// El dia del servicio se pregunta siempre (de ahi sale la distribucion por dias); vale tambien si el mensaje lo traia ("domani", "18/10")
+// y en un lote, donde la fecha por defecto es hoy.
+const fechaReady = (state) => Boolean(state.fechaOk || (state.autoRetiro && state.fecha));
+// Extras Piazza: la llegada calculada con la ruta se confirma (o se corrige) antes de cargar.
+const etaConfirmed = (state) => Boolean(state.etaOk || state.etaManual || state.autoRetiro);
 
 export const parseCommand = (text, { strict = false } = {}) => {
   const m = /^\s*(\/)?(dm|dr|pm|pr|ab|o)(?:@\w+)?(?=$|[\s,:;.\-–])/i.exec(text);
@@ -266,6 +271,10 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   ({ text, match: m } = take(text, /\bpasado\s+ma[ñn]ana\b|\bdopodomani\b/i));
   if (m) found.fecha = addDays(today, 2);
   else {
+    ({ text, match: m } = take(text, /\b(?:ayer|ieri)\b/i));
+    if (m) found.fecha = addDays(today, -1);
+  }
+  if (!found.fecha) {
     ({ text, match: m } = take(text, /\b(?:ma[ñn]ana|domani)\b/i));
     if (m) found.fecha = addDays(today, 1);
     else {
@@ -419,6 +428,8 @@ const merge = (state, found, ctx) => {
   if (found.refs) next.refs = found.refs;
   if (found.codigo) next.codigo = found.codigo;
   if (found.retiroOk) next.retiroOk = true;
+  if (found.etaOk) next.etaOk = true;
+  if (found.fecha) next.fechaOk = true;
   return next;
 };
 
@@ -453,17 +464,20 @@ export const missingFields = (state) => {
   const missing = [];
   if (!state.driverId) missing.push("driver");
   if (!state.vehicleId) missing.push("vehicle");
-  if (!state.clientId) missing.push("client");
-  // Extras Piazza: la ETA sale de la ruta; solo se pregunta si no se pudo calcular.
+  // Justo despues del vehiculo: el dia, la hora de retiro (salida del vehiculo; con ella el servicio pasa solo a "En camino" a los
+  // 15 minutos) y la ETA. En Extras Piazza la ETA sale de la ruta y se confirma al final.
+  if (!fechaReady(state)) missing.push("fecha");
+  if (!retiroReady(state)) missing.push("retiro");
   if (!isExtrasPiazza(state) && !state.hora) missing.push("eta");
+  if (!state.clientId) missing.push("client");
   if (!state.destinos?.length) missing.push("destinos");
   if (tipo.kmCliente && !(state.km > 0)) missing.push("km");
   if (tipo.aplicativo && !state.aplicativoN) missing.push("aplicativo");
   if (!tipo.kmCliente && !state.descripcion) missing.push("descripcion");
-  // La hora de retiro (salida del vehiculo) se pide siempre en Extras Piazza (de ahi sale la ETA) y en DHL y AB Service (ahi la ETA
-  // la da el mensaje); con ella el servicio pasa solo a "En camino" a los 15 minutos.
-  if ((isExtrasPiazza(state) || tipo.kmCliente) && !retiroReady(state)) missing.push("retiro");
-  else if (isExtrasPiazza(state) && state.etaFailed && !state.hora) missing.push("eta");
+  if (isExtrasPiazza(state) && retiroReady(state)) {
+    if (state.etaFailed && !state.hora) missing.push("eta");
+    else if (state.hora && !etaConfirmed(state)) missing.push("etaConfirm");
+  }
   return missing;
 };
 
@@ -486,12 +500,16 @@ const question = (field, state, ctx) => {
       return "¿Qué chofer hace el servicio?";
     case "vehicle":
       return state.unknownTarga
-        ? `No encuentro la targa ${state.unknownTarga} entre los vehículos del bot (los de Farmacia no están). ¿Con qué vehículo? Toca uno o escribe la targa.`
+        ? `No encuentro la targa ${state.unknownTarga} entre los vehículos del bot (solo salen los disponibles; no están los de Farmacia, mantenimiento ni fuera de servicio). ¿Con qué vehículo? Toca uno o escribe la targa.`
         : "¿Con qué vehículo? Toca uno o escribe la targa.";
     case "client": {
       const names = ctx.refs.clients.map((c) => c.nombre);
       return names.length && names.length <= 12 ? `¿Para qué cliente? (${names.join(", ")})` : "¿Para qué cliente?";
     }
+    case "fecha":
+      return "¿Qué día es el servicio (el día del retiro)? Toca una opción o escribe la fecha (ej: 18/10).";
+    case "etaConfirm":
+      return `Llegada estimada al último punto: ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}${state.rutaMin ? ` (ruta ≈ ${state.rutaKm} km · ${Math.floor(state.rutaMin / 60)} h ${state.rutaMin % 60} min de manejo, sin contar esperas)` : ""}. ¿Es la ETA? Toca el botón o escribe otra hora (ej: 12:30).`;
     case "retiro":
       return state.horaSalida
         ? `¿A qué hora es el retiro? Detecté las ${state.horaSalida} (${fmtFecha(state.fecha)}). Toca el botón si es correcto o escribe otra hora (ej: 7:30).`
@@ -531,9 +549,10 @@ export const summary = (state, ctx) => {
             ? `ETA (la que escribiste): ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}`
             : `Llegada estimada al último punto: ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}${state.rutaMin ? ` (ruta ≈ ${state.rutaKm} km · ${Math.floor(state.rutaMin / 60)} h ${state.rutaMin % 60} min de manejo, sin contar esperas)` : ""}`,
         ]
-      : tipo.kmCliente
-        ? [`Retiro: ${fmtFecha(state.fecha)} ${state.horaSalida}`, `ETA: ${fmtFecha(state.fecha)} ${state.hora}`]
-        : [`ETA: ${fmtFecha(state.fecha)} ${state.hora ?? ""}${state.horaSalida ? ` · Salida: ${state.horaSalida}` : ""}`]),
+      : [
+          `Retiro: ${fmtFecha(state.fecha)} ${state.horaSalida}`,
+          `ETA: ${fmtFecha(state.etaFecha ?? state.fecha)} ${state.hora}`,
+        ]),
     `Ruta: ${salidaLabel(state)} → ${state.destinos.join(" → ")}`,
   ];
   if (tipo.aplicativo) lines.push(`Aplicativo: ${state.aplicativoN}`);
@@ -564,6 +583,8 @@ const recap = (state, ctx) => {
   if (driver) parts.push(nameOf(driver));
   if (vehicle) parts.push(vehicle.targa);
   if (client) parts.push(client.nombre);
+  if (state.fechaOk) parts.push(fmtFecha(state.fecha));
+  if (state.horaSalida) parts.push(`retiro ${state.horaSalida}`);
   if (state.hora) parts.push(`ETA ${state.hora}`);
   if (state.destinos?.length) parts.push(state.destinos.join(" → "));
   if (state.km > 0) parts.push(`${state.km} km`);
@@ -600,9 +621,9 @@ export const HELP_TEXT = [
   "",
   "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
   "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
-  "Lo que falte te lo pregunto. En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos.",
-  "DHL y AB Service: además de la ETA te pido la hora de RETIRO (salida del vehículo; escribe «salida 7:00» o te la pregunto). Pasados 15 min del retiro el servicio pasa solo a «En camino».",
-  "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; te pido confirmarla y calculo la hora de llegada al último punto con la ruta.",
+  "Lo que falte te lo pregunto. Después del vehículo siempre confirmo el DÍA del servicio, la hora de RETIRO (salida del vehículo) y la ETA; si ya los escribiste en el mensaje (domani, 18/10, salida 7:00, ETA 14:30) no los repito, salvo la confirmación del retiro.",
+  "En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos. Pasados 15 min del retiro el servicio pasa solo a «En camino».",
+  "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; calculo la hora de llegada al último punto con la ruta y te pido confirmarla o corregirla.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
 ].join("\n");
@@ -623,6 +644,8 @@ const CONFIRM_BUTTONS = [
 ];
 const tipoButtons = () =>
   [["DM", "DR"], ["PM", "PR"], ["AB", "O"]].map((row) => row.map((c) => ({ text: `${c} · ${TIPOS[c].label}`, data: `t:${c}` })));
+const WEEKDAYS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+const dayLabel = (day) => `${WEEKDAYS[new Date(`${day}T12:00:00Z`).getUTCDay()]} ${fmtFecha(day)}`;
 const gridButtons = (items, perRow) => {
   const rows = [];
   for (let i = 0; i < items.length; i += perRow) rows.push(items.slice(i, i + perRow));
@@ -642,6 +665,14 @@ const questionButtons = (field, state, ctx) => {
     const sorted = [...ctx.refs.vehicles].sort((a, b) => (b.id === usual) - (a.id === usual));
     return gridButtons(sorted.map((v) => ({ text: label(v), data: `v:${v.id}` })), 2);
   }
+  if (field === "fecha" && ctx.today) {
+    const day = (n) => dayLabel(addDays(ctx.today, n));
+    return [
+      [{ text: `Hoy · ${day(0)}`, data: "f:hoy" }, { text: `Mañana · ${day(1)}`, data: "f:manana" }],
+      [{ text: `Pasado · ${day(2)}`, data: "f:pasado" }, { text: `Ayer · ${day(-1)}`, data: "f:ayer" }],
+    ];
+  }
+  if (field === "etaConfirm") return [[{ text: `✅ ${state.hora}`, data: "r" }]];
   if (field === "retiro" && state.horaSalida) return [[{ text: `✅ ${state.horaSalida}`, data: "r" }]];
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
     return gridButtons(ctx.refs.clients.map((c) => ({ text: c.nombre, data: `c:${c.id}` })), 2);
@@ -653,7 +684,9 @@ const FIELD_NAMES = {
   driver: "chofer (escribe «chofer: Nombre»)",
   vehicle: "vehículo",
   client: "cliente",
+  fecha: "día del servicio (escribe «hoy», «mañana» o 18/10)",
   eta: "ETA",
+  etaConfirm: "ETA",
   retiro: "hora de retiro (escribe «salida 7:00»)",
   destinos: "ruta",
   km: "km",
@@ -710,10 +743,11 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
   else if (pending === "km" && /^\s*\d+(?:[.,]\d+)?\s*(?:km)?\s*$/i.test(body)) found = { km: toNumber(body) };
   else if (pending === "aplicativo" && /^\s*\d{1,2}\s*$/.test(body)) found = { aplicativoN: Number(body) };
-  else if (pending === "eta" && isExtrasPiazza(state0) && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
+  else if ((pending === "eta" || pending === "etaConfirm") && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
     const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
     found = { hora: hhmm(t[1], t[2]) };
-  } else if (pending === "retiro" && YES.test(norm(body)) && state0.horaSalida) found = { retiroOk: true };
+  } else if (pending === "etaConfirm" && YES.test(norm(body))) found = { etaOk: true };
+  else if (pending === "retiro" && YES.test(norm(body)) && state0.horaSalida) found = { retiroOk: true };
   else if (pending === "retiro" && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
     const t = /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.exec(body);
     found = { horaSalida: hhmm(t[1], t[2]), retiroOk: true };
@@ -761,8 +795,15 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   const state = await applyDefaults(merge(state0, found, ctx), ctx);
 
   const warnings = notFound ? [notFound] : [];
-  if (!isExtrasPiazza(state) && state.horaSalida && state.hora && !state.etaFecha && state.horaSalida > state.hora) {
-    warnings.push(`El retiro (${state.horaSalida}) es posterior a la ETA (${state.hora}). Revisa las horas.`);
+  // DHL, AB y Otros: la fecha es la del retiro; si la ETA es una hora anterior al retiro, llega pasada la medianoche.
+  if (!isExtrasPiazza(state)) {
+    if (state.horaSalida && state.hora && state.horaSalida > state.hora) {
+      state.etaFecha = addDays(state.fecha, 1);
+      warnings.push(`La ETA (${state.hora}) es anterior al retiro (${state.horaSalida}): la tomé como del día siguiente (${fmtFecha(state.etaFecha)}). Si no es así, corrige la hora.`);
+    } else state.etaFecha = null;
+  }
+  if (state.fecha && found.fecha && (state.fecha < addDays(ctx.today, -7) || state.fecha > addDays(ctx.today, 60))) {
+    warnings.push(`La fecha ${fmtFecha(state.fecha)}/${state.fecha.slice(0, 4)} queda lejos de hoy. Revisa que sea correcta.`);
   }
   if (found.km != null && !(found.km > 0 && found.km < 5000)) {
     warnings.push("Los km tienen que ser un número entre 1 y 4999.");
@@ -791,6 +832,7 @@ const ensureEta = async (state, ctx) => {
   return {
     ...state,
     etaFailed: false,
+    etaOk: false,
     etaKey: key,
     hora: romeHHMM(end),
     etaFecha: romeDay(end),
