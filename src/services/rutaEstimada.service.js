@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+import { prisma } from "../config/prisma.js";
 import { BRENNERO } from "../constants/brennero.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 import { WORK_PLACES } from "../constants/workPlaces.js";
@@ -121,6 +123,41 @@ const circuitPoints = async (members) => {
   return { base, retiros, paradas, brennero };
 };
 
+// Traspaso entre choferes: cada uno tiene SU circuito, desde la base de su zona y de vuelta a ella.
+//  - El que entrega el paquete (servicio original): base -> retiro -> lugar del traspaso -> base.
+//  - El que lo recibe (continuacion): base -> lugar del traspaso -> paradas del servicio -> base.
+// Hace falta el lugar del traspaso (se guarda en la continuacion); sin el, o si no se ubica en el mapa, no hay circuito.
+const driverBase = (driver) => {
+  const place =
+    driver?.grupo === "ROMA"
+      ? driver.area === "EXTRAS_PIAZZA"
+        ? placeByName("Lugar de espera Roma (Extras Piazza)")
+        : placeByName("Lugar de espera Roma")
+      : placeByName("Lugar de espera Milano");
+  return { nombre: place.nombre, direccion: place.direccion, lat: place.lat, lng: place.lng, fuente: "zona del chofer" };
+};
+
+export const traspasoPoints = async (record) => {
+  const entrega = !record.servicioOrigenId;
+  const lugarText = (entrega ? record.continuaciones?.[0]?.traspasoLugar : record.traspasoLugar)?.trim();
+  if (!lugarText) return null;
+  const driver = await prisma.user.findUnique({ where: { id: record.driverId }, select: { grupo: true, area: true } });
+  const base = driverBase(driver);
+  let lugar;
+  try {
+    const found = await geocodeAddress(lugarText);
+    lugar = { direccion: lugarText, lat: found.lat, lng: found.lng };
+  } catch {
+    return null;
+  }
+  if (entrega) {
+    const pickup = pickupOf(record);
+    return { base, retiros: distanceMeters(base, pickup) > CIRCUIT_SAME_PLACE_M ? [pickup] : [], paradas: [lugar], brennero: false };
+  }
+  if ((record.stops ?? []).length === 0 || placedStops(record).length !== record.stops.length) return null;
+  return { base, retiros: distanceMeters(base, lugar) > CIRCUIT_SAME_PLACE_M ? [lugar] : [], paradas: placedStops(record), brennero: false };
+};
+
 // Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Si el chofer declaro que no uso peaje de ida o de
 // vuelta, ese sentido se calcula sin autopistas de pago (sinPeaje). Sin servidor de rutas se estima en linea recta (con un factor), y
 // queda marcado.
@@ -186,11 +223,20 @@ const peajesDeLegs = async (legs, sinPeaje) => {
 // entre choferes, paradas sin ubicar). Es la referencia para validar los km y las horas que declara el chofer.
 export const ensureCircuit = async (recordId, { force = false } = {}) => {
   const record = await findRecordById(recordId);
-  if (!record || record.servicioOrigenId || record.continuaciones?.length) return null;
-  const members = await unitOf(record);
-  if (members.some((m) => m.servicioOrigenId || m.continuaciones?.length)) return null;
-  const points = await circuitPoints(members);
-  if (!points) return null;
+  if (!record) return null;
+  const traspaso = Boolean(record.servicioOrigenId || record.continuaciones?.length);
+  // Un servicio con traspaso dentro de un viaje compacto no tiene circuito propio.
+  if (traspaso && record.compactadoId) return null;
+  const members = traspaso ? [record] : await unitOf(record);
+  if (!traspaso && members.some((m) => m.servicioOrigenId || m.continuaciones?.length)) return null;
+  const points = traspaso ? await traspasoPoints(record) : await circuitPoints(members);
+  if (!points) {
+    // Sin lugar del traspaso (o sin ubicarlo) no hay circuito: se borra el que hubiera de antes del traspaso (era el del servicio entero).
+    if (traspaso && (record.circuito || record.circuitoKm != null)) {
+      await updateRecordById(record.id, { circuito: Prisma.DbNull, circuitoKm: null });
+    }
+    return null;
+  }
 
   const holder = members[0];
   const sinPeaje = sinPeajeOf(members);

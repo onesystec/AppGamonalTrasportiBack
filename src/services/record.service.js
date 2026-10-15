@@ -168,6 +168,7 @@ const toRelevo = (record) => {
         driverId: next.driverId,
         chofer: next.driver,
         traspasoHora: next.traspasoHora ?? null,
+        lugar: next.traspasoLugar ?? null,
         estado: next.estado,
       }
     : null;
@@ -178,6 +179,7 @@ const toOrigen = (record) =>
         recordId: record.servicioOrigen.id,
         codigo: record.servicioOrigen.codigo,
         chofer: record.servicioOrigen.driver,
+        lugar: record.traspasoLugar ?? null,
         finJornada: record.servicioOrigen.horaFinReal ?? null,
       }
     : null;
@@ -879,10 +881,19 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   // "choferRelevoId" no es una columna: crea, cambia o quita el segundo tramo del servicio. Va antes de
   // guardar para que un conflicto (ej. el relevo ya cargo horas) no deje el servicio a medias.
-  if (isPrivileged(actor) && "choferRelevoId" in payload) {
-    const { choferRelevoId, ...rest } = payload;
+  let traspasoTocado = false;
+  if (isPrivileged(actor) && ("choferRelevoId" in payload || "traspasoLugar" in payload)) {
+    const hasRelevo = "choferRelevoId" in payload;
+    const hasLugar = "traspasoLugar" in payload;
+    const { choferRelevoId, traspasoLugar, ...rest } = payload;
     payload = rest;
-    await syncRelevoForRecord(record, choferRelevoId, payload.driverId ?? record.driverId);
+    await syncRelevoForRecord(
+      record,
+      hasRelevo ? choferRelevoId : (record.continuaciones?.[0]?.driverId ?? null),
+      payload.driverId ?? record.driverId,
+      hasLugar ? traspasoLugar : undefined
+    );
+    traspasoTocado = true;
   }
 
   // El dia del servicio sigue a la salida (Fecha retiro) o, sin ella, a la ETA. No se edita aparte.
@@ -925,6 +936,15 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   // Marcar o desmarcar "pasa por Brennero": el circuito (ida y vuelta de los mapas) se calcula de nuevo en segundo plano.
   if (updated.pasaPorBrennero !== record.pasaPorBrennero) void ensureCircuitSafe(id);
+
+  // Traspaso entre choferes: cada uno tiene su propio circuito (su base -> traspaso -> su base); se recalculan los dos.
+  if (traspasoTocado || (updated.driverId !== record.driverId && (record.continuaciones?.length || record.servicioOrigenId))) {
+    void (async () => {
+      await ensureCircuitSafe(id, { force: true });
+      const continuacionId = (await findRecordById(id))?.continuaciones?.[0]?.id;
+      if (continuacionId) await ensureCircuitSafe(continuacionId, { force: true });
+    })();
+  }
 
   await attachFaltantes([updated]);
   return toResponse(updated, actor);

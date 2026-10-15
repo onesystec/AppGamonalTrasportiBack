@@ -137,6 +137,8 @@ export const updateRecordSchema = z.object({
   pasaPorBrennero: z.boolean().optional(),
   // Chofer que termino el servicio en lugar del asignado (null = nadie, quita el relevo).
   choferRelevoId: z.string().uuid("choferRelevoId invalido").nullable().optional(),
+  // Donde se paso el paquete al chofer que termino el servicio (ciudad o direccion).
+  traspasoLugar: z.string().trim().max(200).nullable().optional(),
   ...operationalFields,
   ...economicFields,
 });

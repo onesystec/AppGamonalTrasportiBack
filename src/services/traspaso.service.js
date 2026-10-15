@@ -42,7 +42,7 @@ const notifyRelevo = (record, driverId, fromName) =>
 // Crea, cambia o quita el chofer que termino el servicio. "record" es el servicio original (con
 // stops y continuaciones). relevoDriverId null/undefined = nadie (quita el relevo). "assignedDriverId" es el chofer asignado
 // que va a quedar al guardar: si en el mismo guardado se cambia el chofer, el relevo se compara con el nuevo, no con el anterior.
-export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriverId = record.driverId) => {
+export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriverId = record.driverId, lugar = undefined) => {
   if (record.servicioOrigenId) {
     throw new AppError("Un servicio recibido de otro chofer no puede traspasarse de nuevo desde aca", 400);
   }
@@ -69,14 +69,24 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
   );
 
   if (existing) {
-    if (existing.driverId === relevoDriverId) return;
+    if (existing.driverId === relevoDriverId) {
+      if (lugar !== undefined && (lugar || null) !== (existing.traspasoLugar ?? null)) {
+        await prisma.record.update({ where: { id: existing.id }, data: { traspasoLugar: lugar || null } });
+      }
+      return;
+    }
     if (existing.horasEstado || existing.horaInicioReal) {
       throw new AppError("El chofer que termino el servicio ya cargo sus horas: no se puede cambiar", 409);
     }
     // Otro chofer: vuelve a quedar pendiente de que indique a que hora recibio el paquete.
     await prisma.record.update({
       where: { id: existing.id },
-      data: { driverId: relevoDriverId, traspasoHora: null, estado: "IN_SOSPESO" },
+      data: {
+        driverId: relevoDriverId,
+        traspasoHora: null,
+        estado: "IN_SOSPESO",
+        ...(lugar !== undefined ? { traspasoLugar: lugar || null } : {}),
+      },
     });
     notifyRelevo(existing, relevoDriverId, fromName);
     return;
@@ -85,6 +95,7 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
   const continuation = await createRecord({
     codigo: await nextContinuationCode(record.codigo),
     servicioOrigenId: record.id,
+    traspasoLugar: lugar || null,
     driverId: relevoDriverId,
     // Normalmente viene con su propio vehiculo; si no tiene uno asignado, el mismo del servicio.
     vehicleId: driver.vehiculoAsignadoId ?? record.vehicleId,

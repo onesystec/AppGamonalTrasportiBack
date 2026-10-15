@@ -579,6 +579,9 @@ model Record {
   servicioOrigen   Record?   @relation("Traspaso", fields: [servicioOrigenId], references: [id], onDelete: Cascade)
   continuaciones   Record[]  @relation("Traspaso")
   traspasoHora     DateTime?
+  // Donde se paso el paquete (ciudad o direccion), en la continuacion: con eso se calcula el circuito de cada chofer (el que
+  // entrego llega hasta ahi y vuelve a su base; el que recibio sale de la suya, pasa por ahi, entrega y vuelve).
+  traspasoLugar    String?
 
   // Servicios compactados: un mismo chofer hace 2 o mas servicios en un solo viaje. Comparten compactadoId y
   // compactadoOrden es el orden de las paradas del viaje; el 1 es el servicio principal: ahi se carga UNA sola

@@ -21,6 +21,7 @@ import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
 import { getAttendanceByDriver } from "./permiso.service.js";
+import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { approvedByDriverForMonth } from "./trabajoAdicional.service.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 
@@ -80,7 +81,7 @@ const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : v
 //  - Reperibilidad: si el servicio SALE fuera del horario laboral (fin de semana o festivo) se suma el extra,
 //    con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
-export const computeServicePay = (record, { kmViaje = null } = {}) => {
+export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = false } = {}) => {
   const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
   // Con pago por km (tarifa desde 2026-10) no hay horas declaradas ni aprobacion: siempre se paga por distancia y la espera
   // declarada cuenta tal cual (la oficina puede corregirla).
@@ -126,10 +127,15 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
       // Servicio principal de un viaje compacto: los km de todo el viaje, pagados una sola vez.
       km = kmViaje;
       kmFuente = "VIAJE";
+    } else if (viajeSinCircuito) {
+      // Viaje compacto sin circuito calculado: no se paga la suma de sus servicios por separado (contaria varias vueltas al
+      // lugar de espera). Queda en 0, marcado para revisar, hasta que el circuito del viaje se calcule.
+      km = 0;
+      kmFuente = "VIAJE_SIN_CIRCUITO";
     } else if (numberOr0(record.kilometrosReales) > 0) {
       km = record.kilometrosReales;
       kmFuente = "REAL";
-    } else if (enTraspaso(record)) {
+    } else if (enTraspaso(record) && !(porKm && !record.reprogramadoAt && numberOr0(record.circuitoKm) > 0)) {
       // Sin horas aprobadas ni sus km reales no se sabe cuanto manejo cada uno: no se paga por los km del
       // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
       km = 0;
@@ -222,7 +228,11 @@ export const buildViajeContext = (records) => {
     const sinReparto = !principal.kmReparto && members.every((m) => m.id === principal.id || m.kilometrosReales == null);
     const conReales = members.some((m) => typeof m.kilometrosReales === "number");
     // Con pago por km, el circuito de todo el viaje (guardado en el principal) es lo que se paga si nadie anoto km reales.
-    const circuitoViaje = !conReales && tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7)).pagoPorKm ? numberOr0(principal.circuitoKm) : 0;
+    const porKmViaje = tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7)).pagoPorKm;
+    // El circuito del viaje se guarda en el primer servicio del viaje (por orden); si el principal es otro, se lee de ahi.
+    const holder = [...members].sort((a, b) => (a.compactadoOrden ?? 0) - (b.compactadoOrden ?? 0))[0];
+    const circuitoViaje = !conReales && porKmViaje ? numberOr0(principal.circuitoKm) || numberOr0(holder?.circuitoKm) : 0;
+    const sinCircuito = porKmViaje && !conReales && circuitoViaje === 0;
     const km =
       circuitoViaje > 0
         ? circuitoViaje
@@ -233,7 +243,9 @@ export const buildViajeContext = (records) => {
       principalId: principal.id,
       principalCodigo: principal.codigo,
       principalHorasEstado: principal.horasEstado ?? null,
-      km,
+      km: sinCircuito ? 0 : km,
+      sinCircuito,
+      holderId: holder?.id ?? principal.id,
       servicios: members.length,
     });
   }
@@ -267,7 +279,7 @@ export const payOf = (record, ctx) => {
   const viaje = record.compactadoId ? ctx?.get(record.compactadoId) : null;
   if (!viaje) return computeServicePay(record);
   if (record.id !== viaje.principalId) return includedPay(record, viaje);
-  return { ...computeServicePay(record, { kmViaje: viaje.km }), viajeServicios: viaje.servicios };
+  return { ...computeServicePay(record, { kmViaje: viaje.km, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
 };
 
 const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, servicios: 0, choferes: new Set() });
@@ -668,6 +680,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
   const byDriver = new Map();
   const total = emptyPay();
   const viajes = buildViajeContext(records);
+  // Viajes sin circuito: se calcula en segundo plano para que la proxima vez ya tengan los km (no hace esperar esta consulta).
+  for (const viaje of viajes.values()) if (viaje.sinCircuito) void ensureCircuitSafe(viaje.holderId);
   for (const r of records) {
     const pay = payOf(r, viajes);
     addPay(total, r, pay);
@@ -691,7 +705,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoReperibilidad += pay.pagoReperibilidad;
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     entry.total += pay.total;
-    if (pay.kmFuente === "SIN_DATO" || pay.kmFuente === "TRASPASO_SIN_KM") entry.serviciosSinDato += 1;
+    if (["SIN_DATO", "TRASPASO_SIN_KM", "VIAJE_SIN_CIRCUITO"].includes(pay.kmFuente)) entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
   }
 

@@ -13,6 +13,7 @@ const TRASPASO_SELECT = {
       estado: true,
       driverId: true,
       traspasoHora: true,
+      traspasoLugar: true,
       horasEstado: true,
       horaInicioReal: true,
       driver: PERSON,
