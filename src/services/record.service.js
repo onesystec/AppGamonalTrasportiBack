@@ -539,6 +539,8 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   // existe, los mancatos "en espera" de este vehiculo se vuelven a evaluar. Se hace DESPUES de responder (revisa decenas de
   // peajes uno por uno y no cambia nada de lo que se devuelve): quien carga el servicio no tiene por que esperarlo.
   void rematchAssignmentsForVehicle(record.vehicleId);
+  // El circuito (km con vuelta al lugar de espera) es la base del pago al chofer: se calcula apenas existe el servicio.
+  void ensureCircuitSafe(record.id);
 
   return toFullResponse(record);
 };

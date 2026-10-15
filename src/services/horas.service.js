@@ -199,7 +199,10 @@ export const closeServiceForActor = async (actor, id, body) => {
   });
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
-  return { estado: updated.estado, esperaMin: body.esperaMin, pago: computePayPreview(updated) };
+  // El pago usa los km del circuito: se asegura que este servicio lo tenga calculado.
+  const circuito = await ensureCircuitSafe(updated.compactadoId ? ((await findGroupMembers(updated.compactadoId))[0]?.id ?? id) : id);
+  const paid = circuito?.km && !updated.compactadoId ? { ...updated, circuitoKm: circuito.km } : updated;
+  return { estado: updated.estado, esperaMin: body.esperaMin, pago: computePayPreview(paid) };
 };
 
 // Aprobacion automatica: las horas que envia el chofer se aprueban solas si todo queda dentro de lo planificado, es

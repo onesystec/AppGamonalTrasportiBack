@@ -234,7 +234,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   };
   // El total es la suma de los tramos que se muestran (asi lo que se ve en pantalla siempre suma).
   circuito.km = round1(circuito.tramos.reduce((sum, t) => sum + t.km, 0));
-  await updateRecordById(holder.id, { circuito });
+  await updateRecordById(holder.id, { circuito, circuitoKm: circuito.km });
   return circuito;
 };
 

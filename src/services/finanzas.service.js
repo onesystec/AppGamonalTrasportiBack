@@ -134,6 +134,11 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
       // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
       km = 0;
       kmFuente = "TRASPASO_SIN_KM";
+    } else if (porKm && !record.reprogramadoAt && numberOr0(record.circuitoKm) > 0) {
+      // Pago por km: se paga el circuito completo del sistema (lugar de espera, retiro, entrega y vuelta). Un servicio
+      // reprogramado por la oficina no: solo se paga lo que se hizo hasta ahi (sus km, no el circuito entero).
+      km = record.circuitoKm;
+      kmFuente = "CIRCUITO";
     } else if (kmFacturables(record) > 0) {
       // Km planificados: en DHL y AB Service los del cliente son de ida, se cuentan x2.
       km = kmFacturables(record);
@@ -215,10 +220,15 @@ export const buildViajeContext = (records) => {
     // Los km del viaje son la suma de lo que hizo cada servicio (el chofer anota el total y se reparte entre ellos).
     // Un viaje anterior al reparto lleva el total entero en el principal y nada en los demas.
     const sinReparto = !principal.kmReparto && members.every((m) => m.id === principal.id || m.kilometrosReales == null);
+    const conReales = members.some((m) => typeof m.kilometrosReales === "number");
+    // Con pago por km, el circuito de todo el viaje (guardado en el principal) es lo que se paga si nadie anoto km reales.
+    const circuitoViaje = !conReales && tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7)).pagoPorKm ? numberOr0(principal.circuitoKm) : 0;
     const km =
-      sinReparto && numberOr0(principal.kilometrosReales) > 0
-        ? principal.kilometrosReales
-        : members.reduce((sum, m) => sum + (typeof m.kilometrosReales === "number" ? m.kilometrosReales : kmOfRecord(m)), 0);
+      circuitoViaje > 0
+        ? circuitoViaje
+        : sinReparto && numberOr0(principal.kilometrosReales) > 0
+          ? principal.kilometrosReales
+          : members.reduce((sum, m) => sum + (typeof m.kilometrosReales === "number" ? m.kilometrosReales : kmOfRecord(m)), 0);
     ctx.set(principal.compactadoId, {
       principalId: principal.id,
       principalCodigo: principal.codigo,
