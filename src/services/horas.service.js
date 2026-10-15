@@ -40,7 +40,8 @@ const notify = (record, title, body) =>
   );
 
 // El chofer envia (o corrige) la jornada de su servicio: queda PENDIENTE hasta que el responsable
-// la apruebe. Si la carga la hace la oficina, queda aprobada directamente.
+// la apruebe. Si la carga la hace la oficina por otro, queda aprobada directamente. Un Admin o Responsable que manejo el
+// servicio declara sus horas como cualquier chofer (pendientes de revision, aprobacion automatica si todo cuadra).
 export const submitHoursForActor = async (actor, id, body) => {
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
@@ -58,7 +59,7 @@ export const submitHoursForActor = async (actor, id, body) => {
       throw new AppError(`Este servicio va compactado en un viaje: las horas se cargan una sola vez, en ${principal.codigo}`, 409);
     }
   }
-  const privileged = isPrivileged(actor);
+  const privileged = isPrivileged(actor) && record.driverId !== actor.id;
   if (!privileged && record.horasEstado === "APROBADAS") {
     throw new AppError("Estas horas ya fueron aprobadas. Si hay un error, avisa al responsable", 409);
   }
@@ -227,6 +228,10 @@ export const reviewHoursForActor = async (actor, id, body) => {
   assertAccess(actor, record);
 
   if (!record.horasEstado) throw new AppError("El chofer todavia no cargo horas en este servicio", 409);
+  // Un Responsable no aprueba sus propias horas (las revisa otra persona); el Admin si puede.
+  if (record.driverId === actor.id && actor.cargo !== "OWNER") {
+    throw new AppError("Tus propias horas las revisa otra persona de la oficina", 403);
+  }
 
   const now = new Date();
 
