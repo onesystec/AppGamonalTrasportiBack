@@ -69,7 +69,7 @@ const envSchema = z.object({
         .filter(Boolean)
     )
     .refine(
-      (types) => types.every((t) => ["CMR", "FOTO_ENTREGA", "FACTURA", "COMPROBANTE", "OTRO"].includes(t)),
+      (types) => types.every((t) => ["CMR", "BOLLA", "FOTO_ENTREGA", "FACTURA", "COMPROBANTE", "OTRO"].includes(t)),
       "RECORD_FILE_RETENTION_TYPES tiene un tipo invalido"
     ),
 

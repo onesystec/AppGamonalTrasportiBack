@@ -46,6 +46,12 @@ export const submitHorasSchema = z.object({
   finFueraDeBase: z.boolean().optional(),
 });
 
+// Cierre del servicio con pago por km: el chofer solo declara su espera (las horas de manejo salen de los km).
+export const cierreServicioSchema = z.object({
+  esperaMin: minutes("La espera").default(0),
+  comentarios: z.string().trim().max(1000).optional(),
+});
+
 // "ajuste": la oficina corrige la jornada al aprobarla; todos opcionales, sin ellos se aprueba
 // lo que mando el chofer.
 export const reviewHorasSchema = z

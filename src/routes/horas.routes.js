@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { pendientes, recalcEstimacion, recalcParadas, reception, review, submit } from "../controllers/horas.controller.js";
+import { close, pendientes, recalcEstimacion, recalcParadas, reception, review, submit } from "../controllers/horas.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
-import { pendientesQuerySchema, receptionSchema, reviewHorasSchema, submitHorasSchema } from "../validators/horas.validator.js";
+import { cierreServicioSchema, pendientesQuerySchema, receptionSchema, reviewHorasSchema, submitHorasSchema } from "../validators/horas.validator.js";
 import { idParamSchema } from "../validators/record.validator.js";
 
 const router = Router();
@@ -14,6 +14,8 @@ router.use(authenticate);
 router.get("/pendientes", authorize("OWNER", "ADMIN"), validate(pendientesQuerySchema, "query"), pendientes);
 
 router.post("/:id", validate(idParamSchema, "params"), validate(submitHorasSchema), submit);
+// Pago por km: el chofer termina el servicio y declara solo su espera.
+router.post("/:id/cierre", validate(idParamSchema, "params"), validate(cierreServicioSchema), close);
 router.post(
   "/:id/revision",
   authorize("OWNER", "ADMIN"),

@@ -50,8 +50,8 @@ export const createFileForRecord = async (actor, recordId, tipoArchivo, file) =>
   }
   assertRecordAccess(actor, record);
 
-  if (!isPrivileged(actor) && tipoArchivo !== "FOTO_ENTREGA") {
-    throw new AppError("Un chofer solo puede subir archivos de tipo FOTO_ENTREGA", 403);
+  if (!isPrivileged(actor) && !["FOTO_ENTREGA", "BOLLA"].includes(tipoArchivo)) {
+    throw new AppError("Un chofer solo puede subir archivos de tipo FOTO_ENTREGA o BOLLA", 403);
   }
 
   if (!file) {

@@ -880,7 +880,7 @@ export const updateRecordForActor = async (actor, id, data) => {
   if (isPrivileged(actor) && "choferRelevoId" in payload) {
     const { choferRelevoId, ...rest } = payload;
     payload = rest;
-    await syncRelevoForRecord(record, choferRelevoId);
+    await syncRelevoForRecord(record, choferRelevoId, payload.driverId ?? record.driverId);
   }
 
   // El dia del servicio sigue a la salida (Fecha retiro) o, sin ella, a la ETA. No se edita aparte.

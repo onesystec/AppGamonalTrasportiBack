@@ -1,4 +1,5 @@
 import {
+  closeServiceForActor,
   listHoursForReviewForActor,
   recalcEstimacionForActor,
   recalcParadasForActor,
@@ -10,6 +11,11 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const submit = asyncHandler(async (req, res) => {
   const result = await submitHoursForActor(req.user, req.params.id, req.body);
+  res.status(200).json({ success: true, data: result });
+});
+
+export const close = asyncHandler(async (req, res) => {
+  const result = await closeServiceForActor(req.user, req.params.id, req.body);
   res.status(200).json({ success: true, data: result });
 });
 

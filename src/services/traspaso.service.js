@@ -40,8 +40,9 @@ const notifyRelevo = (record, driverId, fromName) =>
   }).catch(() => {});
 
 // Crea, cambia o quita el chofer que termino el servicio. "record" es el servicio original (con
-// stops y continuaciones). relevoDriverId null/undefined = nadie (quita el relevo).
-export const syncRelevoForRecord = async (record, relevoDriverId) => {
+// stops y continuaciones). relevoDriverId null/undefined = nadie (quita el relevo). "assignedDriverId" es el chofer asignado
+// que va a quedar al guardar: si en el mismo guardado se cambia el chofer, el relevo se compara con el nuevo, no con el anterior.
+export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriverId = record.driverId) => {
   if (record.servicioOrigenId) {
     throw new AppError("Un servicio recibido de otro chofer no puede traspasarse de nuevo desde aca", 400);
   }
@@ -57,11 +58,15 @@ export const syncRelevoForRecord = async (record, relevoDriverId) => {
     return;
   }
 
-  if (relevoDriverId === record.driverId) {
+  if (relevoDriverId === assignedDriverId) {
     throw new AppError("El chofer que termino el servicio debe ser distinto al chofer asignado", 400);
   }
   const driver = await assertRelevoDriver(relevoDriverId);
-  const fromName = personName(record.driver);
+  const fromName = personName(
+    assignedDriverId === record.driverId
+      ? record.driver
+      : await prisma.user.findUnique({ where: { id: assignedDriverId }, select: { nombre: true, apellido: true } })
+  );
 
   if (existing) {
     if (existing.driverId === relevoDriverId) return;

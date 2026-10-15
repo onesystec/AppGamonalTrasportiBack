@@ -14,6 +14,8 @@ import { festivosDelAnio } from "../utils/feriadosIt.js";
 //  - redondeoHoras: las horas (dia, noche y espera) se redondean al multiplo mas cercano (0 = sin redondeo).
 //  - reperibilidad: extra por servicio que SALE fuera del horario laboral. Horario laboral = los
 //    dias de diasLaborales (1 = lunes ... 7 = domingo); sabado, domingo y festivos son reperibilidad.
+//  - pagoPorKm: el chofer NO declara horas: se le paga siempre por distancia (km del sistema / kmBloque = horas de manejo, de
+//    dia o de noche segun la salida) mas la espera que declara, sin aprobacion de horas.
 //  - jornadaDesdeInicioFin: las horas de dia/noche se recalculan del inicio y fin declarados con la
 //    banda de esta tarifa (en vez de usar lo guardado al cargar la jornada).
 export const PAY_TARIFFS = [
@@ -42,6 +44,7 @@ export const PAY_TARIFFS = [
     redondeoHoras: 0, // sin redondeo: se paga minuto a minuto lo que se declara
     reperibilidad: { extraEur: 10, diasLaborales: [1, 2, 3, 4, 5], festivosCuentan: true },
     jornadaDesdeInicioFin: true,
+    pagoPorKm: true,
   },
 ];
 

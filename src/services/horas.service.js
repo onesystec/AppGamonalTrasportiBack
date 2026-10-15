@@ -175,6 +175,33 @@ export const submitHoursForActor = async (actor, id, body) => {
   return { jornada: toJornada(updated), pago: computePayPreview(updated) };
 };
 
+// Cierre del servicio con pago por km: el chofer ya no declara horas. Marca el servicio como entregado y deja su espera (lo
+// unico que declara); lo demas que se le pide (bolla, carburante, mancato) se sube aparte. Un Admin/Responsable que manejo el
+// servicio lo cierra igual. Un viaje compacto se cierra una sola vez, en el servicio principal.
+export const closeServiceForActor = async (actor, id, body) => {
+  const record = await findRecordById(id);
+  if (!record) throw new AppError("Registro no encontrado", 404);
+  assertAccess(actor, record);
+  if (!wasWorked(record)) throw new AppError("Un servicio anulado o reprogramado no se termina", 409);
+
+  if (record.compactadoId) {
+    const principal = (await findGroupMembers(record.compactadoId))[0];
+    if (principal && principal.id !== record.id) {
+      throw new AppError(`Este servicio va compactado en un viaje: se termina una sola vez, en ${principal.codigo}`, 409);
+    }
+  }
+
+  const markDelivered = !["CONSEGNATO", "RITIRATO"].includes(record.estado);
+  const updated = await updateRecordById(id, {
+    ...(markDelivered ? { estado: "CONSEGNATO" } : {}),
+    tiempoEspera: body.esperaMin / 60,
+    ...(body.comentarios ? { comentarios: body.comentarios } : {}),
+  });
+  if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
+  if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
+  return { estado: updated.estado, esperaMin: body.esperaMin, pago: computePayPreview(updated) };
+};
+
 // Aprobacion automatica: las horas que envia el chofer se aprueban solas si todo queda dentro de lo planificado, es
 // decir, si el revisor no tendria nada que mirar. Se evalua en segundo plano cuando ya estan las paradas del GPS o,
 // sin GPS, la estimacion por ruta. Quedan para una persona:

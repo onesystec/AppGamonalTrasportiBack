@@ -411,6 +411,7 @@ enum ExtrasPiazzaZona {
 
 enum TipoArchivoRecord {
   CMR
+  BOLLA
   FOTO_ENTREGA
   FACTURA
   COMPROBANTE

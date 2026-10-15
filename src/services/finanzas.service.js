@@ -82,7 +82,10 @@ const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : v
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
 export const computeServicePay = (record, { kmViaje = null } = {}) => {
   const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
-  const aprobadas = record.horasEstado === "APROBADAS";
+  // Con pago por km (tarifa desde 2026-10) no hay horas declaradas ni aprobacion: siempre se paga por distancia y la espera
+  // declarada cuenta tal cual (la oficina puede corregirla).
+  const porKm = Boolean(tariff.pagoPorKm);
+  const aprobadas = porKm || record.horasEstado === "APROBADAS";
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
   // si no, se usan las guardadas al cargar la jornada.
@@ -115,7 +118,7 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
   let kmFuente = null;
   let franja = null;
   let pagoBase;
-  if (aprobadas && horas > 0) {
+  if (!porKm && aprobadas && horas > 0) {
     pagoBase = horasDia * tariff.horaDiaEur + horasNoche * tariff.horaNocheEur;
   } else {
     modo = "KM";
@@ -145,6 +148,8 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
     franja = isDayTime(romeHHMM(salida), tariff.banda) ? "DIA" : "NOCHE";
     pagoBase = (km / tariff.kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
   }
+  // Horas de manejo equivalentes a los km (km / 85 km/h): lo que se muestra a la oficina cuando se paga por distancia.
+  const horasManejo = modo === "KM" && km > 0 ? km / tariff.kmBloque : 0;
   const pagoEspera = esperaHoras * tariff.esperaHoraEur;
 
   let reperibilidad = null;
@@ -164,6 +169,7 @@ export const computeServicePay = (record, { kmViaje = null } = {}) => {
     horasDia: round2(modo === "HORAS" ? horasDia : 0),
     horasNoche: round2(modo === "HORAS" ? horasNoche : 0),
     km: km == null ? null : round2(km),
+    horasManejo: round2(horasManejo),
     kmFuente,
     esperaHoras: round2(esperaHoras),
     reperibilidad,
@@ -618,6 +624,7 @@ const newPayEntry = (driverId, nombre) => ({
   horasNoche: 0,
   km: 0,
   esperaHoras: 0,
+  horasManejo: 0,
   serviciosPorKm: 0,
   horasPorAprobar: 0,
   horasDevueltas: 0,
@@ -667,6 +674,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     else if (r.horasEstado === "DEVUELTAS") entry.horasDevueltas += 1;
     else if (!r.horasEstado) entry.horasSinCargar += 1;
     entry.km += pay.modo === "KM" ? (pay.km ?? 0) : 0;
+    entry.horasManejo += pay.horasManejo ?? 0;
     entry.esperaHoras += pay.esperaHoras;
     entry.pagoBase += pay.pagoBase;
     entry.pagoEspera += pay.pagoEspera;
@@ -708,6 +716,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
         horasDia: round2(e.horasDia),
         horasNoche: round2(e.horasNoche),
         km: round2(e.km),
+        horasManejo: round2(e.horasManejo),
         esperaHoras: round2(e.esperaHoras),
         pagoBase: round2(e.pagoBase),
         pagoEspera: round2(e.pagoEspera),
