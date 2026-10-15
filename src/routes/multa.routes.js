@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { alerts, create, getById, list, remove, stats, suggestDriver, suggestForMulta, suggestForMultas, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
+import { authorize } from "../middlewares/authorize.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
 import {
@@ -16,7 +17,8 @@ import {
 
 const router = Router();
 
-router.use(authenticate);
+// Las multas son de la oficina: el chofer no las ve (en su app solo tiene Combustible y Mancato Pagamento).
+router.use(authenticate, authorize("OWNER", "ADMIN"));
 
 // Foto o PDF de la multa y comprobante de pago: un archivo cada uno (imagen o PDF).
 const uploadFiles = upload.fields([
