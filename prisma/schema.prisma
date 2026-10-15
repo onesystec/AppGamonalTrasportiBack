@@ -1076,3 +1076,39 @@ model TrabajoAdicional {
   @@index([estado, area])
   @@map("trabajos_adicionales")
 }
+
+// Sollecito ("solicito"): carta de la autopista que reclama uno o varios mancati pagamenti
+// (SATAP A4, Milano Serravalle, etc.). Se guarda con su PDF como respaldo por si despues llega
+// una multa. "numerosMancato" son los N. de mancato pagamento que reclama: si existen en Mancato
+// Pagamento se muestran enlazados (y si ya estan pagados alli, se ve).
+model Sollecito {
+  id             String          @id @default(uuid())
+  emisor         String
+  numeroAtto     String          @unique
+  fechaCarta     DateTime?       @db.Date
+  fechaTransito  DateTime?       @db.Date
+  targa          String?
+  numerosMancato String[]        @default([])
+  importe        Decimal?        @db.Decimal(10, 2)
+  sitioPago      String?
+  archivoKey     String?
+  comprobanteKey String?
+  estado         SollecitoEstado @default(POR_PAGAR)
+  pagadoAt       DateTime?
+  comentarios    String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([estado])
+  @@index([fechaCarta])
+  @@map("solleciti")
+}
+
+// POR_PAGAR: hay que pagarlo. PAGADO: se pago el sollecito. NO_CORRESPONDE: no hay que pagarlo
+// (por ejemplo el mancato ya estaba pagado antes de que llegara la carta).
+enum SollecitoEstado {
+  POR_PAGAR
+  PAGADO
+  NO_CORRESPONDE
+}
