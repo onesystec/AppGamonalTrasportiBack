@@ -16,6 +16,9 @@ import { festivosDelAnio } from "../utils/feriadosIt.js";
 //    dias de diasLaborales (1 = lunes ... 7 = domingo); sabado, domingo y festivos son reperibilidad.
 //  - pagoPorKm: el chofer NO declara horas: se le paga siempre por distancia (km del sistema / kmBloque = horas de manejo, de
 //    dia o de noche segun la salida) mas la espera que declara, sin aprobacion de horas.
+//  - tiempoRutaHastaKm: con pago por km, los servicios de menos de estos km se pagan por el TIEMPO de ruta del circuito (ida + vuelta,
+//    con o sin peaje segun lo declarado) a la tarifa por hora; desde estos km, km / kmBloque como siempre (en trayectos cortos
+//    km / 85 sale muy por debajo del tiempo real de manejo).
 //  - jornadaDesdeInicioFin: las horas de dia/noche se recalculan del inicio y fin declarados con la
 //    banda de esta tarifa (en vez de usar lo guardado al cargar la jornada).
 export const PAY_TARIFFS = [
@@ -45,6 +48,7 @@ export const PAY_TARIFFS = [
     reperibilidad: { extraEur: 10, diasLaborales: [1, 2, 3, 4, 5], festivosCuentan: true },
     jornadaDesdeInicioFin: true,
     pagoPorKm: true,
+    tiempoRutaHastaKm: 200,
   },
 ];
 

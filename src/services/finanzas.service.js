@@ -81,7 +81,7 @@ const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : v
 //  - Reperibilidad: si el servicio SALE fuera del horario laboral (fin de semana o festivo) se suma el extra,
 //    con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
-export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = false } = {}) => {
+export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeSinCircuito = false } = {}) => {
   const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
   // Con pago por km (tarifa desde 2026-10) no hay horas declaradas ni aprobacion: siempre se paga por distancia y la espera
   // declarada cuenta tal cual (la oficina puede corregirla).
@@ -118,6 +118,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = f
   let km = null;
   let kmFuente = null;
   let franja = null;
+  let rutaMin = 0;
+  let tiempoRuta = false;
   let pagoBase;
   if (!porKm && aprobadas && horas > 0) {
     pagoBase = horasDia * tariff.horaDiaEur + horasNoche * tariff.horaNocheEur;
@@ -127,6 +129,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = f
       // Servicio principal de un viaje compacto: los km de todo el viaje, pagados una sola vez.
       km = kmViaje;
       kmFuente = "VIAJE";
+      rutaMin = numberOr0(viajeMin);
     } else if (viajeSinCircuito) {
       // Viaje compacto sin circuito calculado: no se paga la suma de sus servicios por separado (contaria varias vueltas al
       // lugar de espera). Queda en 0, marcado para revisar, hasta que el circuito del viaje se calcule.
@@ -145,6 +148,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = f
       // reprogramado por la oficina no: solo se paga lo que se hizo hasta ahi (sus km, no el circuito entero).
       km = record.circuitoKm;
       kmFuente = "CIRCUITO";
+      rutaMin = numberOr0(record.circuitoMin);
     } else if (kmFacturables(record) > 0) {
       // Km planificados: en DHL y AB Service los del cliente son de ida, se cuentan x2.
       km = kmFacturables(record);
@@ -157,10 +161,14 @@ export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = f
       kmFuente = "SIN_DATO";
     }
     franja = isDayTime(romeHHMM(salida), tariff.banda) ? "DIA" : "NOCHE";
-    pagoBase = (km / tariff.kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
+    // Servicio corto con circuito: se paga el tiempo de ruta (ida + vuelta) y no km / 85.
+    tiempoRuta = Boolean(tariff.tiempoRutaHastaKm) && rutaMin > 0 && km > 0 && km < tariff.tiempoRutaHastaKm;
+    pagoBase = tiempoRuta
+      ? (rutaMin / 60) * (franja === "DIA" ? tariff.horaDiaEur : tariff.horaNocheEur)
+      : (km / tariff.kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
   }
   // Horas de manejo equivalentes a los km (km / 85 km/h): lo que se muestra a la oficina cuando se paga por distancia.
-  const horasManejo = modo === "KM" && km > 0 ? km / tariff.kmBloque : 0;
+  const horasManejo = modo === "KM" && km > 0 ? (tiempoRuta ? rutaMin / 60 : km / tariff.kmBloque) : 0;
   const pagoEspera = esperaHoras * tariff.esperaHoraEur;
 
   let reperibilidad = null;
@@ -181,6 +189,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeSinCircuito = f
     horasNoche: round2(modo === "HORAS" ? horasNoche : 0),
     km: km == null ? null : round2(km),
     horasManejo: round2(horasManejo),
+    tiempoRuta,
     kmFuente,
     esperaHoras: round2(esperaHoras),
     reperibilidad,
@@ -244,6 +253,7 @@ export const buildViajeContext = (records) => {
       principalCodigo: principal.codigo,
       principalHorasEstado: principal.horasEstado ?? null,
       km: sinCircuito ? 0 : km,
+      min: circuitoViaje > 0 ? numberOr0((numberOr0(principal.circuitoKm) ? principal : holder)?.circuitoMin) : 0,
       sinCircuito,
       holderId: holder?.id ?? principal.id,
       servicios: members.length,
@@ -279,7 +289,7 @@ export const payOf = (record, ctx) => {
   const viaje = record.compactadoId ? ctx?.get(record.compactadoId) : null;
   if (!viaje) return computeServicePay(record);
   if (record.id !== viaje.principalId) return includedPay(record, viaje);
-  return { ...computeServicePay(record, { kmViaje: viaje.km, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
+  return { ...computeServicePay(record, { kmViaje: viaje.km, viajeMin: viaje.min, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
 };
 
 const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, servicios: 0, choferes: new Set() });

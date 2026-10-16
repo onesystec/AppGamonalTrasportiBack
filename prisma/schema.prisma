@@ -525,6 +525,9 @@ model Record {
   // Km del circuito (circuito.km) como columna aparte: es la distancia con la que se paga al chofer y se lee en todas las
   // consultas de pagos sin traer el JSON entero. Se actualiza solo al guardar el circuito (ensureCircuit).
   circuitoKm          Float?
+  // Tiempo de ruta del circuito en minutos (ida + vuelta, sin recargo): en servicios cortos el pago sigue este tiempo y no los km
+  // (ver tiempoRutaHastaKm en config/payRates.js). Se actualiza junto con circuitoKm.
+  circuitoMin         Float?
   // Retiro del paquete cuando se hace antes de salir a entregarlo (viernes retiro, lunes entrega): informativo. Las horas, el
   // dia del servicio y los peajes cuentan desde fechaRetiro, que es la salida a entregar.
   retiroPaqueteAt     DateTime?
@@ -1075,40 +1078,4 @@ model TrabajoAdicional {
   @@index([driverId, inicio])
   @@index([estado, area])
   @@map("trabajos_adicionales")
-}
-
-// Sollecito ("solicito"): carta de la autopista que reclama uno o varios mancati pagamenti
-// (SATAP A4, Milano Serravalle, etc.). Se guarda con su PDF como respaldo por si despues llega
-// una multa. "numerosMancato" son los N. de mancato pagamento que reclama: si existen en Mancato
-// Pagamento se muestran enlazados (y si ya estan pagados alli, se ve).
-model Sollecito {
-  id             String          @id @default(uuid())
-  emisor         String
-  numeroAtto     String          @unique
-  fechaCarta     DateTime?       @db.Date
-  fechaTransito  DateTime?       @db.Date
-  targa          String?
-  numerosMancato String[]        @default([])
-  importe        Decimal?        @db.Decimal(10, 2)
-  sitioPago      String?
-  archivoKey     String?
-  comprobanteKey String?
-  estado         SollecitoEstado @default(POR_PAGAR)
-  pagadoAt       DateTime?
-  comentarios    String?
-  createdById    String?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-
-  @@index([estado])
-  @@index([fechaCarta])
-  @@map("solleciti")
-}
-
-// POR_PAGAR: hay que pagarlo. PAGADO: se pago el sollecito. NO_CORRESPONDE: no hay que pagarlo
-// (por ejemplo el mancato ya estaba pagado antes de que llegara la carta).
-enum SollecitoEstado {
-  POR_PAGAR
-  PAGADO
-  NO_CORRESPONDE
 }

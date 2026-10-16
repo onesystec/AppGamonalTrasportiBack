@@ -233,7 +233,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   if (!points) {
     // Sin lugar del traspaso (o sin ubicarlo) no hay circuito: se borra el que hubiera de antes del traspaso (era el del servicio entero).
     if (traspaso && (record.circuito || record.circuitoKm != null)) {
-      await updateRecordById(record.id, { circuito: Prisma.DbNull, circuitoKm: null });
+      await updateRecordById(record.id, { circuito: Prisma.DbNull, circuitoKm: null, circuitoMin: null });
     }
     return null;
   }
@@ -280,7 +280,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   };
   // El total es la suma de los tramos que se muestran (asi lo que se ve en pantalla siempre suma).
   circuito.km = round1(circuito.tramos.reduce((sum, t) => sum + t.km, 0));
-  await updateRecordById(holder.id, { circuito, circuitoKm: circuito.km });
+  await updateRecordById(holder.id, { circuito, circuitoKm: circuito.km, circuitoMin: circuito.idaMin + circuito.vueltaMin });
   return circuito;
 };
 
