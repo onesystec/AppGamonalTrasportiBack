@@ -95,9 +95,28 @@ export const listPending = asyncHandler(async (req, res) => {
 });
 
 // Buscador de Registros (codigo/cliente/chofer/destino), con limite de resultados.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const ESTADOS = ["IN_SOSPESO", "IN_CONSEGNA", "RITIRATO", "CONSEGNATO", "ANNULLATO", "RISCHEDULATO"];
+const SPEDIZZIONI = ["DHL", "AB_SERVICE", "EXTRA_PIAZZA", "EXTRAS_STEFANIA"];
+const only = (value, ok) => (typeof value === "string" && ok(value) ? value : undefined);
+
+// Filtros opcionales de la busqueda (solo se aceptan valores con el formato esperado; el resto se ignora).
 export const search = asyncHandler(async (req, res) => {
-  const records = await searchRecordsForActor(req.user, req.query.q);
-  res.status(200).json({ success: true, data: { records } });
+  const { q, driverId, vehicleId, clientId, estado, targa, spedizzione, from, to } = req.query;
+  const estados = typeof estado === "string" ? estado.split(",").filter((e) => ESTADOS.includes(e)) : [];
+  const { records, total } = await searchRecordsForActor(req.user, {
+    q: typeof q === "string" ? q : "",
+    driverId: only(driverId, (v) => UUID.test(v)),
+    vehicleId: only(vehicleId, (v) => UUID.test(v)),
+    clientId: only(clientId, (v) => UUID.test(v)),
+    estados,
+    targa: typeof targa === "string" && targa.trim().length >= 2 ? targa.trim().slice(0, 12) : undefined,
+    spedizzione: only(spedizzione, (v) => SPEDIZZIONI.includes(v)),
+    from: only(from, (v) => DAY.test(v)),
+    to: only(to, (v) => DAY.test(v)),
+  });
+  res.status(200).json({ success: true, data: { records, total } });
 });
 
 // Ya no se sincroniza con AppSheet, asi que nunca hay fallos. Se deja la ruta (vacia) para que los APK instalados

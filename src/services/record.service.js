@@ -41,7 +41,7 @@ import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
-import { romeDay } from "../utils/romeTime.js";
+import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -644,13 +644,43 @@ const SEARCH_MIN_LENGTH = 2;
 
 // Buscador de Registros (codigo/cliente/chofer/destino). Con menos de 2 caracteres
 // devuelve vacio en vez de traer resultados poco utiles.
-export const searchRecordsForActor = async (actor, q) => {
-  const query = (q ?? "").trim();
-  if (query.length < SEARCH_MIN_LENGTH) return [];
+// Con filtros (chofer, vehiculo/targa, cliente, estado, tipo, fecha desde/hasta) se puede buscar sin texto.
+const nextDay = (day) => {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+};
+const hasFilters = (f) => Boolean(f.driverId || f.vehicleId || f.clientId || f.estados?.length || f.targa || f.spedizzione || f.from || f.to);
+
+export const searchRecordsForActor = async (actor, params) => {
+  const { q: rawQ, ...rest } = typeof params === "string" ? { q: params } : (params ?? {});
+  const query = (rawQ ?? "").trim();
+  const filtered = isPrivileged(actor) && hasFilters(rest);
+  if (query.length < SEARCH_MIN_LENGTH && !filtered) return { records: [], total: 0 };
   const driverId = isPrivileged(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
-  const records = await attachFaltantes(await attachFuel(await searchRecords({ q: query, driverId, spedizzioneFilter })));
-  return records.map((record) => toResponse(record, actor));
+  const filters = filtered
+    ? {
+        driverId: rest.driverId,
+        vehicleId: rest.vehicleId,
+        clientId: rest.clientId,
+        estados: rest.estados,
+        targa: rest.targa,
+        spedizzione: rest.spedizzione,
+        dateRange: {
+          gte: rest.from ? romeLocalToDate(rest.from, "00:00") : undefined,
+          lt: rest.to ? romeLocalToDate(nextDay(rest.to), "00:00") : undefined,
+        },
+      }
+    : undefined;
+  const { records: found, total } = await searchRecords({
+    q: query.length >= SEARCH_MIN_LENGTH ? query : undefined,
+    driverId,
+    spedizzioneFilter,
+    filters,
+    filtered,
+  });
+  const records = await attachFaltantes(await attachFuel(found));
+  return { records: records.map((record) => toResponse(record, actor)), total };
 };
 
 // Version liviana (id/fechaServicio/estado) para armar el acordeon de dias del

@@ -325,30 +325,54 @@ export const findRecordsForFullExportByIds = (ids) =>
 // Busqueda liviana por codigo/cliente/chofer/destino, con limite - pensada para tipear
 // mientras se busca, no para traer todo el historico y filtrar en el navegador.
 const SEARCH_RESULTS_LIMIT = 50;
+// Con filtros (chofer, vehiculo, fechas...) la busqueda es mas especifica: se devuelven mas resultados (y el total, para avisar si hay mas).
+const FILTERED_SEARCH_LIMIT = 300;
 
-export const searchRecords = ({ q, driverId, spedizzioneFilter }) =>
-  prisma.record.findMany({
-    where: {
-      ...(driverId ? { driverId } : {}),
-      // spedizzioneFilter (EXTRAS_PIAZZA) trae su propia clave OR - en AND aparte para
-      // no pisar el OR de los campos de busqueda de abajo.
-      AND: [
-        spedizzioneFilter ?? {},
-        {
+// filters: { driverId, vehicleId, clientId, estados[], targa, spedizzione, dateRange: { gte?, lt? } } - todos opcionales.
+// "driverId" de arriba (el del chofer que consulta) manda sobre el filtro de chofer.
+const searchWhere = ({ q, driverId, spedizzioneFilter, filters = {} }) => ({
+  ...((driverId ?? filters.driverId) ? { driverId: driverId ?? filters.driverId } : {}),
+  ...(filters.vehicleId ? { vehicleId: filters.vehicleId } : {}),
+  ...(filters.clientId ? { clientId: filters.clientId } : {}),
+  ...(filters.estados?.length ? { estado: { in: filters.estados } } : {}),
+  ...(filters.targa ? { vehicle: { targa: { contains: filters.targa, mode: "insensitive" } } } : {}),
+  ...(filters.dateRange?.gte || filters.dateRange?.lt
+    ? { fechaServicio: { ...(filters.dateRange.gte ? { gte: filters.dateRange.gte } : {}), ...(filters.dateRange.lt ? { lt: filters.dateRange.lt } : {}) } }
+    : {}),
+  // spedizzioneFilter (EXTRAS_PIAZZA) trae su propia clave OR - en AND aparte para
+  // no pisar el OR de los campos de busqueda de abajo.
+  AND: [
+    spedizzioneFilter ?? {},
+    filters.spedizzione ? { spedizzione: filters.spedizzione } : {},
+    q
+      ? {
           OR: [
             { codigo: { contains: q, mode: "insensitive" } },
             { destinazione: { contains: q, mode: "insensitive" } },
             { client: { nombre: { contains: q, mode: "insensitive" } } },
             { driver: { nombre: { contains: q, mode: "insensitive" } } },
             { driver: { apellido: { contains: q, mode: "insensitive" } } },
+            { vehicle: { targa: { contains: q, mode: "insensitive" } } },
           ],
-        },
-      ],
-    },
-    select: RECORD_SELECT_LIST,
-    orderBy: { fechaServicio: "desc" },
-    take: SEARCH_RESULTS_LIMIT,
-  });
+        }
+      : {},
+  ],
+});
+
+// Devuelve { records, total }: total = cuantos coinciden en total (puede ser mas que los devueltos).
+export const searchRecords = async ({ q, driverId, spedizzioneFilter, filters, filtered = false }) => {
+  const where = searchWhere({ q, driverId, spedizzioneFilter, filters });
+  const [records, total] = await Promise.all([
+    prisma.record.findMany({
+      where,
+      select: RECORD_SELECT_LIST,
+      orderBy: { fechaServicio: "desc" },
+      take: filtered ? FILTERED_SEARCH_LIMIT : SEARCH_RESULTS_LIMIT,
+    }),
+    prisma.record.count({ where }),
+  ]);
+  return { records, total };
+};
 
 // Pendientes (IN_SOSPESO/IN_CONSEGNA/RITIRATO) acotado a una ventana de fechaServicio
 // (panel de "Pendientes" de Registros) - no tiene sentido traer TODOS los registros
