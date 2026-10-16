@@ -13,10 +13,10 @@ import {
 
 const router = Router();
 
-// Los solicitos son de la oficina: el chofer no los ve.
+// Los sollecitos son de la oficina: el chofer no los ve.
 router.use(authenticate, authorize("OWNER", "ADMIN"));
 
-// PDF (o foto) del solicito y comprobante de pago.
+// PDF (o foto) del sollecito y comprobante de pago.
 const uploadFiles = upload.fields([
   { name: "archivo", maxCount: 1 },
   { name: "comprobante", maxCount: 1 },

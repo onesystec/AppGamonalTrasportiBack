@@ -113,7 +113,7 @@ const dataFrom = (fields) => {
 const assertAttoLibre = async (numeroAtto, exceptId) => {
   const existing = await prisma.sollecito.findUnique({ where: { numeroAtto } });
   if (existing && existing.id !== exceptId) {
-    throw new AppError(`Ya existe un solicito con el atto ${numeroAtto}`, 409);
+    throw new AppError(`Ya existe un sollecito con el atto ${numeroAtto}`, 409);
   }
 };
 
@@ -133,7 +133,7 @@ export const listSolleciti = async (query) => {
 
 export const getSollecito = async (id) => {
   const s = await prisma.sollecito.findUnique({ where: { id } });
-  if (!s) throw new AppError("Solicito no encontrado", 404);
+  if (!s) throw new AppError("Sollecito no encontrado", 404);
   const [item] = await toResponses([s]);
   return item;
 };
@@ -169,7 +169,7 @@ export const createSollecito = async (actor, fields, files = {}) => {
 
 export const updateSollecito = async (id, fields, files = {}) => {
   const current = await prisma.sollecito.findUnique({ where: { id } });
-  if (!current) throw new AppError("Solicito no encontrado", 404);
+  if (!current) throw new AppError("Sollecito no encontrado", 404);
   if (fields.numeroAtto && fields.numeroAtto !== current.numeroAtto) await assertAttoLibre(fields.numeroAtto, id);
 
   const data = dataFrom(fields);
@@ -204,7 +204,7 @@ export const updateSollecito = async (id, fields, files = {}) => {
 
 export const deleteSollecito = async (id) => {
   const current = await prisma.sollecito.findUnique({ where: { id } });
-  if (!current) throw new AppError("Solicito no encontrado", 404);
+  if (!current) throw new AppError("Sollecito no encontrado", 404);
   await prisma.sollecito.delete({ where: { id } });
   await Promise.allSettled([current.archivoKey, current.comprobanteKey].filter(Boolean).map((key) => deleteObject(key)));
 };
