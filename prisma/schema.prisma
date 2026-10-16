@@ -224,7 +224,8 @@ model Vehiculo {
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 
-  records           Record[]
+  records           Record[]  @relation("RecordVehiculo")
+  recordsFinal      Record[]  @relation("RecordVehiculoFinal")
   mantenimientos    MantenimientoVehiculo[]
   choferesAsignados User[]
   trabajosAdicionales TrabajoAdicional[]
@@ -444,7 +445,12 @@ model Record {
   driverId  String
   driver    User     @relation(fields: [driverId], references: [id])
   vehicleId String
-  vehicle   Vehiculo @relation(fields: [vehicleId], references: [id])
+  vehicle   Vehiculo @relation("RecordVehiculo", fields: [vehicleId], references: [id])
+  // Furgon con el que se termino el servicio cuando el mismo chofer tuvo que cambiar de furgon a mitad (null = no cambio).
+  // El servicio sigue siendo del chofer y del vehiculo de arriba; esto solo deja el registro y hace que los peajes y el
+  // combustible del segundo furgon tambien se asignen a este servicio.
+  vehiculoFinalId String?
+  vehiculoFinal   Vehiculo? @relation("RecordVehiculoFinal", fields: [vehiculoFinalId], references: [id], onDelete: SetNull)
   clientId  String
   client    Client   @relation(fields: [clientId], references: [id])
 

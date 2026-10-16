@@ -89,6 +89,7 @@ const SELF_EDITABLE_FIELDS = [
 // Campos de un servicio que deciden a que servicio pertenece un peaje (ver
 // mancatoMatching.service.js). "stops" cambia la duracion de la ruta.
 const RELEVANT_FOR_MATCHING = [
+  "vehiculoFinalId",
   "fechaRetiro",
   "fechaServicio",
   "eta",
@@ -357,6 +358,7 @@ const toFullResponse = (record) => {
     horasNoche: record.horasNoche,
     tiempoEspera: record.tiempoEspera,
     jornada: toJornada(record),
+    vehiculoFinal: record.vehiculoFinal ?? null,
     relevo: toRelevo(record),
     origen: toOrigen(record),
     traspasoHora: record.traspasoHora ?? null,
@@ -477,6 +479,7 @@ const toChoferResponse = (record) => ({
   horasNoche: record.horasNoche,
   tiempoEspera: record.tiempoEspera,
   jornada: toJornada(record),
+  vehiculoFinal: record.vehiculoFinal ?? null,
   relevo: toRelevo(record),
   origen: toOrigen(record),
   traspasoHora: record.traspasoHora ?? null,
@@ -846,6 +849,10 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   let payload = data;
 
+  if (isPrivileged(actor) && payload.vehiculoFinalId && payload.vehiculoFinalId === (payload.vehicleId ?? record.vehicleId)) {
+    throw new AppError("El furgon con el que termino debe ser distinto al furgon del servicio", 400);
+  }
+
   if (isPrivileged(actor)) {
     if (payload.driverId) {
       await assertDriverActivo(payload.driverId);
@@ -961,6 +968,10 @@ export const updateRecordForActor = async (actor, id, data) => {
     void (async () => {
       await rematchAssignmentsForVehicle(record.vehicleId);
       if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
+      // Furgon con el que termino (si cambio de furgon): sus peajes y su combustible tambien pertenecen a este servicio.
+      for (const finalId of new Set([record.vehiculoFinalId, updated.vehiculoFinalId].filter(Boolean))) {
+        await rematchAssignmentsForVehicle(finalId);
+      }
     })();
   }
 

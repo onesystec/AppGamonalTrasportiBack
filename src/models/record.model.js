@@ -44,6 +44,7 @@ const RECORD_INCLUDE = {
   ...REPROGRAMACION_SELECT,
   driver: { select: { id: true, nombre: true, apellido: true } },
   vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
+  vehiculoFinal: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
   stops: { orderBy: { orden: "asc" } },
   // Comprobantes de combustible asignados a este servicio (ver utils/fuelCost.js).
@@ -69,6 +70,7 @@ const RECORD_INCLUDE = {
 const RECORD_RELATIONS_SELECT = {
   driver: { select: { id: true, nombre: true, apellido: true } },
   vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
+  vehiculoFinal: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
 };
 
@@ -308,6 +310,7 @@ export const findRecordsForFullExportByIds = (ids) =>
     include: {
       driver: { select: { id: true, nombre: true, apellido: true } },
       vehicle: { select: { id: true, targa: true, modelo: true, categoria: true } },
+      vehiculoFinal: { select: { id: true, targa: true, modelo: true } },
       client: { select: { id: true, nombre: true } },
       stops: { orderBy: { orden: "asc" } },
       combustibles: { orderBy: { fechaHora: "asc" }, select: { id: true, monto: true, fechaHora: true, metodo: true, asignacion: true } },

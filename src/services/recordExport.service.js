@@ -67,6 +67,7 @@ const COLUMNAS = [
   ["Vehiculo (targa)", (r) => r.vehicle?.targa ?? ""],
   ["Vehiculo (modelo)", (r) => r.vehicle?.modelo ?? ""],
   ["Vehiculo (categoria)", (r) => r.vehicle?.categoria ?? ""],
+  ["Furgon con el que termino (si cambio)", (r) => (r.vehiculoFinal ? `${r.vehiculoFinal.targa}${r.vehiculoFinal.modelo ? ` - ${r.vehiculoFinal.modelo}` : ""}` : "")],
   // --- Ruta y paradas
   ["Punto de salida", (r) => r.salidaDireccion ?? ""],
   ["Salida (latitud)", (r) => (r.salidaLat != null ? String(r.salidaLat) : "")],
