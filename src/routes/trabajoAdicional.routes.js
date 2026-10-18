@@ -15,11 +15,11 @@ import {
 const router = Router();
 router.use(authenticate);
 
-// El chofer carga y corrige los suyos (con una foto o comprobante opcional); la oficina los revisa.
+// El chofer (y el Admin/Owner en su modo chofer) carga y corrige los suyos (con una foto o comprobante opcional); la oficina los revisa.
 router.get("/", validate(listTrabajosAdicionalesQuerySchema, "query"), list);
-router.post("/", authorize("CHOFER"), upload.single("foto"), validate(createTrabajoAdicionalSchema), create);
-router.patch("/:id", authorize("CHOFER"), validate(idParamSchema, "params"), upload.single("foto"), validate(updateTrabajoAdicionalSchema), update);
-router.delete("/:id", authorize("CHOFER"), validate(idParamSchema, "params"), remove);
+router.post("/", authorize("CHOFER", "OWNER", "ADMIN"), upload.single("foto"), validate(createTrabajoAdicionalSchema), create);
+router.patch("/:id", authorize("CHOFER", "OWNER", "ADMIN"), validate(idParamSchema, "params"), upload.single("foto"), validate(updateTrabajoAdicionalSchema), update);
+router.delete("/:id", authorize("CHOFER", "OWNER", "ADMIN"), validate(idParamSchema, "params"), remove);
 router.post("/:id/revision", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(reviewTrabajoAdicionalSchema), review);
 
 export default router;

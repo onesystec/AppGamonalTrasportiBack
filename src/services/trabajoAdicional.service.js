@@ -113,13 +113,14 @@ const resolveVehicle = async (data) => {
   return { vehicleId: vehicle.id, targa, km: data.km ?? null };
 };
 
+// Quien carga puede ser un chofer o un Admin/Owner (con su modo chofer): a si mismo no se avisa.
 const notifyOffice = (t, chofer, title, body) =>
   findOfficeUserIdsForArea(t.area)
-    .then((ids) => sendPushToUserIds(ids, { title, body, data: { type: "trabajo-adicional", trabajoId: t.id } }))
+    .then((ids) => sendPushToUserIds(ids.filter((id) => id !== chofer.id), { title, body, data: { type: "trabajo-adicional", trabajoId: t.id } }))
     .catch((err) => console.error("No se pudo avisar del trabajo adicional:", err.message));
 
 export const createTrabajoAdicionalForActor = async (actor, data, file) => {
-  if (actor.cargo !== "CHOFER") throw new AppError("Solo los choferes cargan trabajos adicionales", 403);
+  if (actor.cargo !== "CHOFER" && !isOffice(actor)) throw new AppError("Solo los choferes cargan trabajos adicionales", 403);
   const inicio = new Date(data.inicio);
   const fin = new Date(data.fin);
   assertDates(inicio, fin);
@@ -168,7 +169,8 @@ export const listTrabajosAdicionalesForActor = async (actor, { estado, driverId,
   const where = { ...(estado ? { estado } : {}), ...(month ? { inicio: monthRange(month) } : {}) };
   if (isOffice(actor)) {
     const keys = actorAreaKeys(actor);
-    if (keys !== null) where.area = { in: keys };
+    // Lo propio (el modo chofer del Admin) se ve entero, aunque el Responsable no tenga marcada esa area.
+    if (keys !== null && driverId !== actor.id) where.area = { in: keys };
     if (driverId) where.driverId = driverId;
   } else where.driverId = actor.id;
 
@@ -186,15 +188,20 @@ const loadFor = async (actor, id) => {
   if (!t) throw new AppError("Trabajo adicional no encontrado", 404);
   if (isOffice(actor)) {
     const keys = actorAreaKeys(actor);
-    if (keys !== null && !keys.includes(t.area)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+    if (keys !== null && t.driverId !== actor.id && !keys.includes(t.area)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   } else if (t.driverId !== actor.id) throw new AppError("No tienes permisos para realizar esta accion", 403);
   return t;
+};
+
+// Corregir o borrar es solo del que lo cargo: la oficina puede ver y revisar los de otros, pero no tocarlos.
+const assertOwnWork = (actor, t, message) => {
+  if (t.driverId !== actor.id) throw new AppError(message, 403);
 };
 
 // El chofer corrige un trabajo mientras no este aprobado (pendiente o devuelto): vuelve a quedar pendiente.
 export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
   const current = await loadFor(actor, id);
-  if (actor.cargo !== "CHOFER") throw new AppError("Solo el chofer corrige su trabajo", 403);
+  assertOwnWork(actor, current, "Solo quien lo cargo corrige su trabajo");
   if (current.estado === "APROBADO") throw new AppError("Un trabajo aprobado ya no se puede cambiar", 409);
   const inicio = new Date(data.inicio);
   const fin = new Date(data.fin);
@@ -234,7 +241,7 @@ export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
 
 export const deleteTrabajoAdicionalForActor = async (actor, id) => {
   const current = await loadFor(actor, id);
-  if (actor.cargo !== "CHOFER") throw new AppError("Solo el chofer borra su trabajo", 403);
+  assertOwnWork(actor, current, "Solo quien lo cargo borra su trabajo");
   if (current.estado === "APROBADO") throw new AppError("Un trabajo aprobado no se puede borrar", 409);
   await prisma.trabajoAdicional.delete({ where: { id } });
   if (current.fotoKey) await deleteObject(current.fotoKey).catch(() => {});
