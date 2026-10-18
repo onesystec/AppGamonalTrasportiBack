@@ -18,7 +18,7 @@ export const login = asyncHandler(async (req, res) => {
 });
 
 export const me = asyncHandler(async (req, res) => {
-  res.status(200).json({ success: true, data: { user: await toUserResponse(req.user) } });
+  res.status(200).json({ success: true, data: { user: await toUserResponse(req.realUser ?? req.user) } });
 });
 
 export const forgotPassword = asyncHandler(async (req, res) => {

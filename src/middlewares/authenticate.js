@@ -34,6 +34,10 @@ export const authenticate = asyncHandler(async (req, res, next) => {
     throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
   }
 
-  req.user = user;
+  // Modo chofer: el Admin/Owner que activa ese switch en la app pide ver todo como un chofer (sus servicios, sus horas, sus
+  // cargos). Solo baja permisos: para cualquier otro cargo el header se ignora. req.realUser conserva al usuario de verdad.
+  const asDriver = req.headers["x-modo-chofer"] === "1" && (user.cargo === "OWNER" || user.cargo === "ADMIN");
+  req.realUser = user;
+  req.user = asDriver ? { ...user, cargo: "CHOFER" } : user;
   next();
 });
