@@ -30,41 +30,50 @@ const INCLUDE = {
   revisadoPor: { select: { id: true, nombre: true, apellido: true } },
 };
 
-const toResponse = async (t, avisos = []) => ({
-  id: t.id,
-  driver: person(t.driver),
-  areaTipo: t.areaTipo,
-  areaLabel: t.areaTipo === "OTROS" && t.areaOtros ? `Otros: ${t.areaOtros}` : `${AREA_LABEL[t.areaTipo]}${t.zona ? ` ${t.zona === "ROMA" ? "Roma" : "Milano"}` : ""}`,
-  zona: t.zona,
-  areaOtros: t.areaOtros,
-  area: t.area,
-  inicio: t.inicio,
-  fin: t.fin,
-  inicioDeclarado: t.inicioDeclarado,
-  finDeclarado: t.finDeclarado,
-  ajustado: t.inicio.getTime() !== t.inicioDeclarado.getTime() || t.fin.getTime() !== t.finDeclarado.getTime(),
-  pausaMin: t.pausaMin,
-  horasDia: t.horasDia,
-  horasNoche: t.horasNoche,
-  horas: Math.round((t.horasDia + t.horasNoche) * 100) / 100,
-  descripcion: t.descripcion,
-  solicitadoPor: t.solicitadoPor,
-  sinVehiculo: t.sinVehiculo,
-  targa: t.targa,
-  km: t.km,
-  foto: t.fotoKey ? { url: await getSignedUrlForKey(t.fotoKey), esPdf: t.fotoKey.endsWith(".pdf") } : null,
-  estado: t.estado,
-  nota: t.nota,
-  revisadoAt: t.revisadoAt,
-  revisadoPor: person(t.revisadoPor),
-  creadoAt: t.createdAt, // fecha de creacion: la pone el servidor y no se edita
-  avisos,
-});
+// Cada foto o PDF: { id (la clave, para quitarla al corregir), url firmada, esPdf }.
+const fotosOf = (t) => Promise.all(t.fotoKeys.map(async (key) => ({ id: key, url: await getSignedUrlForKey(key), esPdf: key.endsWith(".pdf") })));
+
+const toResponse = async (t, avisos = []) => {
+  const fotos = await fotosOf(t);
+  return {
+    id: t.id,
+    driver: person(t.driver),
+    areaTipo: t.areaTipo,
+    areaLabel: t.areaTipo === "OTROS" && t.areaOtros ? `Otros: ${t.areaOtros}` : `${AREA_LABEL[t.areaTipo]}${t.zona ? ` ${t.zona === "ROMA" ? "Roma" : "Milano"}` : ""}`,
+    zona: t.zona,
+    areaOtros: t.areaOtros,
+    area: t.area,
+    inicio: t.inicio,
+    fin: t.fin,
+    inicioDeclarado: t.inicioDeclarado,
+    finDeclarado: t.finDeclarado,
+    ajustado: t.inicio.getTime() !== t.inicioDeclarado.getTime() || t.fin.getTime() !== t.finDeclarado.getTime(),
+    pausaMin: t.pausaMin,
+    horasDia: t.horasDia,
+    horasNoche: t.horasNoche,
+    horas: Math.round((t.horasDia + t.horasNoche) * 100) / 100,
+    descripcion: t.descripcion,
+    solicitadoPor: t.solicitadoPor,
+    sinVehiculo: t.sinVehiculo,
+    targa: t.targa,
+    km: t.km,
+    fotos,
+    foto: fotos[0] ?? null, // la primera, para las versiones de la app que solo conocen una
+    estado: t.estado,
+    nota: t.nota,
+    revisadoAt: t.revisadoAt,
+    revisadoPor: person(t.revisadoPor),
+    creadoAt: t.createdAt, // fecha de creacion: la pone el servidor y no se edita
+    avisos,
+  };
+};
 
 const processFile = async (file) => {
   if (file.mimetype === "application/pdf") return { buffer: file.buffer, mimeType: "application/pdf", ext: "pdf" };
   return { buffer: await compressImage(file.buffer), mimeType: "image/webp", ext: "webp" };
 };
+// Hasta cuantas fotos o PDF puede tener un trabajo (las pruebas del chofer).
+const MAX_FOTOS = 10;
 const uploadFoto = async (id, file) => {
   const { buffer, mimeType, ext } = await processFile(file);
   const key = `trabajos-adicionales/${id}/foto-${Date.now()}-${randomUUID()}.${ext}`;
@@ -119,7 +128,19 @@ const notifyOffice = (t, chofer, title, body) =>
     .then((ids) => sendPushToUserIds(ids.filter((id) => id !== chofer.id), { title, body, data: { type: "trabajo-adicional", trabajoId: t.id } }))
     .catch((err) => console.error("No se pudo avisar del trabajo adicional:", err.message));
 
-export const createTrabajoAdicionalForActor = async (actor, data, file) => {
+// Sube todas o ninguna: si una falla, borra las que ya habian subido.
+const uploadFotos = async (id, files) => {
+  const keys = [];
+  try {
+    for (const file of files) keys.push(await uploadFoto(id, file));
+  } catch (err) {
+    await Promise.all(keys.map((key) => deleteObject(key).catch(() => {})));
+    throw err;
+  }
+  return keys;
+};
+
+export const createTrabajoAdicionalForActor = async (actor, data, files = []) => {
   if (actor.cargo !== "CHOFER" && !isOffice(actor)) throw new AppError("Solo los choferes cargan trabajos adicionales", 403);
   const inicio = new Date(data.inicio);
   const fin = new Date(data.fin);
@@ -127,7 +148,8 @@ export const createTrabajoAdicionalForActor = async (actor, data, file) => {
   const hours = hoursFor({ inicio, fin, pausaMin: data.pausaMin ?? 0 });
   const vehicle = await resolveVehicle(data);
   const id = randomUUID();
-  const fotoKey = file ? await uploadFoto(id, file) : null;
+  if (files.length > MAX_FOTOS) throw new AppError(`Maximo ${MAX_FOTOS} fotos por trabajo`, 400);
+  const fotoKeys = await uploadFotos(id, files);
   try {
     const created = await prisma.trabajoAdicional.create({
       data: {
@@ -147,14 +169,14 @@ export const createTrabajoAdicionalForActor = async (actor, data, file) => {
         solicitadoPor: data.solicitadoPor ?? null,
         sinVehiculo: Boolean(data.sinVehiculo),
         ...vehicle,
-        fotoKey,
+        fotoKeys,
       },
       include: INCLUDE,
     });
     notifyOffice(created, actor, "Trabajo adicional por aprobar", `${actor.nombre} ${actor.apellido} cargo un trabajo adicional (${AREA_LABEL[created.areaTipo]}).`);
     return toResponse(created, await overlapsFor(actor.id, inicio, fin, id));
   } catch (err) {
-    if (fotoKey) await deleteObject(fotoKey).catch(() => {});
+    await Promise.all(fotoKeys.map((key) => deleteObject(key).catch(() => {})));
     throw err;
   }
 };
@@ -199,7 +221,7 @@ const assertOwnWork = (actor, t, message) => {
 };
 
 // El chofer corrige un trabajo mientras no este aprobado (pendiente o devuelto): vuelve a quedar pendiente.
-export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
+export const updateTrabajoAdicionalForActor = async (actor, id, data, files = []) => {
   const current = await loadFor(actor, id);
   assertOwnWork(actor, current, "Solo quien lo cargo corrige su trabajo");
   if (current.estado === "APROBADO") throw new AppError("Un trabajo aprobado ya no se puede cambiar", 409);
@@ -208,7 +230,12 @@ export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
   assertDates(inicio, fin);
   const hours = hoursFor({ inicio, fin, pausaMin: data.pausaMin ?? 0 });
   const vehicle = await resolveVehicle(data);
-  const fotoKey = file ? await uploadFoto(id, file) : current.fotoKey;
+  // Las fotos que ya tenia se conservan (salvo las que el chofer quita) y las nuevas se suman.
+  const quitar = current.fotoKeys.filter((key) => (data.quitarFotos ?? []).includes(key));
+  const conservadas = current.fotoKeys.filter((key) => !quitar.includes(key));
+  if (conservadas.length + files.length > MAX_FOTOS) throw new AppError(`Maximo ${MAX_FOTOS} fotos por trabajo`, 400);
+  const nuevas = await uploadFotos(id, files);
+  const fotoKeys = [...conservadas, ...nuevas];
   const updated = await prisma.trabajoAdicional.update({
     where: { id },
     data: {
@@ -226,7 +253,7 @@ export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
       solicitadoPor: data.solicitadoPor ?? null,
       sinVehiculo: Boolean(data.sinVehiculo),
       ...vehicle,
-      fotoKey,
+      fotoKeys,
       estado: "PENDIENTE",
       nota: null,
       revisadoAt: null,
@@ -234,7 +261,7 @@ export const updateTrabajoAdicionalForActor = async (actor, id, data, file) => {
     },
     include: INCLUDE,
   });
-  if (file && current.fotoKey) await deleteObject(current.fotoKey).catch(() => {});
+  await Promise.all(quitar.map((key) => deleteObject(key).catch(() => {})));
   notifyOffice(updated, actor, "Trabajo adicional por aprobar", `${actor.nombre} ${actor.apellido} corrigio un trabajo adicional.`);
   return toResponse(updated, await overlapsFor(actor.id, inicio, fin, id));
 };
@@ -244,7 +271,7 @@ export const deleteTrabajoAdicionalForActor = async (actor, id) => {
   assertOwnWork(actor, current, "Solo quien lo cargo borra su trabajo");
   if (current.estado === "APROBADO") throw new AppError("Un trabajo aprobado no se puede borrar", 409);
   await prisma.trabajoAdicional.delete({ where: { id } });
-  if (current.fotoKey) await deleteObject(current.fotoKey).catch(() => {});
+  await Promise.all(current.fotoKeys.map((key) => deleteObject(key).catch(() => {})));
 };
 
 // El responsable (o el Admin) aprueba, ajusta los tiempos con una nota, o lo devuelve con un motivo.

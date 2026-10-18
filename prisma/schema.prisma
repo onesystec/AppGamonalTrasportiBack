@@ -1070,6 +1070,8 @@ model TrabajoAdicional {
   targa        String?
   sinVehiculo  Boolean  @default(false)
   km           Float?
+  // Fotos o PDF de prueba (varias). fotoKey era la unica foto de antes: la migracion la paso a fotoKeys y ya no se usa.
+  fotoKeys     String[] @default([])
   fotoKey      String?
 
   estado        TrabajoAdicionalEstado @default(PENDIENTE)

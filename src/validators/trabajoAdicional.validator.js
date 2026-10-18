@@ -42,7 +42,9 @@ const rules = (data, ctx) => {
 };
 
 export const createTrabajoAdicionalSchema = z.object(base).superRefine(rules);
-export const updateTrabajoAdicionalSchema = z.object(base).superRefine(rules);
+// Al corregir: las fotos ya guardadas que el chofer quita (llegan repetidas en el multipart: una sola viene como texto).
+const quitarFotos = z.preprocess((v) => (v == null || v === "" ? [] : Array.isArray(v) ? v : [v]), z.array(z.string().max(300)).max(10));
+export const updateTrabajoAdicionalSchema = z.object({ ...base, quitarFotos }).superRefine(rules);
 
 export const listTrabajosAdicionalesQuerySchema = z.object({
   estado: z.preprocess(emptyToUndefined, z.enum(ESTADOS).optional()),
