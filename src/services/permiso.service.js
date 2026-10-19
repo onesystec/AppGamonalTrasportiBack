@@ -2,6 +2,7 @@ import { findOfficeUserIdsForDriver, getOfficeScope } from "./notificationScope.
 import {
   createPermiso,
   deletePermisoById,
+  findApprovedPermisosInRange,
   findApprovedQuotaPermisos,
   findChoferById,
   findDriversStart,
@@ -302,6 +303,19 @@ const monthBounds = (month) => {
   const first = `${month}-01`;
   const nextFirst = dateToDay(new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)));
   return { first, nextFirst, last: addDays(nextFirst, -1) };
+};
+
+// Permisos aprobados del mes de todos los choferes, con los dias (AAAA-MM-DD) que cubre cada uno dentro del mes.
+export const getApprovedPermisosForMonth = async (month) => {
+  const { first, last } = monthBounds(month);
+  const rows = await findApprovedPermisosInRange(dayToDate(first), dayToDate(last));
+  return rows.map((p) => {
+    const desde = dateToDay(p.fechaDesde) < first ? first : dateToDay(p.fechaDesde);
+    const hasta = dateToDay(p.fechaHasta) > last ? last : dateToDay(p.fechaHasta);
+    const dias = [];
+    for (let day = desde; day <= hasta; day = addDays(day, 1)) dias.push(day);
+    return { driverId: p.driverId, nombre: p.driver.nombre, apellido: p.driver.apellido, tipo: p.tipo, dias };
+  });
 };
 
 const emptySummary = () => ({

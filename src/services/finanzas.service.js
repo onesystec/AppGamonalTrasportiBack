@@ -20,9 +20,9 @@ import { kmFacturables } from "../utils/kmFacturables.js";
 import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
-import { getAttendanceByDriver } from "./permiso.service.js";
+import { getApprovedPermisosForMonth, getAttendanceByDriver } from "./permiso.service.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
-import { approvedByDriverForMonth } from "./trabajoAdicional.service.js";
+import { approvedByDriverForMonth, approvedListForMonth } from "./trabajoAdicional.service.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -776,6 +776,77 @@ export const getPagosChoferesForActor = async (actor, query) => {
       : null,
   };
   return privileged ? result : redactPagosForChofer(result);
+};
+
+// ---------------------------------------------------------------- planilla de presencias
+// Horas de cada chofer por dia del mes para la planilla de presencias del comercialista: las mismas horas que ya usa el pago
+// (tiempo de circuito, o km / 85 en un circuito largo, o las horas aprobadas) mas la espera declarada. Un viaje compactado cuenta
+// una sola vez. Ademas: los trabajos adicionales aprobados (horas varias) y los permisos aprobados.
+export const getPresenciasDataForActor = async (actor, query) => {
+  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  const month = resolveMonth(query.month);
+  const { from, to } = windowFor(month, month);
+  const allRecords = await findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }).then((rows) =>
+    rows.map(withEffectiveTolls)
+  );
+  const records = allRecords.filter((r) => monthOfRecord(r) === month && isPayable(r));
+  const viajes = buildViajeContext(records);
+  for (const viaje of viajes.values()) if (viaje.sinCircuito) void ensureCircuitSafe(viaje.holderId);
+
+  const drivers = new Map();
+  const entryOf = (driverId, nombre, apellido) => {
+    if (!drivers.has(driverId)) drivers.set(driverId, { driverId, nombre, apellido, dias: new Map(), servicios: [], permisos: new Map() });
+    return drivers.get(driverId);
+  };
+  const dayOf = (entry, day) => {
+    if (!entry.dias.has(day)) entry.dias.set(day, { trabajo: 0, espera: 0, varias: 0 });
+    return entry.dias.get(day);
+  };
+
+  for (const r of records) {
+    if (!r.driverId) continue;
+    const pay = payOf(r, viajes);
+    const entry = entryOf(r.driverId, r.driver?.nombre ?? "", r.driver?.apellido ?? "Sin chofer");
+    const day = romeDay(r.fechaServicio);
+    const trabajo = pay.incluidoEnViaje ? 0 : pay.modo === "KM" ? pay.horasManejo ?? 0 : pay.horas;
+    const espera = pay.incluidoEnViaje ? 0 : pay.esperaHoras ?? 0;
+    const cell = dayOf(entry, day);
+    cell.trabajo += trabajo;
+    cell.espera += espera;
+    entry.servicios.push({
+      dia: day,
+      fecha: r.fechaServicio,
+      codigo: r.codigo,
+      cliente: r.client?.nombre ?? "",
+      destino: r.destinazione ?? "",
+      trabajo: round2(trabajo),
+      espera: round2(espera),
+      incluidoEnViaje: Boolean(pay.incluidoEnViaje),
+      viajeCodigo: pay.viajeCodigo ?? null,
+      sinDato: ["SIN_DATO", "TRASPASO_SIN_KM", "VIAJE_SIN_CIRCUITO"].includes(pay.kmFuente),
+    });
+  }
+
+  const adicionales = await approvedListForMonth(month, { areaKeys: actorAreaKeys(actor) ?? undefined });
+  for (const a of adicionales) {
+    if (!a.dia.startsWith(month)) continue;
+    dayOf(entryOf(a.driverId, a.nombre, a.apellido), a.dia).varias += a.horas;
+  }
+
+  for (const p of await getApprovedPermisosForMonth(month)) {
+    const entry = entryOf(p.driverId, p.nombre, p.apellido);
+    for (const day of p.dias) if (!entry.permisos.has(day)) entry.permisos.set(day, p.tipo);
+  }
+
+  const choferes = [...drivers.values()]
+    .map((e) => ({
+      ...e,
+      dias: Object.fromEntries([...e.dias].map(([day, v]) => [day, { trabajo: round2(v.trabajo), espera: round2(v.espera), varias: round2(v.varias) }])),
+      permisos: Object.fromEntries(e.permisos),
+      servicios: e.servicios.sort((a, b) => a.fecha - b.fecha),
+    }))
+    .sort((a, b) => `${a.apellido} ${a.nombre}`.localeCompare(`${b.apellido} ${b.nombre}`, "es"));
+  return { month, choferes };
 };
 
 // ---------------------------------------------------------------- detalle: gastos de servicios

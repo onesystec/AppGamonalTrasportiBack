@@ -72,6 +72,19 @@ export const findApprovedQuotaPermisos = (desde, hasta, tipos) =>
     select: { id: true, driverId: true, fechaDesde: true, fechaHasta: true },
   });
 
+// Permisos aprobados de todos los choferes que tocan un rango (planilla de presencias).
+export const findApprovedPermisosInRange = (desde, hasta) =>
+  prisma.permiso.findMany({
+    where: { estado: "APROBADO", fechaDesde: { lte: hasta }, fechaHasta: { gte: desde } },
+    select: {
+      driverId: true,
+      tipo: true,
+      fechaDesde: true,
+      fechaHasta: true,
+      driver: { select: { nombre: true, apellido: true } },
+    },
+  });
+
 // Permisos pendientes o aprobados de varios choferes en un rango (asistencia de muchos choferes).
 export const findPermisosForDrivers = (driverIds, desde, hasta) =>
   prisma.permiso.findMany({

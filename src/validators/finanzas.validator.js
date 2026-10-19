@@ -17,6 +17,12 @@ export const pagosQuerySchema = z.object({
   driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
 });
 
+// Planilla de presencias del mes: horas como decimal (6,68) o como horas:minutos (6:41).
+export const presenciasQuerySchema = z.object({
+  month,
+  formato: z.preprocess(emptyToUndefined, z.enum(["decimal", "hhmm"]).default("decimal")),
+});
+
 // Tarifas por km (EUR/km): cualquiera de las categorias de vehiculo o la de DHL/AB Service.
 const tarifa = z.coerce.number({ invalid_type_error: "Tarifa invalida" }).min(0, "La tarifa no puede ser negativa").max(100, "Tarifa invalida");
 export const tarifasKmSchema = z.object({

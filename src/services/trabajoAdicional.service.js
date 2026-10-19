@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { computeShiftHours } from "../utils/workHours.js";
+import { romeDay } from "../utils/romeTime.js";
 import { findOfficeUserIdsForArea } from "../models/user.model.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
@@ -309,4 +310,20 @@ export const approvedByDriverForMonth = async (month, { driverId, areaKeys } = {
     map.set(r.driverId, e);
   }
   return map;
+};
+
+// Para la planilla de presencias: cada trabajo adicional aprobado del mes, con el dia (hora de Roma) en que empezo.
+export const approvedListForMonth = async (month, { areaKeys } = {}) => {
+  const rows = await prisma.trabajoAdicional.findMany({
+    where: { estado: "APROBADO", inicio: monthRange(month), ...(areaKeys ? { area: { in: areaKeys } } : {}) },
+    select: { driverId: true, inicio: true, horasDia: true, horasNoche: true, driver: { select: { nombre: true, apellido: true } } },
+    orderBy: { inicio: "asc" },
+  });
+  return rows.map((r) => ({
+    driverId: r.driverId,
+    nombre: r.driver.nombre,
+    apellido: r.driver.apellido,
+    dia: romeDay(r.inicio),
+    horas: r.horasDia + r.horasNoche,
+  }));
 };
