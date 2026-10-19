@@ -52,14 +52,20 @@ export const getVencimientosForActor = async (actor) => {
   // cargaron documentos. Recursos Humanos solo ve a los de cargo CHOFER, como en el resto de la app.
   let choferWhere = { cargo: "CHOFER" };
   if (cargo !== "RRHH" && !sinZona) {
-    const manejan = await prisma.record.groupBy({
-      by: ["driverId"],
-      where: {
-        driverId: { not: null },
-        estado: { in: ["CONSEGNATO", "RITIRATO"] },
-        fechaServicio: { gte: new Date(Date.now() - MANEJA_DIAS * DAY_MS) },
-      },
-    });
+    // Quienes manejaron hace poco. Si esta consulta falla, la vista sigue con los de cargo Chofer y los que ya tienen documentos
+    // (no se cae toda la pantalla por esto).
+    const manejan = await prisma.record
+      .groupBy({
+        by: ["driverId"],
+        where: {
+          estado: { in: ["CONSEGNATO", "RITIRATO"] },
+          fechaServicio: { gte: new Date(Date.now() - MANEJA_DIAS * DAY_MS) },
+        },
+      })
+      .catch((err) => {
+        console.error("[vencimientos] no se pudo leer quien maneja:", err.message);
+        return [];
+      });
     choferWhere = {
       OR: [{ cargo: "CHOFER" }, { documentos: { some: {} } }, { id: { in: manejan.map((m) => m.driverId) } }],
     };
