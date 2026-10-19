@@ -18,6 +18,8 @@ import { getSignedUrlForKey } from "./storage.service.js";
 //  - ADMIN (Responsable): solo lo de su zona (User.responsableTipo = grupo del chofer o del vehiculo); sin zona asignada no ve nada.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+// Un Owner o Admin que maneja (cargo distinto de CHOFER) cuenta como chofer si hizo servicios en este tiempo.
+const MANEJA_DIAS = 120;
 const dayNumber = (day) => Math.floor(new Date(`${day}T00:00:00.000Z`).getTime() / DAY_MS);
 const dateDay = (date) => date.toISOString().slice(0, 10);
 
@@ -46,10 +48,22 @@ export const getVencimientosForActor = async (actor) => {
   const sinZona = cargo === "ADMIN" && !zona;
   const grupoWhere = zona ? { grupo: zona } : {};
 
-  const choferWhere =
-    cargo === "RRHH"
-      ? { cargo: "CHOFER" }
-      : { OR: [{ cargo: "CHOFER" }, { documentos: { some: {} } }] };
+  // Choferes = quienes tienen cargo CHOFER, mas los Owner/Admin que tambien manejan (con servicios hechos hace poco) o que ya
+  // cargaron documentos. Recursos Humanos solo ve a los de cargo CHOFER, como en el resto de la app.
+  let choferWhere = { cargo: "CHOFER" };
+  if (cargo !== "RRHH" && !sinZona) {
+    const manejan = await prisma.record.groupBy({
+      by: ["driverId"],
+      where: {
+        driverId: { not: null },
+        estado: { in: ["CONSEGNATO", "RITIRATO"] },
+        fechaServicio: { gte: new Date(Date.now() - MANEJA_DIAS * DAY_MS) },
+      },
+    });
+    choferWhere = {
+      OR: [{ cargo: "CHOFER" }, { documentos: { some: {} } }, { id: { in: manejan.map((m) => m.driverId) } }],
+    };
+  }
 
   const [users, vehicles] = sinZona
     ? [[], []]
@@ -70,7 +84,6 @@ export const getVencimientosForActor = async (actor) => {
             rTecnica: true,
             kmUltimoMantenimiento: true,
             kmActual: true,
-            choferesAsignados: { select: { nombre: true, apellido: true } },
           },
           orderBy: { targa: "asc" },
         }),
@@ -109,7 +122,6 @@ export const getVencimientosForActor = async (actor) => {
     targa: v.targa,
     modelo: v.modelo,
     grupo: v.grupo,
-    choferes: v.choferesAsignados.map((c) => `${c.nombre} ${c.apellido}`.trim()),
     seguro: celda(v.poliza, AVISO_DIAS_VEHICULO, today),
     revision: celda(v.rTecnica, AVISO_DIAS_VEHICULO, today),
     tagliando: tagliando(v),
