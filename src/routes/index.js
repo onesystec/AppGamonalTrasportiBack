@@ -24,6 +24,7 @@ import trabajoAdicionalRoutes from "./trabajoAdicional.routes.js";
 import telegramRoutes from "./telegram.routes.js";
 import userRoutes from "./user.routes.js";
 import vehicleRoutes from "./vehicle.routes.js";
+import vencimientosRoutes from "./vencimientos.routes.js";
 
 const router = Router();
 
@@ -36,6 +37,7 @@ router.use("/auth", authRoutes);
 router.use("/users", userRoutes);
 router.use("/documents", documentRoutes);
 router.use("/vehiculos", vehicleRoutes);
+router.use("/vencimientos", vencimientosRoutes);
 router.use("/clients", clientRoutes);
 router.use("/records", recordRoutes);
 router.use("/seguimiento", seguimientoRoutes);
