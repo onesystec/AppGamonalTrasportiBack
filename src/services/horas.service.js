@@ -8,6 +8,7 @@ import { viajesAplican } from "../config/viajes.js";
 import { tariffForMonth } from "../config/payRates.js";
 import { planesDelViaje, repartirKm, repartoMeta } from "../utils/kmReparto.js";
 import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
+import { ensureKmhPago } from "./velocidadPago.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
@@ -45,6 +46,7 @@ const notify = (record, title, body) =>
 // la apruebe. Si la carga la hace la oficina por otro, queda aprobada directamente. Un Admin o Responsable que manejo el
 // servicio declara sus horas como cualquier chofer (pendientes de revision, aprobacion automatica si todo cuadra).
 export const submitHoursForActor = async (actor, id, body) => {
+  await ensureKmhPago();
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
@@ -183,6 +185,7 @@ export const submitHoursForActor = async (actor, id, body) => {
 // unico que declara); lo demas que se le pide (bolla, carburante, mancato) se sube aparte. Un Admin/Responsable que manejo el
 // servicio lo cierra igual. Un viaje compacto se cierra una sola vez, en el servicio principal.
 export const closeServiceForActor = async (actor, id, body) => {
+  await ensureKmhPago();
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
@@ -256,6 +259,7 @@ export const autoApproveIfOk = async (id) => {
 
 // Aprobar (tal cual o ajustando la jornada) o devolver con una nota al chofer.
 export const reviewHoursForActor = async (actor, id, body) => {
+  await ensureKmhPago();
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
@@ -428,6 +432,7 @@ const AUTO_APPROVE_PER_LOAD = 20;
 
 // Cola de aprobacion: horas enviadas por los choferes (y, si se pide, las devueltas).
 export const listHoursForReviewForActor = async (actor, { estado }) => {
+  await ensureKmhPago();
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const estados = estado === "TODAS" ? ["PENDIENTE", "DEVUELTAS"] : [estado];
   let records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });

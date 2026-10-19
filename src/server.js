@@ -1,8 +1,12 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
+import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
 import { startAutoEnCamino, startFaltantesReminder, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
+
+// Velocidades de pago por chofer en memoria desde el arranque (si falla, se vuelve a intentar en cada consulta de pagos).
+void ensureKmhPago();
 
 const server = app.listen(env.PORT, () => {
   console.log(`RegistrosGTBack escuchando en el puerto ${env.PORT} (${env.NODE_ENV})`);

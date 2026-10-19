@@ -23,6 +23,13 @@ export const presenciasQuerySchema = z.object({
   formato: z.preprocess(emptyToUndefined, z.enum(["decimal", "hhmm"]).default("decimal")),
 });
 
+// Velocidad de pago de un chofer en un mes (85, 90 o 95 km/h).
+export const velocidadPagoSchema = z.object({
+  driverId: z.string().uuid("Chofer invalido"),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)"),
+  kmh: z.coerce.number().int("Velocidad invalida").refine((v) => [85, 90, 95].includes(v), "La velocidad tiene que ser 85, 90 o 95 km/h"),
+});
+
 // Tarifas por km (EUR/km): cualquiera de las categorias de vehiculo o la de DHL/AB Service.
 const tarifa = z.coerce.number({ invalid_type_error: "Tarifa invalida" }).min(0, "La tarifa no puede ser negativa").max(100, "Tarifa invalida");
 export const tarifasKmSchema = z.object({

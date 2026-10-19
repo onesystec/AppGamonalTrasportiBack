@@ -23,6 +23,7 @@ import { getMultaStatsForActor } from "./multa.service.js";
 import { getApprovedPermisosForMonth, getAttendanceByDriver } from "./permiso.service.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { approvedByDriverForMonth, approvedListForMonth } from "./trabajoAdicional.service.js";
+import { ensureKmhPago, kmhPagoFor, kmhPagoInfo, VELOCIDADES_PAGO } from "./velocidadPago.service.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -82,10 +83,13 @@ const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : v
 //    con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
 export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeSinCircuito = false } = {}) => {
-  const tariff = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
+  const month = romeDay(record.fechaServicio).slice(0, 7);
+  const tariff = tariffForMonth(month);
   // Con pago por km (tarifa desde 2026-10) no hay horas declaradas ni aprobacion: siempre se paga por distancia y la espera
   // declarada cuenta tal cual (la oficina puede corregirla).
   const porKm = Boolean(tariff.pagoPorKm);
+  // Km/h con los que se pasan los km a horas de manejo: el que la oficina eligio para este chofer (85, 90 o 95), si no el de la tarifa.
+  const kmBloque = (porKm ? kmhPagoFor(record.driverId, month) : null) ?? tariff.kmBloque;
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
@@ -165,10 +169,10 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     tiempoRuta = Boolean(tariff.tiempoRutaHastaKm) && rutaMin > 0 && km > 0 && km < tariff.tiempoRutaHastaKm;
     pagoBase = tiempoRuta
       ? (rutaMin / 60) * (franja === "DIA" ? tariff.horaDiaEur : tariff.horaNocheEur)
-      : (km / tariff.kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
+      : (km / kmBloque) * (franja === "DIA" ? tariff.kmBloqueDiaEur : tariff.kmBloqueNocheEur);
   }
   // Horas de manejo equivalentes a los km (km / 85 km/h): lo que se muestra a la oficina cuando se paga por distancia.
-  const horasManejo = modo === "KM" && km > 0 ? (tiempoRuta ? rutaMin / 60 : km / tariff.kmBloque) : 0;
+  const horasManejo = modo === "KM" && km > 0 ? (tiempoRuta ? rutaMin / 60 : km / kmBloque) : 0;
   const pagoEspera = esperaHoras * tariff.esperaHoraEur;
 
   let reperibilidad = null;
@@ -380,6 +384,7 @@ const loadFuelToAudit = async ({ from, to }, areaWhere) => {
 const monthOfRecord = (record) => romeDay(record.fechaServicio).slice(0, 7);
 
 export const getFinanzasResumenForActor = async (actor, query) => {
+  await ensureKmhPago();
   const privileged = isPrivileged(actor);
   const month = resolveMonth(query.month);
   const firstMonth = shiftMonth(month, -(SERIES_MONTHS - 1));
@@ -630,7 +635,7 @@ const serviceItem = (record, pay) => ({
 
 // El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
 // los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
-const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto"];
+const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago"];
 const withoutMoney = (row) => {
   const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
   // Los trabajos adicionales: el chofer ve cuantos y cuantas horas, no el importe.
@@ -672,6 +677,7 @@ const newPayEntry = (driverId, nombre) => ({
 });
 
 export const getPagosChoferesForActor = async (actor, query) => {
+  await ensureKmhPago();
   const privileged = isPrivileged(actor);
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
@@ -746,6 +752,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
       const totalPago = round2(e.total);
       return {
         ...e,
+        // Velocidad de pago (km/h) que rige este mes y si se eligio en este mes o se hereda de uno anterior.
+        kmhPago: kmhPagoInfo(e.driverId, month, tariff.kmBloque),
         horas: round2(e.horas),
         horasDia: round2(e.horasDia),
         horasNoche: round2(e.horasNoche),
@@ -769,6 +777,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
     month,
     mesLabel: monthLabel(month),
     reglas: tariffForDisplay(month),
+    // Velocidades que la oficina puede elegir por chofer (solo cuando se paga por km).
+    velocidadesPago: tariff.pagoPorKm ? VELOCIDADES_PAGO : [],
     total: finishPay(total),
     porChofer,
     servicios: showItems
@@ -783,6 +793,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
 // (tiempo de circuito, o km / 85 en un circuito largo, o las horas aprobadas) mas la espera declarada. Un viaje compactado cuenta
 // una sola vez. Ademas: los trabajos adicionales aprobados (horas varias) y los permisos aprobados.
 export const getPresenciasDataForActor = async (actor, query) => {
+  await ensureKmhPago();
   if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
@@ -852,6 +863,7 @@ export const getPresenciasDataForActor = async (actor, query) => {
 // ---------------------------------------------------------------- detalle: gastos de servicios
 
 export const getGastosServiciosForActor = async (actor, query) => {
+  await ensureKmhPago();
   // Son datos economicos del servicio: el chofer no los ve (igual que en Registros).
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const month = resolveMonth(query.month);

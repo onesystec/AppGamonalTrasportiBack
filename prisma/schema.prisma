@@ -139,6 +139,7 @@ model User {
   mancatosCreados           MancatoPagamento[]      @relation("MancatoCreadoPor")
   multasComoChofer          Multa[]                 @relation("MultaChofer")
   trabajosAdicionales       TrabajoAdicional[]      @relation("TrabajoAdicionalChofer")
+  velocidadesPago           VelocidadPagoChofer[]   @relation("VelocidadPagoChofer")
   trabajosAdicionalesRevisados TrabajoAdicional[]   @relation("TrabajoAdicionalRevisor")
   multasCreadas             Multa[]                 @relation("MultaCreadaPor")
   combustiblesComoChofer    RegistroCombustible[]   @relation("CombustibleChofer")
@@ -1122,4 +1123,25 @@ enum SollecitoEstado {
   POR_PAGAR
   PAGADO
   NO_CORRESPONDE
+}
+
+// Velocidad con la que se calculan las horas de manejo de un chofer cuando se paga por km (km / 85, 90 o 95). La elige la oficina
+// en Pago a choferes, por chofer y por mes: el valor vale desde ese mes y se hereda en los siguientes hasta que se cambie. Sin fila
+// vale la de la tarifa (85). Los meses anteriores a la tarifa por km no usan esto.
+model VelocidadPagoChofer {
+  id       String @id @default(uuid())
+  driverId String
+  driver   User   @relation("VelocidadPagoChofer", fields: [driverId], references: [id], onDelete: Cascade)
+
+  // "AAAA-MM": primer mes en que rige.
+  mes String
+  kmh Int
+  // Quien lo cambio por ultima vez (id de usuario).
+  cambiadoPorId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([driverId, mes])
+  @@map("velocidad_pago_choferes")
 }

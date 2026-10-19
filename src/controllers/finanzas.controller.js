@@ -5,6 +5,7 @@ import {
   getPresenciasDataForActor,
 } from "../services/finanzas.service.js";
 import { buildPresenciasWorkbook, presenciasFileName } from "../services/presenciasExcel.service.js";
+import { setKmhPagoForActor } from "../services/velocidadPago.service.js";
 import { getTarifasKm, setTarifasKm } from "../services/tarifas.service.js";
 import { sharedForOffice } from "../utils/responseCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -27,6 +28,12 @@ export const presencias = asyncHandler(async (req, res) => {
   res.setHeader("Content-Disposition", `attachment; filename="${presenciasFileName(data.month)}"`);
   res.setHeader("Cache-Control", "no-store");
   res.status(200).send(Buffer.from(buffer));
+});
+
+// Velocidad de pago (85, 90 o 95 km/h) de un chofer desde un mes.
+export const velocidadPago = asyncHandler(async (req, res) => {
+  const result = await setKmhPagoForActor(req.user, req.body);
+  res.status(200).json({ success: true, data: { velocidadPago: result } });
 });
 
 export const gastosServicios = asyncHandler(async (req, res) => {
