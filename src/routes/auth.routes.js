@@ -6,6 +6,7 @@ import {
   me,
   register,
   resetPasswordHandler,
+  sso,
 } from "../controllers/auth.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { validate } from "../middlewares/validate.js";
@@ -14,6 +15,7 @@ import {
   loginSchema,
   registerSchema,
   resetPasswordSchema,
+  ssoSchema,
 } from "../validators/auth.validator.js";
 
 const router = Router();
@@ -29,6 +31,7 @@ const authLimiter = rateLimit({
 
 router.post("/register", authLimiter, validate(registerSchema), register);
 router.post("/login", authLimiter, validate(loginSchema), login);
+router.post("/sso", authLimiter, validate(ssoSchema), sso);
 router.get("/me", authenticate, me);
 router.post("/forgot-password", authLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post("/reset-password", validate(resetPasswordSchema), resetPasswordHandler);

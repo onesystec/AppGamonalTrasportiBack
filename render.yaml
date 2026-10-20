@@ -20,6 +20,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: SSO_SHARED_SECRET
+        sync: false
       - key: RESET_PASSWORD_URL
         sync: false
       - key: RESEND_API_KEY

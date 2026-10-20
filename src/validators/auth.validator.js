@@ -29,3 +29,7 @@ export const resetPasswordSchema = z.object({
   token: z.string().min(1, "El token es obligatorio"),
   newPassword: passwordSchema,
 });
+
+export const ssoSchema = z.object({
+  ticket: z.string().trim().min(1, "El ticket es obligatorio"),
+});

@@ -12,7 +12,7 @@ import {
 import { buildResetPasswordEmail } from "../emails/resetPasswordEmail.js";
 import { toUserResponse } from "./user.service.js";
 import { AppError } from "../utils/AppError.js";
-import { signToken } from "../utils/jwt.js";
+import { signToken, verifySsoTicket } from "../utils/jwt.js";
 import { comparePassword, hashPassword } from "../utils/password.js";
 import { generateResetToken, hashResetToken } from "../utils/resetToken.js";
 
@@ -61,6 +61,39 @@ export const loginUser = async ({ correoElectronico, password }) => {
   const safeUser = await findUserById(user.id);
 
   return { user: await toUserResponse(safeUser), token };
+};
+
+// Productos de OneSystec que entran a esta plataforma (Driver y Farmacy comparten backend).
+const SSO_PRODUCTS = ["driver", "farmacy"];
+
+/**
+ * Acceso directo desde OneSystec: el ticket solo prueba que ese correo acaba de iniciar sesion alla.
+ * Se cambia por una sesion normal de esta app si el correo corresponde a un usuario activo.
+ */
+export const ssoLoginUser = async (ticket) => {
+  if (!env.SSO_SHARED_SECRET) {
+    throw new AppError("El acceso directo no esta configurado", 503);
+  }
+
+  let claims;
+  try {
+    claims = verifySsoTicket(ticket, env.SSO_SHARED_SECRET);
+  } catch {
+    throw new AppError("Ticket invalido o vencido", 401);
+  }
+  if (typeof claims.email !== "string" || !SSO_PRODUCTS.includes(claims.product)) {
+    throw new AppError("Ticket invalido o vencido", 401);
+  }
+
+  const user = await findUserByEmail(claims.email);
+  if (!user) {
+    throw new AppError("Tu correo no tiene una cuenta en esta plataforma. Contacta a un administrador.", 403);
+  }
+  if (user.estado === "INACTIVO") {
+    throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
+  }
+
+  return { user: await toUserResponse(user), accessToken: signToken({ sub: user.id }) };
 };
 
 export const requestPasswordReset = async (correoElectronico) => {

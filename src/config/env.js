@@ -11,6 +11,11 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, "JWT_SECRET debe tener al menos 16 caracteres"),
   JWT_EXPIRES_IN: z.string().default("7d"),
 
+  // Clave compartida con OneSystec para el acceso directo (single sign-on): OneSystec firma un ticket de 60 s con
+  // esta clave y POST /api/auth/sso lo cambia por una sesion, sin password. Debe ser EXACTAMENTE el mismo valor que
+  // SSO_SHARED_SECRET en el backend de OneSystec. Sin ella ese endpoint responde 503 y el resto de la app anda igual.
+  SSO_SHARED_SECRET: z.string().min(16, "SSO_SHARED_SECRET debe tener al menos 16 caracteres").optional(),
+
   RESET_TOKEN_EXPIRES_MINUTES: z.coerce.number().default(30),
   RESET_PASSWORD_URL: z.string().url(),
 
