@@ -1,4 +1,4 @@
-import { getClienteMe, getFotosCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
+import { getClienteMe, getFotosCliente, getRutaCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const me = asyncHandler(async (req, res) => {
@@ -24,4 +24,9 @@ export const exportar = asyncHandler(async (req, res) => {
 export const fotos = asyncHandler(async (req, res) => {
   requireModulo(req.user, "FOTOS");
   res.status(200).json({ success: true, data: await getFotosCliente(req.user, req.params.id) });
+});
+
+export const ruta = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.status(200).json({ success: true, data: await getRutaCliente(req.user, req.params.id) });
 });

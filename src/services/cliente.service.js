@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { recordAreaWhere } from "../utils/areaAccess.js";
 import { cachedResponse } from "../utils/responseCache.js";
 import { romeDay } from "../utils/romeTime.js";
+import { calculateRoute } from "./routing.service.js";
 import { getSeguimiento, RETRASO_AVISO_MIN } from "./seguimiento.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
 
@@ -167,4 +168,53 @@ export const getFotosCliente = async (user, recordId) => {
     }))
   );
   return { fotos };
+};
+
+const RUTA_TTL_MS = 60 * 1000;
+
+// Recorrido que le falta a la furgoneta hasta la parada de ESTE cliente, para dibujarlo en el mapa al elegir un servicio. Es la ruta por
+// carretera entre la posicion actual y su parada, y nada mas: no pasa por las paradas de otros clientes ni sale de la ruta del viaje.
+// Si el servidor de rutas no responde, se devuelve una linea recta (aproximada: true) para que igual se vea hacia donde va.
+// Se calcula una vez por minuto y por posicion (el servidor publico de rutas no debe recibir una consulta por cada cliente que mira).
+export const getRutaCliente = async (user, id) => {
+  requireModulo(user, "MAPA");
+  const { servicios } = await allSeguimiento();
+  const s = servicios.find((x) => x.id === id && enAlcance(user, x) && esVisibleParaCliente(x));
+  if (!s) throw new AppError("Servicio no encontrado", 404);
+  return rutaParaServicio(s);
+};
+
+// s: un servicio del seguimiento (con su gps y las coordenadas de su parada final).
+export const rutaParaServicio = async (s) => {
+  if (s.llego || !s.gps || s.gps.fuente === "SIMULADO" || !s.destinoCoords) return { ruta: null };
+
+  const origen = { lat: s.gps.lat, lng: s.gps.lng };
+  const destino = s.destinoCoords;
+  const key = `cliente-ruta:${s.id}:${origen.lat.toFixed(3)},${origen.lng.toFixed(3)}`;
+  return cachedResponse(
+    key,
+    RUTA_TTL_MS,
+    async () => {
+      const route = await calculateRoute([origen, destino]);
+      if (route?.geometria?.coordinates?.length) {
+        return { ruta: { geometria: route.geometria, distanciaKm: Math.round(route.distanciaKm * 10) / 10, aproximada: false } };
+      }
+      const km = Math.round(distanciaRectaKm(origen, destino) * 10) / 10;
+      return {
+        ruta: {
+          geometria: { type: "LineString", coordinates: [[origen.lng, origen.lat], [destino.lng, destino.lat]] },
+          distanciaKm: km,
+          aproximada: true,
+        },
+      };
+    },
+    { small: true }
+  );
+};
+
+// Distancia en linea recta (haversine) en km: solo para la ruta aproximada de respaldo.
+const distanciaRectaKm = (a, b) => {
+  const rad = (d) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.lat - a.lat) / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lng - a.lng) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
 };
