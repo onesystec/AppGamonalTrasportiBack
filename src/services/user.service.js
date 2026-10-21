@@ -23,7 +23,7 @@ import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { calculateRoute, snapPointsToRoad } from "./routing.service.js";
 import { purgeDocumentsForUser } from "./document.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
-import { compressAvatar } from "../utils/imageProcessor.js";
+import { compressAvatar, compressLogo } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
 import { RESPONSABLE_PRESETS } from "../constants/areas.js";
 import { CLIENTE_MODULOS_DEFAULT } from "../constants/clientes.js";
@@ -228,7 +228,7 @@ export const updateUser = async (actor, targetId, data) => {
   return toUserResponse(updated);
 };
 
-export const uploadUserAvatar = async (actor, targetId, file) => {
+export const uploadUserAvatar = async (actor, targetId, file, { logo = false } = {}) => {
   const user = await findUserById(targetId);
   if (!user) {
     throw new AppError("Usuario no encontrado", 404);
@@ -237,7 +237,12 @@ export const uploadUserAvatar = async (actor, targetId, file) => {
     throw new AppError("No tienes permisos para realizar esta accion", 403);
   }
 
-  const buffer = await compressAvatar(file.buffer);
+  // El logo (y la foto) de un usuario cliente los pone solo el Admin: es el logo de su empresa en su pantalla.
+  if (user.cargo === "CLIENTE" && actor.id !== targetId && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede cambiar el logo de un usuario cliente", 403);
+  }
+
+  const buffer = logo ? await compressLogo(file.buffer) : await compressAvatar(file.buffer);
   const key = `avatars/${targetId}/avatar-${Date.now()}-${randomUUID()}.webp`;
   await uploadObject(key, buffer, "image/webp");
 

@@ -17,6 +17,15 @@ export const compressImage = async (buffer) =>
     .webp({ quality: WEBP_QUALITY })
     .toBuffer();
 
+// Logo de una empresa cliente: se muestra entero (sin recortar, aunque sea apaisado) sobre fondo transparente.
+const LOGO_DIMENSION = 320;
+export const compressLogo = async (buffer) =>
+  sharp(buffer)
+    .rotate()
+    .resize({ width: LOGO_DIMENSION, height: LOGO_DIMENSION, fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .webp({ quality: 85 })
+    .toBuffer();
+
 const AVATAR_DIMENSION = 256;
 const AVATAR_WEBP_QUALITY = 80;
 

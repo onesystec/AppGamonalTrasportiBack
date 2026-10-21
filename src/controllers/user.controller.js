@@ -49,7 +49,8 @@ export const uploadAvatar = asyncHandler(async (req, res) => {
   if (!req.file) {
     throw new AppError("Debes seleccionar una imagen", 400);
   }
-  const user = await uploadUserAvatar(req.user, req.params.id, req.file);
+  // tipo=logo: logo de una empresa cliente (se muestra entero, sin recortar a cuadrado).
+  const user = await uploadUserAvatar(req.user, req.params.id, req.file, { logo: req.body?.tipo === "logo" });
   res.status(200).json({ success: true, data: { user } });
 });
 

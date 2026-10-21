@@ -170,12 +170,12 @@ export const getFotosCliente = async (user, recordId) => {
   return { fotos };
 };
 
-const RUTA_TTL_MS = 60 * 1000;
+const RUTA_TTL_MS = 30 * 1000;
 
 // Recorrido que le falta a la furgoneta hasta la parada de ESTE cliente, para dibujarlo en el mapa al elegir un servicio. Es la ruta por
 // carretera entre la posicion actual y su parada, y nada mas: no pasa por las paradas de otros clientes ni sale de la ruta del viaje.
 // Si el servidor de rutas no responde, se devuelve una linea recta (aproximada: true) para que igual se vea hacia donde va.
-// Se calcula una vez por minuto y por posicion (el servidor publico de rutas no debe recibir una consulta por cada cliente que mira).
+// Se calcula una vez cada 30 segundos y por posicion (el servidor publico de rutas no debe recibir una consulta por cada cliente que mira).
 export const getRutaCliente = async (user, id) => {
   requireModulo(user, "MAPA");
   const { servicios } = await allSeguimiento();
