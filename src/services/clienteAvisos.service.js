@@ -14,6 +14,8 @@ const ENTREGADO_RECIENTE_MS = 30 * MIN_MS;
 const GUARDAR_DIAS = 3;
 
 const hora = (iso) => (iso ? romeHHMM(new Date(iso)) : null);
+// 184 -> "3 h 4 min", 120 -> "2 h", 45 -> "45 min".
+const duracion = (min) => (min < 60 ? `${min} min` : `${Math.floor(min / 60)} h${min % 60 ? ` ${min % 60} min` : ""}`);
 
 // servicios: los viajes en camino que calcula getSeguimiento (con clienteId). retrasoAvisoMin: desde cuantos minutos de atraso se avisa.
 export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5 } = {}) => {
@@ -71,7 +73,7 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
         tipo: "RETRASO",
         valor: retraso,
         title: "Tu servicio llegara con retraso",
-        body: `${s.codigo}${targa ? ` (${targa})` : ""} llegara con ~${retraso} min de retraso${s.llegadaEstimada ? `, a las ${hora(s.llegadaEstimada)}` : ""}.`,
+        body: `${s.codigo}${targa ? ` (${targa})` : ""} llegara con ~${duracion(retraso)} de retraso${s.llegadaEstimada ? `, a las ${hora(s.llegadaEstimada)}` : ""}.`,
       });
     }
     if (s.llego && !has(s.id, "LLEGADA")) {
