@@ -45,16 +45,19 @@ const assertCanAssignCargo = (actor, cargo) => {
 const normalizeClienteFields = async (data, target) => {
   const finalCargo = data.cargo ?? target?.cargo;
   if (finalCargo !== "CLIENTE") {
-    if (target?.cargo === "CLIENTE" || !target) return { ...data, clienteId: null, clienteModulos: [] };
+    if (target?.cargo === "CLIENTE" || !target) return { ...data, clienteId: null, clienteAreas: [], clienteModulos: [] };
     return data;
   }
-  const clienteId = data.clienteId ?? target?.clienteId ?? null;
-  if (!clienteId) throw new AppError("Elige la empresa cliente", 400);
+  // Alcance: su empresa y/o las spedizioni (areas) que puede seguir; tiene que tener al menos una de las dos.
+  const clienteId = data.clienteId !== undefined ? data.clienteId : target?.clienteId ?? null;
+  const clienteAreas = data.clienteAreas ?? target?.clienteAreas ?? [];
+  if (!clienteId && clienteAreas.length === 0) throw new AppError("Elige la empresa o al menos una spedizione", 400);
   if (data.clienteId && !(await findClientById(data.clienteId))) throw new AppError("La empresa cliente no existe", 400);
   const becomes = target?.cargo !== "CLIENTE";
   return {
     ...data,
     clienteId,
+    clienteAreas,
     ...(becomes || data.clienteModulos !== undefined ? { clienteModulos: data.clienteModulos ?? CLIENTE_MODULOS_DEFAULT } : {}),
     ...(becomes ? { area: data.area ?? "SIN_ASIGNAR", fechaNacimiento: data.fechaNacimiento ?? new Date("2000-01-01"), numeroCelular: data.numeroCelular ?? "" } : {}),
   };
@@ -203,8 +206,8 @@ export const updateUser = async (actor, targetId, data) => {
   if (isPrivileged) {
     payload = normalizeResponsableFields(actor, payload, target);
     // La empresa y los modulos de un usuario cliente solo los toca un Admin.
-    if ((payload.clienteId !== undefined || payload.clienteModulos !== undefined) && actor.cargo !== "OWNER") {
-      throw new AppError("Solo un Admin puede definir la empresa y los modulos de un usuario cliente", 403);
+    if ((payload.clienteId !== undefined || payload.clienteAreas !== undefined || payload.clienteModulos !== undefined) && actor.cargo !== "OWNER") {
+      throw new AppError("Solo un Admin puede definir el acceso de un usuario cliente", 403);
     }
     payload = await normalizeClienteFields(payload, target);
   }

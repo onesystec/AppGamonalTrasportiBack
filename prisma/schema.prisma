@@ -90,6 +90,9 @@ model User {
   clienteId                    String?
   cliente                      Client?          @relation("ClienteUsuarios", fields: [clienteId], references: [id], onDelete: SetNull)
   clienteModulos               String[]         @default([])
+  // Solo cargo CLIENTE: spedizioni (areas de servicio: "dhl-milano", "dhl-roma", "ab-service", "piazza-milano", "piazza-roma", "otros")
+  // cuyos servicios puede seguir. Se suman a los de su empresa (clienteId): tiene que tener al menos una de las dos cosas.
+  clienteAreas                 String[]         @default([])
   // Nivel del chofer (cualquier usuario que maneja): fija su meta de km.
   nivelChofer                  NivelChofer?
   estado                       Estado           @default(ACTIVO)

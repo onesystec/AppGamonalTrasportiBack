@@ -15,6 +15,7 @@ const areasPermitidas = z.array(z.enum(AREA_KEYS, { errorMap: () => ({ message: 
 const nivelChofer = z.enum(NIVEL_CHOFER_VALUES, { errorMap: () => ({ message: "Nivel invalido" }) });
 // Usuario cliente: su empresa y los modulos que puede ver (solo los crea o cambia el Admin: ver user.service.js).
 const clienteId = z.string().uuid("Empresa cliente invalida");
+const clienteAreas = z.array(z.enum(AREA_KEYS, { errorMap: () => ({ message: "Spedizione invalida" }) })).max(AREA_KEYS.length);
 const clienteModulos = z.array(z.enum(CLIENTE_MODULOS_KEYS, { errorMap: () => ({ message: "Modulo invalido" }) })).max(CLIENTE_MODULOS_KEYS.length);
 
 const passwordSchema = z
@@ -31,6 +32,7 @@ export const createUserSchema = z
     responsableTipo: responsableTipo.nullable().optional(),
     areasPermitidas: areasPermitidas.optional(),
     clienteId: clienteId.nullable().optional(),
+    clienteAreas: clienteAreas.optional(),
     clienteModulos: clienteModulos.optional(),
     nivelChofer: nivelChofer.nullable().optional(),
     estado: z.enum(ESTADO_VALUES).optional(),
@@ -42,7 +44,9 @@ export const createUserSchema = z
   .superRefine((data, ctx) => {
     // Un usuario cliente no necesita area, fecha de nacimiento ni celular, pero si su empresa; los demas cargos si.
     if (data.cargo === "CLIENTE") {
-      if (!data.clienteId) ctx.addIssue({ code: "custom", path: ["clienteId"], message: "Elige la empresa cliente" });
+      if (!data.clienteId && !data.clienteAreas?.length) {
+        ctx.addIssue({ code: "custom", path: ["clienteId"], message: "Elige la empresa o al menos una spedizione" });
+      }
       return;
     }
     if (!data.area) ctx.addIssue({ code: "custom", path: ["area"], message: "Area invalida" });
@@ -60,6 +64,7 @@ export const updateUserSchema = z
     responsableTipo: responsableTipo.nullable().optional(),
     areasPermitidas: areasPermitidas.optional(),
     clienteId: clienteId.nullable().optional(),
+    clienteAreas: clienteAreas.optional(),
     clienteModulos: clienteModulos.optional(),
     nivelChofer: nivelChofer.nullable().optional(),
     estado: z.enum(ESTADO_VALUES).optional(),

@@ -14,6 +14,7 @@ export const SAFE_USER_SELECT = {
   clienteId: true,
   cliente: { select: { id: true, nombre: true } },
   clienteModulos: true,
+  clienteAreas: true,
   nivelChofer: true,
   estado: true,
   fechaNacimiento: true,
