@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { CLIENTE_RETRASO_MAX_MIN } from "../constants/clientes.js";
 import { AppError } from "../utils/AppError.js";
 import { recordAreaWhere } from "../utils/areaAccess.js";
 import { cachedResponse } from "../utils/responseCache.js";
@@ -32,6 +33,9 @@ export const clienteScopeWhere = (user) => {
 };
 
 // Un servicio del seguimiento (con clienteId y tipo = su spedizione) esta dentro del alcance del cliente.
+// Servicios de seguimiento que se le muestran al cliente: se dejan fuera los que llevan mas de 12 h de retraso (probablemente olvidados).
+export const esVisibleParaCliente = (s) => (s.retrasoMin ?? 0) <= CLIENTE_RETRASO_MAX_MIN;
+
 const enAlcance = (user, s) => (user.clienteId && s.clienteId === user.clienteId) || Boolean(user.clienteAreas?.includes(s.tipo));
 
 export const getClienteMe = (user) => ({
@@ -82,7 +86,7 @@ export const getSeguimientoCliente = async (user) => {
   requireModulo(user, "MAPA", "LISTA");
   const conMapa = user.clienteModulos.includes("MAPA");
   const { servicios, generadoAt } = await allSeguimiento();
-  const enCamino = servicios.filter((s) => enAlcance(user, s)).map((s) => toClienteServicio(s, { conMapa }));
+  const enCamino = servicios.filter((s) => enAlcance(user, s) && esVisibleParaCliente(s)).map((s) => toClienteServicio(s, { conMapa }));
 
   const now = Date.now();
   const programados = await prisma.record.findMany({

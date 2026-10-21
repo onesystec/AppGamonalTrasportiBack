@@ -1,3 +1,4 @@
+import { CLIENTE_RETRASO_MAX_MIN } from "../constants/clientes.js";
 import { prisma } from "../config/prisma.js";
 import { recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { romeHHMM } from "../utils/romeTime.js";
@@ -31,7 +32,8 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
   const recipientsOf = (clienteId, areaKey) =>
     users.filter((u) => (u.clienteId && u.clienteId === clienteId) || u.clienteAreas.includes(areaKey)).map((u) => u.id);
 
-  const enCamino = servicios.filter((s) => recipientsOf(s.clienteId, s.tipo).length > 0);
+  // Sin los servicios con mas de 12 h de retraso (olvidados): al cliente no se le avisa de eso.
+  const enCamino = servicios.filter((s) => (s.retrasoMin ?? 0) <= CLIENTE_RETRASO_MAX_MIN && recipientsOf(s.clienteId, s.tipo).length > 0);
   const empresas = [...new Set(users.map((u) => u.clienteId).filter(Boolean))];
   const areas = [...new Set(users.flatMap((u) => u.clienteAreas))];
   const alcance = [...(empresas.length ? [{ clientId: { in: empresas } }] : []), ...(areas.length ? [recordAreaWhere({ cargo: "ADMIN", areasPermitidas: areas })] : [])];

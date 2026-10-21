@@ -12,3 +12,7 @@ export const CLIENTE_MODULOS_KEYS = Object.keys(CLIENTE_MODULOS);
 
 // Casillas que se marcan solas al crear un usuario cliente.
 export const CLIENTE_MODULOS_DEFAULT = ["MAPA", "LISTA", "AVISOS"];
+
+// Un servicio con mas retraso que esto (12 horas) casi seguro es uno viejo que nunca se cerro, no un envio realmente atrasado: no se le
+// muestra al cliente ni se le avisa (la oficina lo sigue viendo en el seguimiento y puede cerrarlo).
+export const CLIENTE_RETRASO_MAX_MIN = 12 * 60;
