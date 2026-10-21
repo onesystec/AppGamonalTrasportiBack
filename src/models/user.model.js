@@ -11,6 +11,9 @@ export const SAFE_USER_SELECT = {
   cargo: true,
   responsableTipo: true,
   areasPermitidas: true,
+  clienteId: true,
+  cliente: { select: { id: true, nombre: true } },
+  clienteModulos: true,
   nivelChofer: true,
   estado: true,
   fechaNacimiento: true,
@@ -75,9 +78,11 @@ export const findUserByIdForAuth = async (id) => {
   return user ? { ...user } : user;
 };
 
+// cargo: solo ese cargo. Sin cargo, todos menos los usuarios cliente (esos son accesos de empresas, no personal: se piden aparte
+// con cargo "CLIENTE").
 export const findAllUsers = (cargo) =>
   prisma.user.findMany({
-    where: cargo ? { cargo } : undefined,
+    where: cargo ? { cargo } : { cargo: { not: "CLIENTE" } },
     select: SAFE_USER_SELECT,
     orderBy: { createdAt: "desc" },
   });

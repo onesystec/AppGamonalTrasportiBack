@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { AREA_KEYS } from "../constants/areas.js";
+import { CLIENTE_MODULOS_KEYS } from "../constants/clientes.js";
 
 const AREA_VALUES = ["EXTRAS_PIAZZA", "DHL", "FARMACIA"];
 const GRUPO_VALUES = ["SOCIEDAD", "MILANO_NORD", "MILANO_SUD", "ROMA", "FARMACIA"];
-const CARGO_VALUES = ["OWNER", "ADMIN", "CHOFER", "RRHH"];
+const CARGO_VALUES = ["OWNER", "ADMIN", "CHOFER", "RRHH", "CLIENTE"];
 const ESTADO_VALUES = ["ACTIVO", "INACTIVO"];
 const RESPONSABLE_TIPO_VALUES = ["MILANO_SUD", "MILANO_NORD"];
 const NIVEL_CHOFER_VALUES = ["NOVATO", "MASTER", "SENIOR"];
@@ -12,26 +13,42 @@ const NIVEL_CHOFER_VALUES = ["NOVATO", "MASTER", "SENIOR"];
 const responsableTipo = z.enum(RESPONSABLE_TIPO_VALUES, { errorMap: () => ({ message: "Sub-rol invalido" }) });
 const areasPermitidas = z.array(z.enum(AREA_KEYS, { errorMap: () => ({ message: "Area invalida" }) })).max(AREA_KEYS.length);
 const nivelChofer = z.enum(NIVEL_CHOFER_VALUES, { errorMap: () => ({ message: "Nivel invalido" }) });
+// Usuario cliente: su empresa y los modulos que puede ver (solo los crea o cambia el Admin: ver user.service.js).
+const clienteId = z.string().uuid("Empresa cliente invalida");
+const clienteModulos = z.array(z.enum(CLIENTE_MODULOS_KEYS, { errorMap: () => ({ message: "Modulo invalido" }) })).max(CLIENTE_MODULOS_KEYS.length);
 
 const passwordSchema = z
   .string()
   .min(8, "La contrasena debe tener al menos 8 caracteres");
 
-export const createUserSchema = z.object({
-  nombre: z.string().trim().min(1, "El nombre es obligatorio"),
-  apellido: z.string().trim().min(1, "El apellido es obligatorio"),
-  area: z.enum(AREA_VALUES, { errorMap: () => ({ message: "Area invalida" }) }),
-  grupo: z.enum(GRUPO_VALUES, { errorMap: () => ({ message: "Grupo invalido" }) }).optional(),
-  cargo: z.enum(CARGO_VALUES, { errorMap: () => ({ message: "Cargo invalido" }) }),
-  responsableTipo: responsableTipo.nullable().optional(),
-  areasPermitidas: areasPermitidas.optional(),
-  nivelChofer: nivelChofer.nullable().optional(),
-  estado: z.enum(ESTADO_VALUES).optional(),
-  fechaNacimiento: z.coerce.date({ errorMap: () => ({ message: "Fecha de nacimiento invalida" }) }),
-  numeroCelular: z.string().trim().min(6, "Numero de celular invalido"),
-  correoElectronico: z.string().trim().email("Correo electronico invalido"),
-  password: passwordSchema,
-});
+export const createUserSchema = z
+  .object({
+    nombre: z.string().trim().min(1, "El nombre es obligatorio"),
+    apellido: z.string().trim().min(1, "El apellido es obligatorio"),
+    area: z.enum(AREA_VALUES, { errorMap: () => ({ message: "Area invalida" }) }).optional(),
+    grupo: z.enum(GRUPO_VALUES, { errorMap: () => ({ message: "Grupo invalido" }) }).optional(),
+    cargo: z.enum(CARGO_VALUES, { errorMap: () => ({ message: "Cargo invalido" }) }),
+    responsableTipo: responsableTipo.nullable().optional(),
+    areasPermitidas: areasPermitidas.optional(),
+    clienteId: clienteId.nullable().optional(),
+    clienteModulos: clienteModulos.optional(),
+    nivelChofer: nivelChofer.nullable().optional(),
+    estado: z.enum(ESTADO_VALUES).optional(),
+    fechaNacimiento: z.coerce.date({ errorMap: () => ({ message: "Fecha de nacimiento invalida" }) }).optional(),
+    numeroCelular: z.string().trim().min(6, "Numero de celular invalido").optional(),
+    correoElectronico: z.string().trim().email("Correo electronico invalido"),
+    password: passwordSchema,
+  })
+  .superRefine((data, ctx) => {
+    // Un usuario cliente no necesita area, fecha de nacimiento ni celular, pero si su empresa; los demas cargos si.
+    if (data.cargo === "CLIENTE") {
+      if (!data.clienteId) ctx.addIssue({ code: "custom", path: ["clienteId"], message: "Elige la empresa cliente" });
+      return;
+    }
+    if (!data.area) ctx.addIssue({ code: "custom", path: ["area"], message: "Area invalida" });
+    if (!data.fechaNacimiento) ctx.addIssue({ code: "custom", path: ["fechaNacimiento"], message: "Fecha de nacimiento invalida" });
+    if (!data.numeroCelular) ctx.addIssue({ code: "custom", path: ["numeroCelular"], message: "Numero de celular invalido" });
+  });
 
 export const updateUserSchema = z
   .object({
@@ -42,6 +59,8 @@ export const updateUserSchema = z
     cargo: z.enum(CARGO_VALUES).optional(),
     responsableTipo: responsableTipo.nullable().optional(),
     areasPermitidas: areasPermitidas.optional(),
+    clienteId: clienteId.nullable().optional(),
+    clienteModulos: clienteModulos.optional(),
     nivelChofer: nivelChofer.nullable().optional(),
     estado: z.enum(ESTADO_VALUES).optional(),
     fechaNacimiento: z.coerce.date().optional(),

@@ -20,6 +20,7 @@ const SELECT = {
   driverId: true,
   driver: { select: { id: true, nombre: true, apellido: true, numeroCelular: true } },
   vehicle: { select: { id: true, targa: true } },
+  clientId: true,
   client: { select: { nombre: true } },
   stops: { orderBy: { orden: "asc" }, select: { orden: true, direccion: true, lat: true, lng: true } },
 };

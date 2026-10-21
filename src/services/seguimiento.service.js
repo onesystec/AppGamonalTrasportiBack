@@ -8,6 +8,7 @@ import { findOfficeUserIdsForArea, findUserLocationById } from "../models/user.m
 import { canAccessAreaKey, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { deriveSpeeds, distanceMeters } from "../utils/stopDetection.js";
 import { findOnesystecVehicleIdByPlate, getVehiclePositions, isOnesystecConfigured } from "./onesystec.service.js";
+import { processClienteAvisos } from "./clienteAvisos.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { BRENNERO } from "../constants/brennero.js";
 import { calculateRoute } from "./routing.service.js";
@@ -414,7 +415,10 @@ export const getSeguimiento = async (actor, { now = Date.now() } = {}) => {
         chofer: { id: data.driver.id, nombre: `${data.driver.nombre} ${data.driver.apellido}`.trim(), telefono: data.driver.numeroCelular ?? null },
         vehiculo: data.targa ?? null,
         cliente: member.client?.nombre ?? null,
+        clienteId: member.clientId ?? null,
         destino: item.destino,
+        // Coordenadas de la parada final (para que el cliente vea donde esta SU entrega en el mapa).
+        destinoCoords: hasCoords(lastPlacedStop(member)) ? { lat: lastPlacedStop(member).lat, lng: lastPlacedStop(member).lng } : null,
         etaPlan: item.etaPlan,
         llego: item.llego,
         llegoAt: item.llegoAt,
@@ -581,6 +585,10 @@ export const runSeguimientoAlerts = async (now = Date.now()) => {
     try {
       const { servicios } = await getSeguimiento({ cargo: "OWNER" }, { now });
       await processAlerts(servicios, now);
+      // Avisos a los usuarios de empresas cliente: un fallo aca no afecta a los avisos de la oficina.
+      await processClienteAvisos(servicios, now, { retrasoAvisoMin: RETRASO_AVISO_MIN }).catch((err) =>
+        console.error("[seguimiento] no se pudieron mandar los avisos a clientes:", err.message)
+      );
       return servicios;
     } catch (err) {
       console.error("[seguimiento] no se pudieron procesar las alertas:", err.message);

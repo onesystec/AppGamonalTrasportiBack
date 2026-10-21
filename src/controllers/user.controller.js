@@ -21,7 +21,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import { buildDateRange } from "../utils/dateRange.js";
 
 export const list = asyncHandler(async (req, res) => {
-  const users = await listUsers(req.user);
+  const users = await listUsers(req.user, { cargo: req.query.cargo === "CLIENTE" ? "CLIENTE" : undefined });
   res.status(200).json({ success: true, data: { users } });
 });
 

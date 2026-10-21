@@ -35,6 +35,9 @@ enum Cargo {
   CHOFER
   // Recursos Humanos: solo gestiona choferes, vehiculos y busta paga; sin acceso a lo financiero.
   RRHH
+  // Usuario de una empresa cliente: solo ve el seguimiento de SUS servicios (solo lectura), segun las casillas de
+  // User.clienteModulos. No es chofer ni oficina. Ver services/cliente.service.js.
+  CLIENTE
 }
 
 // Sub-rol de un Responsable (cargo ADMIN). Es la etiqueta de su equipo; lo que realmente puede
@@ -82,6 +85,11 @@ model User {
   // "ab-service", "piazza-milano", "piazza-roma", "otros"). Admin (OWNER) ve todo.
   responsableTipo              ResponsableTipo?
   areasPermitidas              String[]         @default([])
+  // Solo cargo CLIENTE: la empresa cliente a la que pertenece (varios usuarios por empresa) y los modulos que puede ver
+  // (MAPA, LISTA, AVISOS, HISTORIAL, FOTOS, EXCEL; ver constants/clientes.js).
+  clienteId                    String?
+  cliente                      Client?          @relation("ClienteUsuarios", fields: [clienteId], references: [id], onDelete: SetNull)
+  clienteModulos               String[]         @default([])
   // Nivel del chofer (cualquier usuario que maneja): fija su meta de km.
   nivelChofer                  NivelChofer?
   estado                       Estado           @default(ACTIVO)
@@ -425,7 +433,8 @@ model Client {
   nombre    String
   createdAt DateTime @default(now())
 
-  records Record[]
+  records  Record[]
+  usuarios User[]   @relation("ClienteUsuarios")
 
   @@map("clients")
 }
@@ -1144,4 +1153,20 @@ model VelocidadPagoChofer {
 
   @@unique([driverId, mes])
   @@map("velocidad_pago_choferes")
+}
+
+// Avisos push ya enviados a los usuarios de una empresa cliente (salida, retraso, llegada, entrega): una fila por servicio y
+// tipo, para no repetirlos (el monitor de seguimiento corre cada pocos minutos).
+model AvisoCliente {
+  id        String   @id @default(uuid())
+  recordId  String
+  tipo      String
+  // Para el retraso: los minutos con los que se aviso (se vuelve a avisar si crece mucho).
+  valor     Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([recordId, tipo])
+  @@index([createdAt])
+  @@map("avisos_cliente")
 }

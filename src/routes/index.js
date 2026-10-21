@@ -3,6 +3,8 @@ import appRoutes from "./app.routes.js";
 import authRoutes from "./auth.routes.js";
 import bustaPagaRoutes from "./bustaPaga.routes.js";
 import { rrhhGate } from "../middlewares/rrhhGate.js";
+import { clienteGate } from "../middlewares/clienteGate.js";
+import clienteRoutes from "./cliente.routes.js";
 import clientRoutes from "./client.routes.js";
 import combustibleRoutes from "./combustible.routes.js";
 import documentRoutes from "./document.routes.js";
@@ -30,6 +32,8 @@ const router = Router();
 
 // Recursos Humanos solo entra a lo suyo, decidido aca y no ruta por ruta (ver middlewares/rrhhGate.js).
 router.use(rrhhGate);
+// Lo mismo para los usuarios de empresas cliente (ver middlewares/clienteGate.js).
+router.use(clienteGate);
 
 router.use("/app", appRoutes);
 router.use("/notificaciones", notificacionRoutes);
@@ -38,6 +42,7 @@ router.use("/users", userRoutes);
 router.use("/documents", documentRoutes);
 router.use("/vehiculos", vehicleRoutes);
 router.use("/vencimientos", vencimientosRoutes);
+router.use("/cliente", clienteRoutes);
 router.use("/clients", clientRoutes);
 router.use("/records", recordRoutes);
 router.use("/seguimiento", seguimientoRoutes);

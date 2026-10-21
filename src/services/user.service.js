@@ -26,15 +26,38 @@ import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.servic
 import { compressAvatar } from "../utils/imageProcessor.js";
 import { AppError } from "../utils/AppError.js";
 import { RESPONSABLE_PRESETS } from "../constants/areas.js";
+import { CLIENTE_MODULOS_DEFAULT } from "../constants/clientes.js";
+import { findClientById } from "../models/client.model.js";
 import { hashPassword } from "../utils/password.js";
 import { hasBustasPaga } from "./bustaPaga.service.js";
 
 // Solo un Admin (OWNER) puede crear o ascender a otro usuario a Admin o Responsable; evita que un
 // Responsable se autoascienda o cree otros con mas acceso.
 const assertCanAssignCargo = (actor, cargo) => {
-  if ((cargo === "OWNER" || cargo === "ADMIN" || cargo === "RRHH") && actor.cargo !== "OWNER") {
-    throw new AppError("Solo un Admin puede asignar los cargos Admin, Responsable o Recursos Humanos", 403);
+  if ((cargo === "OWNER" || cargo === "ADMIN" || cargo === "RRHH" || cargo === "CLIENTE") && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede asignar los cargos Admin, Responsable, Recursos Humanos o Cliente", 403);
   }
+};
+
+// Usuario cliente: su empresa tiene que existir. Los modulos arrancan con los de siempre (mapa, lista y avisos) si no se eligieron;
+// para cualquier otro cargo la empresa y los modulos no aplican y quedan vacios. No tiene area, fecha de nacimiento ni celular
+// reales: se rellenan con valores neutros porque la ficha de usuario los exige.
+const normalizeClienteFields = async (data, target) => {
+  const finalCargo = data.cargo ?? target?.cargo;
+  if (finalCargo !== "CLIENTE") {
+    if (target?.cargo === "CLIENTE" || !target) return { ...data, clienteId: null, clienteModulos: [] };
+    return data;
+  }
+  const clienteId = data.clienteId ?? target?.clienteId ?? null;
+  if (!clienteId) throw new AppError("Elige la empresa cliente", 400);
+  if (data.clienteId && !(await findClientById(data.clienteId))) throw new AppError("La empresa cliente no existe", 400);
+  const becomes = target?.cargo !== "CLIENTE";
+  return {
+    ...data,
+    clienteId,
+    ...(becomes || data.clienteModulos !== undefined ? { clienteModulos: data.clienteModulos ?? CLIENTE_MODULOS_DEFAULT } : {}),
+    ...(becomes ? { area: data.area ?? "SIN_ASIGNAR", fechaNacimiento: data.fechaNacimiento ?? new Date("2000-01-01"), numeroCelular: data.numeroCelular ?? "" } : {}),
+  };
 };
 
 // Recursos Humanos gestiona la ficha de los choferes (datos personales, estado, vehiculo asignado),
@@ -108,9 +131,10 @@ export const toUserResponse = async (user) => {
   };
 };
 
-export const listUsers = async (actor) => {
-  // Recursos Humanos solo ve a los choferes.
-  const users = await findAllUsers(actor?.cargo === "RRHH" ? "CHOFER" : undefined);
+export const listUsers = async (actor, { cargo } = {}) => {
+  // Recursos Humanos solo ve a los choferes. Los usuarios cliente solo los lista el Admin (con cargo=CLIENTE).
+  if (cargo === "CLIENTE" && actor?.cargo !== "OWNER") throw new AppError("Solo un Admin puede ver los usuarios cliente", 403);
+  const users = await findAllUsers(actor?.cargo === "RRHH" ? "CHOFER" : cargo === "CLIENTE" ? "CLIENTE" : undefined);
   return Promise.all(users.map(toUserResponse));
 };
 
@@ -130,7 +154,7 @@ export const createUser = async (actor, data) => {
     throw new AppError("Recursos Humanos solo puede dar de alta choferes", 403);
   }
   assertCanAssignCargo(actor, data.cargo);
-  const normalized = normalizeResponsableFields(actor, data, null);
+  const normalized = await normalizeClienteFields(normalizeResponsableFields(actor, data, null), null);
 
   const hashedPassword = await hashPassword(data.password);
 
@@ -178,6 +202,11 @@ export const updateUser = async (actor, targetId, data) => {
   }
   if (isPrivileged) {
     payload = normalizeResponsableFields(actor, payload, target);
+    // La empresa y los modulos de un usuario cliente solo los toca un Admin.
+    if ((payload.clienteId !== undefined || payload.clienteModulos !== undefined) && actor.cargo !== "OWNER") {
+      throw new AppError("Solo un Admin puede definir la empresa y los modulos de un usuario cliente", 403);
+    }
+    payload = await normalizeClienteFields(payload, target);
   }
 
   if (payload.password) {
