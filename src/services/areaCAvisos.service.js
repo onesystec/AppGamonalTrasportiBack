@@ -83,7 +83,7 @@ const enviarCorreos = async (userIds, datos) => {
   resultados.forEach((r) => {
     if (r.status === "rejected") console.error("[area-c] no se pudo enviar el correo:", r.reason?.message ?? r.reason);
   });
-  return resultados.some((r) => r.status === "fulfilled");
+  return { enviados: resultados.filter((r) => r.status === "fulfilled").length, total: usuarios.length };
 };
 
 // Entrada nueva (la crea checkAreaCEntries en vehicle.service.js): push + correo a Responsables y Admin y empieza el seguimiento.
@@ -99,21 +99,22 @@ export const avisarEntradaAreaC = async (entry) => {
     data: { type: "area-c", targa: entry.targa, entryId: entry.id },
   }).catch((err) => console.error("No se pudo enviar push de Area C:", err.message));
 
-  const correoEnviado = await enviarCorreos(destinatarios, {
+  const correos = await enviarCorreos(destinatarios, {
     targa: entry.targa,
     modelo: vehiculo?.modelo,
     enteredAt: entry.enteredAt,
     plazoHasta: plazo,
   }).catch((err) => {
     console.error("[area-c] fallo el envio de correos:", err.message);
-    return false;
+    return { enviados: 0, total: 0 };
   });
 
   const updated = await prisma.areaCEntry.update({
     where: { id: entry.id },
-    data: { ultimoAvisoAt: ahora, avisos: { increment: 1 }, ...(correoEnviado ? { avisoEmailAt: ahora } : {}) },
+    data: { ultimoAvisoAt: ahora, avisos: { increment: 1 }, ...(correos.enviados > 0 ? { avisoEmailAt: ahora } : {}) },
   });
   trackAreaCEntry(updated);
+  return { destinatarios: destinatarios.length, correosEnviados: correos.enviados, correosTotal: correos.total };
 };
 
 let corriendo = false;

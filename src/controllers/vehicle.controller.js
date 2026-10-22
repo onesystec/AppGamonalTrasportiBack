@@ -19,6 +19,7 @@ import {
   listVehiclesForActor,
   registerKmForActor,
   syncVehiclesFromVelocityFleetForActor,
+  resendAreaCEntryNoticeForActor,
   updateAreaCEntryForActor,
   updateVehicleForActor,
 } from "../services/vehicle.service.js";
@@ -82,6 +83,11 @@ export const listUnpaidAreaCEntries = asyncHandler(async (req, res) => {
 
 // Marca (o desmarca) una entrada de Area C como pagada, con opcionalmente una foto
 // del comprobante (ver areaCEntryUpload.js) - seccion "Area C" del Mapa.
+export const resendAreaCEntryNotice = asyncHandler(async (req, res) => {
+  const result = await resendAreaCEntryNoticeForActor(req.params.id);
+  res.status(200).json({ success: true, data: result });
+});
+
 export const updateAreaCEntry = asyncHandler(async (req, res) => {
   const entry = await updateAreaCEntryForActor(req.params.id, req.body, req.file);
   res.status(200).json({ success: true, data: { entry } });

@@ -17,6 +17,7 @@ import {
   listSpeedingEvents,
   listUnpaidAreaCEntries,
   registerKm,
+  resendAreaCEntryNotice,
   remove,
   removeMantenimiento,
   syncVehiclesFromVelocityFleet,
@@ -76,6 +77,7 @@ router.post(
 router.get("/area-c-entries", authorize("OWNER", "ADMIN"), listAreaCEntries);
 router.get("/area-c-entries/unpaid", authorize("OWNER", "ADMIN"), listUnpaidAreaCEntries);
 router.post("/area-c-entries/cleanup", authorize("OWNER"), cleanupAreaCEntries);
+router.post("/area-c-entries/:id/reavisar", authorize("OWNER"), validate(idParamSchema, "params"), resendAreaCEntryNotice);
 router.patch(
   "/area-c-entries/:id",
   authorize("OWNER", "ADMIN"),

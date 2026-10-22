@@ -538,6 +538,15 @@ export const updateAreaCEntryForActor = async (id, data, file) => {
 };
 
 
+// Vuelve a mandar el aviso completo (push + correo) de una entrada sin pagar a los Responsables y al Admin del vehiculo: sirve para
+// probar como llega o para insistir a mano. Solo el Admin (OWNER), ver la ruta.
+export const resendAreaCEntryNoticeForActor = async (id) => {
+  const entry = await findEntryById(id);
+  if (!entry || entry.descartada) throw new AppError("Entrada de Area C no encontrada", 404);
+  if (entry.pagado) throw new AppError("Esta entrada ya esta pagada: no hay nada que avisar", 400);
+  return avisarEntradaAreaC(entry);
+};
+
 // Elimina una entrada de Area C que no queremos guardar (boton "Eliminar" de Mapa >
 // Area C, tras confirmar en el front). Siempre borra el comprobante de R2. Si la entrada
 // es de HOY (hora de Roma) no se borra la fila sino que se oculta (descartada): el Area C
