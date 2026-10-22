@@ -160,6 +160,24 @@ const envSchema = z.object({
   // Con los servicios de 2026 no sale ninguno entre las 23:15 y las 04:00, asi que "00:00-04:00" no cambia nada para nadie.
   AUTO_EN_CAMINO_PAUSA: z.string().default("00:00-04:00"),
 
+  // Area C sin autorizacion (ver areaCAvisos.service.js): aviso por push y por correo a los Responsables y al Admin cuando un vehiculo
+  // entra, y recordatorios por push hasta que se marque como pagada.
+  //  - AREA_C_PLAZO_DIAS: dias para pagar sin recargo; 1 = hasta las 23:59 (Roma) del dia siguiente a la entrada.
+  //  - AREA_C_RECORDATORIO_MIN: cada cuantos minutos se repite el recordatorio mientras sobra tiempo; AREA_C_RECORDATORIO_URGENTE_MIN: lo
+  //    mismo cuando faltan AREA_C_URGENTE_HORAS horas o menos para el plazo. AREA_C_RECORDATORIO_MAX_DIAS: pasados estos dias desde la
+  //    entrada ya no se insiste.
+  //  - AREA_C_SILENCIO: ventana "HH:MM-HH:MM" (hora de Roma) sin recordatorios; los pendientes salen al terminar. Vacio = sin silencio.
+  //  - AREA_C_MONITOR_ENABLED: revisa la posicion de la flota cada 3 minutos (lunes a viernes de 07:30 a 19:30) aunque nadie tenga el mapa abierto.
+  //  - APP_URL: direccion publica de la app (boton y logo del correo).
+  AREA_C_PLAZO_DIAS: z.coerce.number().int().min(0).default(1),
+  AREA_C_RECORDATORIO_MIN: z.coerce.number().min(15).default(120),
+  AREA_C_RECORDATORIO_URGENTE_MIN: z.coerce.number().min(15).default(60),
+  AREA_C_URGENTE_HORAS: z.coerce.number().min(0).default(6),
+  AREA_C_RECORDATORIO_MAX_DIAS: z.coerce.number().min(1).default(7),
+  AREA_C_SILENCIO: z.string().default("21:00-07:30"),
+  AREA_C_MONITOR_ENABLED: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
+  APP_URL: z.string().url().default("https://app-gamonal-trasporti-front.vercel.app"),
+
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando
   // igual (la campanita web sigue mostrando las mismas alertas), solo que sin avisar

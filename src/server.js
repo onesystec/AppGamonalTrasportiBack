@@ -3,7 +3,7 @@ import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
 import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
-import { startAutoEnCamino, startFaltantesReminder, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
+import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
 
 // Velocidades de pago por chofer en memoria desde el arranque (si falla, se vuelve a intentar en cada consulta de pagos).
 void ensureKmhPago();
@@ -17,6 +17,7 @@ startRetentionScheduler();
 startFaltantesReminder();
 startSeguimientoMonitor();
 startAutoEnCamino();
+startAreaCAvisos();
 
 const shutdown = async (signal) => {
   console.log(`\n${signal} recibido, cerrando servidor...`);

@@ -489,6 +489,16 @@ consultas y cobra por hora despierta) puede dormir. Elegida con los servicios re
 retiros caen casi todos entre las 07:00 y las 19:00 y de lunes a viernes; el ultimo de la noche salio a las
 23:00 y el primero de la madrugada a las 04:00. Al terminar la pausa se pone al dia con lo que haya salido.
 
+Avisos de Area C sin autorizacion (`areaCAvisos.service.js`): cuando un vehiculo sin permiso entra al Area C, el Admin y los
+Responsables de ese vehiculo reciben un push y **un correo unico** (vehiculo, hora de entrada, plazo para pagar). Despues llegan
+recordatorios por push cada `AREA_C_RECORDATORIO_MIN` minutos (120), cada `AREA_C_RECORDATORIO_URGENTE_MIN` (60) cuando faltan
+`AREA_C_URGENTE_HORAS` (6) o menos para el plazo, y tambien una vez vencido, hasta que la entrada se marque pagada (o se elimine).
+No hay recordatorios en `AREA_C_SILENCIO` (21:00-07:30, Roma) ni pasados `AREA_C_RECORDATORIO_MAX_DIAS` (7) dias. El plazo
+(`AREA_C_PLAZO_DIAS`, 1) es hasta las 23:59 de Roma del dia siguiente a la entrada: verificar contra la normativa vigente del Comune di
+Milano. La deteccion corre sola cada 3 minutos de lunes a viernes de 07:30 a 19:30 (`AREA_C_MONITOR_ENABLED=false` la apaga) y los
+recordatorios se evaluan en memoria cada 5 minutos, sin consultar la base salvo que haya un push que enviar. El correo usa
+`APP_URL` para el logo y el boton.
+
 **11. Carga de servicios por chat de Telegram, con comandos.**
 Los servicios se cargan por **chat privado** con el bot (cada persona tiene su propia
 conversacion, sin cruces). Pueden escribirle por privado solo los miembros del grupo en

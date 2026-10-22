@@ -8,7 +8,8 @@ import {
   findVehiclesWithDrivers,
   updateVehicleById,
 } from "../models/vehicle.model.js";
-import { findOfficeUserIdsForVehicle, getOfficeScope } from "./notificationScope.service.js";
+import { avisarEntradaAreaC, forgetAreaCEntry, trackAreaCEntry } from "./areaCAvisos.service.js";
+import { getOfficeScope } from "./notificationScope.service.js";
 import { evaluateMatch, loadCandidates } from "./mancatoMatching.service.js";
 import { findUserNamesByIds } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
@@ -273,7 +274,7 @@ const AREA_C_NOW_FORMAT = new Intl.DateTimeFormat("en-US", {
   hour12: false,
 });
 
-const isAreaCActiveNow = () => {
+export const isAreaCActiveNow = () => {
   const parts = AREA_C_NOW_FORMAT
     .formatToParts(new Date())
     .reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {});
@@ -291,6 +292,8 @@ const isAreaCActiveNow = () => {
 // completo, ver findTodayEntryForVehicle). Best-effort y no bloqueante: un error aca (o
 // que Neon este momentaneamente lento) nunca debe romper la respuesta de posiciones en
 // vivo del Mapa.
+const areaCInProgress = new Set();
+
 const checkAreaCEntries = async (matched) => {
   if (!isAreaCActiveNow()) return;
 
@@ -300,20 +303,22 @@ const checkAreaCEntries = async (matched) => {
   if (insideUnauthorized.length === 0) return;
 
   for (const vehicle of insideUnauthorized) {
+    // Dos consultas a la vez (monitor de fondo y alguien con el mapa abierto) no deben crear la misma entrada dos veces.
+    if (areaCInProgress.has(vehicle.vehicleId)) continue;
+    areaCInProgress.add(vehicle.vehicleId);
     try {
       const today = await findTodayEntryForVehicle(vehicle.vehicleId);
       if (today) continue;
-      await createAreaCEntry(vehicle.vehicleId, vehicle.targa);
+      const entry = await createAreaCEntry(vehicle.vehicleId, vehicle.targa);
 
-      // Solo el Admin y los Responsables a los que pertenece ese vehiculo (su area de servicio o su centro).
-      const recipientIds = await findOfficeUserIdsForVehicle(vehicle.vehicleId);
-      sendPushToUserIds(recipientIds, {
-        title: "Area C sin autorizacion",
-        body: `El vehiculo ${vehicle.targa} entro al Area C sin autorizacion`,
-        data: { type: "area-c", targa: vehicle.targa },
-      }).catch((err) => console.error("No se pudo enviar push de Area C:", err.message));
+      // Aviso (push + correo) solo al Admin y a los Responsables a los que pertenece ese vehiculo (su area de servicio o su centro),
+      // y recordatorios por push hasta que se pague (ver areaCAvisos.service.js).
+      trackAreaCEntry(entry);
+      await avisarEntradaAreaC(entry).catch((err) => console.error("No se pudo avisar de la entrada al Area C:", err.message));
     } catch (err) {
       console.error(`No se pudo registrar la entrada al Area C de ${vehicle.targa}:`, err.message);
+    } finally {
+      areaCInProgress.delete(vehicle.vehicleId);
     }
   }
 };
@@ -380,7 +385,7 @@ const checkSpeedingEvents = async (matched) => {
 // aparece en la respuesta), simplemente no se le devuelve posicion - el Mapa (front)
 // sigue mostrando la ubicacion del celular del chofer para ese vehiculo en ese caso,
 // nunca lo deja sin pin.
-export const listVehicleLivePositionsForActor = async () => {
+const matchLivePositions = async () => {
   let positions;
   try {
     positions = await getVehicleLivePositions();
@@ -412,13 +417,25 @@ export const listVehicleLivePositionsForActor = async () => {
     })
     .filter(Boolean);
 
-  // A demanda de esta misma request (no un proceso aparte corriendo solo) - ver el
-  // comentario de checkAreaCEntries. Se dispara siempre que se pidan posiciones, sea
-  // desde el Mapa o desde la campanita de notificaciones.
+  return matched;
+};
+
+export const listVehicleLivePositionsForActor = async () => {
+  const matched = await matchLivePositions();
+  if (matched.length === 0) return [];
+
+  // A demanda de esta misma request - ver el comentario de checkAreaCEntries. Se dispara siempre que se pidan posiciones, sea desde
+  // el Mapa o desde la campanita de notificaciones (y ademas la deteccion de Area C corre sola, ver runAreaCMonitor).
   await checkAreaCEntries(matched);
   await checkSpeedingEvents(matched);
 
   return matched.map(({ autorizadoAreaC, ...position }) => position);
+};
+
+// Monitor de fondo (ver startAreaCMonitor): solo la deteccion de Area C, para que los avisos salgan aunque nadie tenga el mapa abierto.
+export const runAreaCMonitor = async () => {
+  if (!isAreaCActiveNow()) return;
+  await checkAreaCEntries(await matchLivePositions());
 };
 
 // Crea una ficha de Vehiculo (area SIN_ASIGNAR, modelo "Por completar" - para que se
@@ -514,6 +531,9 @@ export const updateAreaCEntryForActor = async (id, data, file) => {
   }
 
   const updated = await updateEntryById(id, payload);
+  // Pagada: se dejan de enviar recordatorios. Si se desmarca, vuelven.
+  if (updated.pagado) forgetAreaCEntry(id);
+  else if (!updated.descartada) trackAreaCEntry(updated);
   return toAreaCEntryResponse(updated);
 };
 
@@ -531,6 +551,7 @@ export const deleteAreaCEntryForActor = async (id) => {
   }
 
   if (entry.comprobanteKey) await deleteObject(entry.comprobanteKey);
+  forgetAreaCEntry(id);
 
   if (romeDay(entry.enteredAt) === romeDay(new Date())) {
     await updateEntryById(id, { descartada: true, comprobanteKey: null, pagado: false, paidAt: null });

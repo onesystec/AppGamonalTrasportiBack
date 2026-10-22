@@ -274,6 +274,11 @@ model AreaCEntry {
   // que el chequeo automatico (checkAreaCEntries) no la vuelva a crear mientras el
   // vehiculo siga dentro del Area C; las de dias anteriores se borran de verdad.
   descartada     Boolean   @default(false)
+  // Avisos a Responsables y Admin (ver areaCAvisos.service.js): cuando se mando el correo (una sola vez), el ultimo push (el de la
+  // entrada o el ultimo recordatorio) y cuantos pushes se han enviado en total.
+  avisoEmailAt   DateTime?
+  ultimoAvisoAt  DateTime?
+  avisos         Int       @default(0)
 
   @@index([vehicleId, enteredAt])
   @@map("area_c_entries")

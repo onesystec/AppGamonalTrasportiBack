@@ -4,6 +4,8 @@ import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
 import { advancePendingToEnCamino } from "./estadoAutomatico.service.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
 import { runSeguimientoAlerts } from "./seguimiento.service.js";
+import { loadPendingAreaCEntries, processAreaCReminders } from "./areaCAvisos.service.js";
+import { runAreaCMonitor } from "./vehicle.service.js";
 import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
@@ -117,4 +119,18 @@ export const startAutoEnCamino = () => {
   if (pausa) console.log(`[estado] "En camino" automatico en pausa de ${env.AUTO_EN_CAMINO_PAUSA} (hora de Roma) para que la base pueda dormir`);
   void tick({ ignorarPausa: true });
   setInterval(() => void tick(), 60 * 1000).unref();
+};
+
+// Area C sin autorizacion (ver areaCAvisos.service.js). Dos tareas:
+//  - Deteccion: cada 3 minutos (solo lunes a viernes de 07:30 a 19:30, cuando el Area C cobra) mira la posicion de la flota, para que el
+//    aviso salga aunque nadie tenga el mapa abierto. Se apaga con AREA_C_MONITOR_ENABLED=false.
+//  - Recordatorios: cada 5 minutos revisa en memoria si toca insistir con alguna entrada sin pagar; solo consulta la base cuando hay un
+//    push que enviar. Al arrancar carga las entradas sin pagar.
+// Solo en produccion, como los demas.
+export const startAreaCAvisos = () => {
+  if (env.NODE_ENV !== "production") return;
+  void loadPendingAreaCEntries().catch((err) => console.error("[area-c] no se pudieron cargar las entradas sin pagar:", err.message));
+  setInterval(() => void processAreaCReminders().catch((err) => console.error("[area-c] fallo el recordatorio:", err.message)), 5 * 60 * 1000).unref();
+  if (!env.AREA_C_MONITOR_ENABLED) return;
+  setInterval(() => void runAreaCMonitor().catch((err) => console.error("[area-c] fallo la deteccion:", err.message)), 3 * 60 * 1000).unref();
 };
