@@ -255,6 +255,10 @@ const toResponse = async (m, today) => {
           driver: person(m.record.driver),
           fechaRetiro: m.record.fechaRetiro,
           eta: m.record.eta,
+          targa: m.record.vehicle?.targa ?? null,
+          targaFinal: m.record.vehiculoFinal?.targa ?? null,
+          // La targa del peaje no es la de este servicio (un dato viejo o un cambio de vehiculo): la oficina lo ve marcado y lo corrige.
+          targaNoCoincide: Boolean(m.vehicleId) && ![m.record.vehicleId, m.record.vehiculoFinalId].includes(m.vehicleId),
         }
       : null,
     // Fecha y hora reales de registro: la pone el sistema, no se puede editar.
@@ -532,6 +536,22 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
       if (!service) throw new AppError("Servicio no encontrado", 404);
       if (!canAccessRecordArea(actor, service)) {
         throw new AppError("No tienes permisos sobre ese servicio", 403);
+      }
+      // La targa del peaje tiene que ser la de uno de los vehiculos del servicio: asi un peaje no se sube por error al servicio de otra furgoneta.
+      const mancatoVehicleId = "vehicleId" in payload ? payload.vehicleId : current.vehicleId;
+      const mancatoTarga = payload.targa ?? current.targa;
+      if (!mancatoVehicleId) {
+        throw new AppError(
+          `La targa ${mancatoTarga} de este mancato no esta registrada en Vehiculos: corrige la targa antes de asignarlo a un servicio.`,
+          400
+        );
+      }
+      if (![service.vehicleId, service.vehiculoFinalId].includes(mancatoVehicleId)) {
+        const targasServicio = [service.vehicle?.targa, service.vehiculoFinal?.targa].filter(Boolean).join(" / ");
+        throw new AppError(
+          `La targa del mancato (${mancatoTarga}) no coincide con la del servicio ${service.codigo} (${targasServicio}). Corrige la targa del mancato o elige un servicio de ${mancatoTarga}.`,
+          400
+        );
       }
       const transit = payload.fechaHoraTransito ?? current.fechaHoraTransito;
       Object.assign(payload, {

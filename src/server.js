@@ -1,6 +1,7 @@
 import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
+import { healCrossedAssignments } from "./services/assignmentRematch.service.js";
 import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
 import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startMemorandumReminders, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
@@ -19,6 +20,8 @@ startSeguimientoMonitor();
 startAutoEnCamino();
 startAreaCAvisos();
 startMemorandumReminders();
+// Peajes y cargas de combustible que quedaron asignados al servicio de otra targa (ver findCandidateServices): se corrigen una vez al arrancar.
+if (env.NODE_ENV === "production") setTimeout(() => void healCrossedAssignments().catch((err) => console.error("[asignaciones] fallo la correccion:", err.message)), 20 * 1000).unref();
 
 const shutdown = async (signal) => {
   console.log(`\n${signal} recibido, cerrando servidor...`);

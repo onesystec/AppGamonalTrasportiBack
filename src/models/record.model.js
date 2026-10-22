@@ -464,6 +464,19 @@ export const releaseMancatosOfRecord = (recordId) =>
     },
   });
 
+// Si un servicio cambia de vehiculo, los peajes que tenia asignados de otra targa (la del vehiculo que ya no es el suyo) dejan de pertenecerle y
+// vuelven a esperar servicio; los de las targas que siguen siendo suyas no se tocan.
+export const releaseMancatosOutsideVehicles = (recordId, vehicleIds) =>
+  prisma.mancatoPagamento.updateMany({
+    where: { recordId, vehicleId: { notIn: vehicleIds } },
+    data: {
+      recordId: null,
+      asignacion: "EN_ESPERA",
+      tramo: null,
+      asignacionMotivo: "El servicio cambio de vehiculo y la targa de este peaje ya no coincide con la suya.",
+    },
+  });
+
 // Igual para las cargas de combustible: vuelven a esperar un servicio.
 export const releaseCombustiblesOfRecord = (recordId) =>
   prisma.registroCombustible.updateMany({

@@ -74,6 +74,23 @@ export const countActiveChoferes = () =>
 
 // ---- Cruce con servicios (ver combustibleMatching.service.js)
 
+// Cargas asignadas (sin que la oficina las fijara a mano) al servicio de otra targa: ver healCrossedCombustibles.
+export const findAssignedWithService = () =>
+  prisma.registroCombustible.findMany({
+    where: { recordId: { not: null }, vehicleId: { not: null }, asignacion: { not: "MANUAL" } },
+    select: { id: true, vehicleId: true, record: { select: { vehicleId: true, vehiculoFinalId: true } } },
+  });
+
+export const releaseCombustiblesByIds = (ids) =>
+  prisma.registroCombustible.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      recordId: null,
+      asignacion: "EN_ESPERA",
+      asignacionMotivo: "Estaba asignada a un servicio de otra targa; se vuelve a evaluar solo con los servicios de su targa.",
+    },
+  });
+
 // Cargas que el sistema puede volver a asignar (la oficina no las fijo a mano).
 export const findAssignableCombustibles = ({ vehicleId, since }) =>
   prisma.registroCombustible.findMany({

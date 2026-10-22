@@ -13,6 +13,11 @@ const SERVICE_SELECT = {
     driverId: true,
     spedizzione: true,
     extrasPiazzaZona: true,
+    // Vehiculos del servicio (con el que salio y, si cambio, con el que termino): la targa del peaje tiene que ser una de ellas.
+    vehicleId: true,
+    vehiculoFinalId: true,
+    vehicle: { select: { targa: true } },
+    vehiculoFinal: { select: { targa: true } },
     client: { select: { nombre: true } },
     driver: PERSON_SELECT,
   },
@@ -79,12 +84,13 @@ export const countActiveChoferes = () =>
 export const findCandidateServices = ({ vehicleId, from, to }) =>
   prisma.record.findMany({
     where: {
-      // El servicio pertenece al furgon con el que salio y, si el chofer cambio de furgon, tambien al furgon con el que termino.
-      AND: [{ OR: [{ vehicleId }, { vehiculoFinalId: vehicleId }] }],
+      // El servicio pertenece al furgon con el que salio y, si el chofer cambio de furgon, tambien al furgon con el que termino. Las dos condiciones
+      // van en el MISMO AND: WORKED_WHERE tambien trae un AND, y si se mezclaban con "...WORKED_WHERE" el segundo pisaba al primero y se perdia el
+      // filtro por vehiculo (un peaje o una carga de combustible caia en el servicio de cualquier furgon).
+      AND: [{ OR: [{ vehicleId }, { vehiculoFinalId: vehicleId }] }, ...WORKED_WHERE.AND],
       // La continuacion de un traspaso copia las fechas del servicio original: no es un servicio
       // distinto para saber de quien es un peaje o una carga de combustible.
       servicioOrigenId: null,
-      ...WORKED_WHERE,
       OR: [
         { fechaRetiro: { gte: from, lte: to } },
         { fechaServicio: { gte: from, lte: to } },
@@ -105,6 +111,25 @@ export const findCandidateServices = ({ vehicleId, from, to }) =>
       compactadoOrden: true,
       client: { select: { nombre: true } },
       driver: PERSON_SELECT,
+    },
+  });
+
+// Peajes asignados (sin que la oficina los fijara a mano) a un servicio de otra targa: con el filtro por vehiculo perdido, el sistema los llego a
+// mandar al servicio de cualquier furgon. Ver healCrossedMancatos.
+export const findAssignedWithService = () =>
+  prisma.mancatoPagamento.findMany({
+    where: { recordId: { not: null }, vehicleId: { not: null }, asignacion: { not: "MANUAL" } },
+    select: { id: true, vehicleId: true, record: { select: { vehicleId: true, vehiculoFinalId: true } } },
+  });
+
+export const releaseMancatosByIds = (ids) =>
+  prisma.mancatoPagamento.updateMany({
+    where: { id: { in: ids } },
+    data: {
+      recordId: null,
+      asignacion: "EN_ESPERA",
+      tramo: null,
+      asignacionMotivo: "Estaba asignado a un servicio de otra targa; se vuelve a evaluar solo con los servicios de su targa.",
     },
   });
 
@@ -155,6 +180,10 @@ export const findRecordForAssignment = (id) =>
       rutaDuracionMin: true,
       spedizzione: true,
       extrasPiazzaZona: true,
+      vehicleId: true,
+      vehiculoFinalId: true,
+      vehicle: { select: { targa: true } },
+      vehiculoFinal: { select: { targa: true } },
     },
   });
 

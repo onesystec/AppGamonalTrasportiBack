@@ -1,5 +1,7 @@
 import {
   findAssignableMancatos,
+  findAssignedWithService,
+  releaseMancatosByIds,
   findCandidateServices,
   findVehiclesWithAssignableMancatos,
   updateMancatoAssignment,
@@ -298,6 +300,7 @@ export const rematchVehicle = async (vehicleId) => {
 // Igual, para todos los vehiculos (boton "reasignar" de la oficina, p. ej. tras completar
 // muchas Fechas de retiro).
 export const rematchAll = async () => {
+  const cruzados = await healCrossedMancatos();
   const vehicles = await findVehiclesWithAssignableMancatos({
     since: sinceAssignable(),
   });
@@ -308,7 +311,19 @@ export const rematchAll = async () => {
     revisados += result.revisados;
     cambiados += result.cambiados;
   }
-  return { revisados, cambiados };
+  return { revisados, cambiados, cruzadosCorregidos: cruzados };
+};
+
+// Peajes que quedaron asignados a un servicio de otra targa (el filtro por vehiculo se perdia al buscar candidatos): se sueltan y se vuelven a
+// evaluar solo con los servicios de su propia targa. No toca los que la oficina fijo a mano (se ven marcados en el detalle). Devuelve cuantos.
+export const healCrossedMancatos = async () => {
+  const crossed = (await findAssignedWithService()).filter(
+    (m) => m.record && m.vehicleId !== m.record.vehicleId && m.vehicleId !== m.record.vehiculoFinalId
+  );
+  if (crossed.length === 0) return 0;
+  await releaseMancatosByIds(crossed.map((m) => m.id));
+  for (const vehicleId of new Set(crossed.map((m) => m.vehicleId))) await rematchVehicle(vehicleId);
+  return crossed.length;
 };
 
 // Para no romper nunca el flujo de un servicio por un problema del cruce.

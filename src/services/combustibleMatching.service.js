@@ -1,5 +1,7 @@
 import {
   findAssignableCombustibles,
+  findAssignedWithService,
+  releaseCombustiblesByIds,
   findVehiclesWithAssignableCombustibles,
   updateCombustibleAssignment,
 } from "../models/combustible.model.js";
@@ -64,7 +66,19 @@ export const rematchCombustibleVehicle = async (vehicleId) => {
   return { revisados: cargas.length, cambiados };
 };
 
+// Igual que con los peajes (ver healCrossedMancatos): las cargas asignadas al servicio de otra targa se sueltan y se vuelven a evaluar.
+export const healCrossedCombustibles = async () => {
+  const crossed = (await findAssignedWithService()).filter(
+    (c) => c.record && c.vehicleId !== c.record.vehicleId && c.vehicleId !== c.record.vehiculoFinalId
+  );
+  if (crossed.length === 0) return 0;
+  await releaseCombustiblesByIds(crossed.map((c) => c.id));
+  for (const vehicleId of new Set(crossed.map((c) => c.vehicleId))) await rematchCombustibleVehicle(vehicleId);
+  return crossed.length;
+};
+
 export const rematchAllCombustible = async () => {
+  await healCrossedCombustibles();
   const vehicles = await findVehiclesWithAssignableCombustibles({
     since: new Date(Date.now() - REEVALUAR_DESDE_MS),
   });

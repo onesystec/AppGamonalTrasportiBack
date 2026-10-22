@@ -10,6 +10,7 @@ import {
   findRecordsSummary,
   releaseCombustiblesOfRecord,
   releaseMancatosOfRecord,
+  releaseMancatosOutsideVehicles,
   searchRecords,
   updateRecordById,
 } from "../models/record.model.js";
@@ -969,6 +970,12 @@ export const updateRecordForActor = async (actor, id, data) => {
   if (RELEVANT_FOR_MATCHING.some((key) => key in payload)) {
     // Despues de responder: no cambia lo que se devuelve y revisa los peajes uno por uno.
     void (async () => {
+      // Cambio de vehiculo: los peajes de otra targa que tenia asignados (aunque la oficina los hubiera fijado a mano) se sueltan.
+      if (updated.vehicleId !== record.vehicleId || updated.vehiculoFinalId !== record.vehiculoFinalId) {
+        await releaseMancatosOutsideVehicles(id, [updated.vehicleId, updated.vehiculoFinalId].filter(Boolean)).catch((err) =>
+          console.error("No se pudieron soltar los peajes de otra targa:", err.message)
+        );
+      }
       await rematchAssignmentsForVehicle(record.vehicleId);
       if (updated.vehicleId !== record.vehicleId) await rematchAssignmentsForVehicle(updated.vehicleId);
       // Furgon con el que termino (si cambio de furgon): sus peajes y su combustible tambien pertenecen a este servicio.
