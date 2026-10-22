@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { findClients } from "../models/client.model.js";
+import { createClient, findClients } from "../models/client.model.js";
 import { updateRecordById } from "../models/record.model.js";
 import { deleteDraft, findDraftByChat, saveDraftState } from "../models/telegramDraft.model.js";
 import { findAllUsers } from "../models/user.model.js";
@@ -47,6 +47,10 @@ const callbackToText = (data, refs) => {
   if (data === "e") return "editar";
   if (data === "u") return "/deshacer";
   if (data === "r") return "sí";
+  // Cliente de DHL Roma: crear uno nuevo (con el nombre en el boton), confirmar el que se ofrecio crear, o escribir otro.
+  if (data.startsWith("cn:")) return `crear cliente ${data.slice(3)}`;
+  if (data === "cy") return "crear cliente";
+  if (data === "cx") return "otro cliente";
   const [kind, value] = [data.slice(0, 1), data.slice(2)];
   if (kind === "t") return TIPOS[value] ? value : null;
   if (kind === "f") return { hoy: "hoy", manana: "mañana", pasado: "pasado mañana", ayer: "ayer" }[value] ?? null;
@@ -158,6 +162,12 @@ export const handleIncomingTelegramMessage = async ({ chatId, from, text, data, 
     aiExtract: ({ text: body, state }) => aiExtractFields({ text: body, state, refs, today: romeDay() }),
     checkConflicts: (state) => checkConflicts(state, refs),
     estimateRoute,
+    // DHL Roma: un cliente que no existe se crea desde el bot (con confirmacion); las listas se recargan en la siguiente consulta.
+    createClient: async (nombre) => {
+      const client = await createClient({ nombre });
+      refsCache = null;
+      return client;
+    },
   };
 
   let result;

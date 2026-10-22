@@ -97,7 +97,8 @@ const findPerson = (words, people, { preferEarliest = false } = {}) => {
   let bestScore = 0;
   for (const p of people) {
     const used = new Set();
-    for (const nt of new Set(p.tokens.filter((t) => t.length >= 3))) {
+    // Palabras de 3 letras o mas; un cliente de una sola palabra corta (HP) tambien se reconoce por esa palabra exacta.
+    for (const nt of new Set(p.tokens.filter((t) => t.length >= 3 || (p.tokens.length === 1 && t.length === 2)))) {
       const idx = wn.findIndex((w, i) => !used.has(i) && w && tokenClose(w, nt));
       if (idx >= 0) used.add(idx);
     }
@@ -119,6 +120,46 @@ const findPerson = (words, people, { preferEarliest = false } = {}) => {
 };
 
 const personList = (items, nameOf) => items.map((it) => ({ id: it.id, tokens: norm(nameOf(it)).split(" ").filter(Boolean) }));
+
+// Clientes que se pueden reconocer dentro del texto de un mensaje. En DHL Roma el cliente se pregunta siempre, asi que "DHL" y "Roma" (que
+// ahi son la ruta o el propio servicio) no cuentan: solo un nombre propio del cliente (HP...) lo da por contestado.
+const DR_GENERIC_CLIENT_WORDS = new Set(["dhl", "roma"]);
+const clientPeople = (ctx, tipo) => {
+  const people = personList(ctx.refs.clients, (c) => c.nombre);
+  if (tipo !== "DR") return people;
+  return people.map((p) => ({ ...p, tokens: p.tokens.filter((t) => !DR_GENERIC_CLIENT_WORDS.has(t)) })).filter((p) => p.tokens.length);
+};
+
+// DHL Roma: el cliente es una pregunta mas. Lo que se contesta es el nombre de un cliente que ya existe, o uno nuevo: si no existe, el bot
+// pregunta si lo crea (state.newClient) o lo crea directo con el boton «crear cliente X».
+const CLIENT_NAME_OK = /^[\p{L}\p{N}][\p{L}\p{N}'’.&\- ]{0,58}$/u;
+const prettyClientName = (raw) => {
+  const name = raw.trim().replace(/\s+/g, " ");
+  if (name.length <= 3) return name.toUpperCase();
+  return name.split(" ").map((w) => (w === w.toLowerCase() ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(" ");
+};
+const exactClient = (name, clients) => clients.find((c) => norm(c.nombre) === norm(name));
+const readClientReply = (body, state, ctx) => {
+  const text = body.trim().replace(/^(?:cliente)\s*[:=]?\s+/i, "");
+  const n = norm(text);
+  const found = {};
+  let warning = null;
+  const create = /^crear cliente\s+(.+)$/i.exec(text);
+  if (create) found.createClientName = prettyClientName(create[1]);
+  else if (state.newClient && (YES.test(n) || n === "crear cliente")) found.createClientName = state.newClient;
+  else if (n === "otro cliente") found.clearNewClient = true;
+  else {
+    const exact = exactClient(text, ctx.refs.clients);
+    const hit = exact ? { id: exact.id } : findPerson(text.split(/\s+/), personList(ctx.refs.clients, (c) => c.nombre), {});
+    if (hit?.id) found.clientId = hit.id;
+    else if (hit?.ambiguous) {
+      const names = hit.ambiguous.map((id) => ctx.refs.clients.find((c) => c.id === id)?.nombre).filter(Boolean);
+      warning = `Hay más de un cliente que coincide: ${names.join(" / ")}. Escribe el nombre completo.`;
+    } else if (CLIENT_NAME_OK.test(text) && text.split(/\s+/).length <= 6) found.newClient = prettyClientName(text);
+    else warning = "No entendí el nombre del cliente. Escríbelo o toca una opción.";
+  }
+  return { found, warning };
+};
 
 // Codigo propio de los servicios Extras Piazza: llega escrito en el mensaje, casi siempre en la primera linea.
 //   26WCIMXP0129810 · S20602155 · AP1011-480 (y variantes con sufijo cuando el mismo codigo se repite: ...-B, ...-C)
@@ -335,7 +376,7 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
     ? null
     : findPerson(
         words.map((x) => x.w),
-        personList(ctx.refs.clients, (c) => c.nombre),
+        clientPeople(ctx, tipo),
         { preferEarliest: true }
       );
   if (client?.ambiguous) found.clientAmbiguous = true;
@@ -424,6 +465,8 @@ const merge = (state, found, ctx) => {
     next.clientAuto = false;
     next.clientFromCode = Boolean(found.clientFromCode);
   }
+  if (found.newClient !== undefined) next.newClient = found.newClient;
+  if (found.clearNewClient || found.clientId) next.newClient = null;
   if (found.hora && isExtrasPiazza(next)) next.etaManual = true;
   for (const key of ["fecha", "hora", "horaSalida", "km", "aplicativoN", "descripcion"]) if (found[key] != null) next[key] = found[key];
   if (found.destinos) next.destinos = found.destinos;
@@ -439,6 +482,8 @@ const merge = (state, found, ctx) => {
 
 const defaultClientFor = (state, clients) => {
   const code = state.tipo;
+  // DHL Roma: el cliente se pregunta siempre (puede ser HP, DHL Roma u otro, y si no existe se crea).
+  if (code === "DR") return null;
   const wanted = code === "DM" || code === "DR" ? ["dhl"] : code === "AB" ? ["ab", "service"] : null;
   if (!wanted) return null;
   let list = clients.filter((c) => wanted.every((w) => norm(c.nombre).split(" ").includes(w)));
@@ -507,6 +552,8 @@ const question = (field, state, ctx) => {
         ? `No encuentro la targa ${state.unknownTarga} entre los vehículos del bot (solo salen los disponibles; no están los de Farmacia, mantenimiento ni fuera de servicio). ¿Con qué vehículo? Toca uno o escribe la targa.`
         : "¿Con qué vehículo? Toca uno o escribe la targa.";
     case "client": {
+      if (state.newClient) return `No encuentro el cliente «${state.newClient}». ¿Lo creo como cliente nuevo? Toca el botón o escribe otro nombre.`;
+      if (state.tipo === "DR") return "¿Para qué cliente? Toca una opción o escribe el nombre: si no existe, te pregunto si lo creo.";
       const names = ctx.refs.clients.map((c) => c.nombre);
       return names.length && names.length <= 12 ? `¿Para qué cliente? (${names.join(", ")})` : "¿Para qué cliente?";
     }
@@ -633,7 +680,7 @@ export const HELP_TEXT = [
   "Ejemplo: DM @Romario @Jared MEDTRONIC, AB123CD, ETA 14:30, Lodi - Piacenza, 85 km, aplicativo 5",
   "Los nombres con que abre el mensaje se ignoran: el chofer y el vehículo siempre te los pregunto yo (o escribe chofer: Nombre, y la targa).",
   "Lo que falte te lo pregunto. Después del vehículo siempre confirmo el DÍA del servicio, la hora de RETIRO (salida del vehículo) y la ETA; si ya los escribiste en el mensaje (domani, 18/10, salida 7:00, ETA 14:30) no los repito, salvo la confirmación del retiro.",
-  "En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos. Pasados 15 min del retiro el servicio pasa solo a «En camino».",
+  "En DHL Roma el cliente se pregunta siempre (HP, DHL Roma u otro; si no existe, te ofrezco crearlo). En DHL y AB Service los km (solo ida) y el aplicativo (solo DHL) son obligatorios; en Extras y Otros los km se calculan solos. Pasados 15 min del retiro el servicio pasa solo a «En camino».",
   "Extras Piazza (PM/PR): la hora del mensaje es la hora de RETIRO; siempre te confirmo la ruta por ciudades, calculo la hora de llegada al último punto con ella y te pido confirmarla o corregirla.",
   "Varios servicios: uno por línea, cada uno con su tipo.",
   "/hoy · servicios de hoy   /deshacer · anula lo último que cargaste (10 min)   cancelar · borra lo que llevamos",
@@ -686,6 +733,12 @@ const questionButtons = (field, state, ctx) => {
   if (field === "destinos" && isExtrasPiazza(state) && state.destinos?.length) return [[{ text: "✅ Ruta correcta", data: "r" }]];
   if (field === "etaConfirm") return [[{ text: `✅ ${state.hora}`, data: "r" }]];
   if (field === "retiro" && state.horaSalida) return [[{ text: `✅ ${state.horaSalida}`, data: "r" }]];
+  if (field === "client" && state.tipo === "DR") {
+    if (state.newClient) return [[{ text: `✅ Sí, crear «${state.newClient}»`, data: "cy" }, { text: "✏️ Otro cliente", data: "cx" }]];
+    const roma = ctx.refs.clients.find((c) => norm(c.nombre).split(" ").includes("dhl") && norm(c.nombre).split(" ").includes("roma"));
+    const hp = ctx.refs.clients.find((c) => norm(c.nombre) === "hp");
+    return [[roma && { text: roma.nombre, data: `c:${roma.id}` }, hp ? { text: hp.nombre, data: `c:${hp.id}` } : { text: "➕ HP (crear)", data: "cn:HP" }].filter(Boolean)];
+  }
   if (field === "client" && ctx.refs.clients.length && ctx.refs.clients.length <= 12) {
     return gridButtons(ctx.refs.clients.map((c) => ({ text: c.nombre, data: `c:${c.id}` })), 2);
   }
@@ -752,7 +805,11 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
   // que abre para entender el resto.
   const rawBody = body.trim();
   if (isNew) body = stripLeadingNames(body, ctx);
-  if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
+  if (state0.tipo === "DR" && pending === "client" && body.trim()) {
+    const reply = readClientReply(body, state0, ctx);
+    found = reply.found;
+    if (reply.warning) notFound = reply.warning;
+  } else if (pending === "descripcion" && body.trim()) found = { descripcion: body.trim() };
   else if (pending === "km" && /^\s*\d+(?:[.,]\d+)?\s*(?:km)?\s*$/i.test(body)) found = { km: toNumber(body) };
   else if (pending === "aplicativo" && /^\s*\d{1,2}\s*$/.test(body)) found = { aplicativoN: Number(body) };
   else if ((pending === "eta" || pending === "etaConfirm") && /^\s*(\d{1,2})(?:[:.h]?([0-5]\d))?\s*$/.test(body) && Number(/^\s*(\d{1,2})/.exec(body)[1]) <= 23) {
@@ -809,6 +866,23 @@ const advance = async (prevState, body, ctx, { pending, isNew }) => {
     }
   }
   if (isNew && rawBody && !found.descripcion) found.descripcion = rawBody;
+
+  // DHL Roma: crear el cliente que no existia (nunca uno repetido: si ya hay uno con ese nombre se usa ese).
+  if (found.createClientName) {
+    const nombre = found.createClientName;
+    delete found.createClientName;
+    let client = exactClient(nombre, ctx.refs.clients);
+    if (!client && ctx.createClient) {
+      try {
+        client = await ctx.createClient(nombre);
+        ctx.refs.clients.push(client);
+      } catch (err) {
+        notFound = `No pude crear el cliente «${nombre}»: ${err.message}`;
+      }
+    }
+    if (client) found.clientId = client.id;
+    else if (!notFound) notFound = `No pude crear el cliente «${nombre}».`;
+  }
 
   const hadInput = Object.keys(found).length > 0;
   const state = await applyDefaults(merge(state0, found, ctx), ctx);
