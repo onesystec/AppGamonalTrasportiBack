@@ -8,6 +8,8 @@ import {
   findMancatoByNumero,
   findMancatos,
   findMancatosForStats,
+  findMancatosOfMonth,
+  updateMancatoAssignment,
   findRecordForAssignment,
   findRecordIdsInArea,
   findVehicleByTarga,
@@ -778,4 +780,95 @@ export const listMancatoCandidatesForActor = async (actor, id) => {
 export const rematchMancatosForActor = async (actor) => {
   if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   return rematchAll();
+};
+
+// Reevaluacion de un mes (la pide el Admin): vuelve a decidir a que servicio pertenece cada peaje del mes con las reglas de siempre (misma targa,
+// la hora del transito y el chofer, ver mancatoMatching.service.js). Pensado para datos importados de otra app, donde solo se conocen los datos del
+// peaje. Con aplicar=false solo SIMULA y devuelve lo que cambiaria; con aplicar=true lo guarda.
+//  - Un peaje asignado al servicio de OTRA targa siempre se corrige (es un error).
+//  - Los que el sistema asigno solo (AUTO/SUGERIDO/CONFIRMADO) o esperan servicio se reasignan.
+//  - Los que la oficina fijo a mano (MANUAL) con la misma targa solo se tocan con incluirFijados; si no, quedan listados para que los revises.
+//  - Sin hora de transito o sin targa registrada no hay forma de asignarlos: se listan para completarlos.
+const REEVALUAR_MAX_LISTA = 400;
+
+export const reevaluarMesForActor = async (actor, { month, aplicar = false, incluirFijados = false }) => {
+  if (actor.cargo !== "OWNER") throw new AppError("Solo el Admin puede reevaluar los mancatos de un mes", 403);
+  const [y, m] = month.split("-").map(Number);
+  const from = new Date(Date.UTC(y, m - 1, 1));
+  const to = new Date(Date.UTC(y, m, 1));
+  const rows = await findMancatosOfMonth({ from, to });
+
+  const resumen = { total: rows.length, sinCambios: 0, cambian: 0, cruzados: 0, fijadosSinTocar: 0, sinHora: 0, sinTarga: 0 };
+  const cambios = [];
+  const fijadosSinTocar = [];
+  const noAsignables = [];
+
+  const base = (r) => ({ id: r.id, numero: r.numero, targa: r.targa, transitoAt: r.fechaHoraTransito, fecha: r.fecha });
+  const evaluate = async (r) => {
+    if (!r.fechaHoraTransito) return { kind: "sinHora" };
+    if (!r.vehicleId) return { kind: "sinTarga" };
+    return { kind: "ok", next: await matchMancato({ vehicleId: r.vehicleId, driverId: r.driverId, fechaHoraTransito: r.fechaHoraTransito }) };
+  };
+
+  for (let i = 0; i < rows.length; i += 8) {
+    const slice = rows.slice(i, i + 8);
+    const results = await Promise.all(slice.map(evaluate));
+    for (const [k, r] of slice.entries()) {
+      const res = results[k];
+      if (res.kind === "sinHora") {
+        resumen.sinHora += 1;
+        noAsignables.push({ ...base(r), motivo: "No tiene hora de transito: agrega la hora para poder asignarlo." });
+        continue;
+      }
+      if (res.kind === "sinTarga") {
+        resumen.sinTarga += 1;
+        noAsignables.push({ ...base(r), motivo: `La targa ${r.targa} no esta registrada en Vehiculos.` });
+        continue;
+      }
+      const { next } = res;
+      const cruzado = Boolean(r.record) && r.vehicleId !== r.record.vehicleId && r.vehicleId !== r.record.vehiculoFinalId;
+      if ((next.recordId ?? null) === (r.recordId ?? null)) {
+        resumen.sinCambios += 1;
+        continue;
+      }
+      const fijado = r.asignacion === "MANUAL";
+      const item = {
+        ...base(r),
+        categoria: cruzado ? "CRUZADO" : !r.recordId ? "NUEVO" : next.recordId ? "REASIGNADO" : "SIN_SERVICIO",
+        fijado,
+        antes: { codigo: r.record?.codigo ?? null, asignacion: r.asignacion },
+        despues: { recordId: next.recordId, asignacion: next.asignacion, motivo: next.asignacionMotivo },
+        next,
+      };
+      if (fijado && !cruzado && !incluirFijados) {
+        resumen.fijadosSinTocar += 1;
+        fijadosSinTocar.push(item);
+        continue;
+      }
+      if (cruzado) resumen.cruzados += 1;
+      resumen.cambian += 1;
+      cambios.push(item);
+    }
+  }
+
+  // El codigo del servicio nuevo, para mostrarlo.
+  const ids = [...new Set([...cambios, ...fijadosSinTocar].map((c) => c.despues.recordId).filter(Boolean))];
+  const codigos = new Map();
+  for (const id of ids) codigos.set(id, (await findRecordForAssignment(id))?.codigo ?? null);
+
+  if (aplicar) {
+    for (const c of cambios) await updateMancatoAssignment(c.id, c.next);
+  }
+
+  const lista = (items) =>
+    items.slice(0, REEVALUAR_MAX_LISTA).map(({ next, ...c }) => ({ ...c, despues: { ...c.despues, codigo: codigos.get(c.despues.recordId) ?? null } }));
+  return {
+    month,
+    aplicado: Boolean(aplicar),
+    incluirFijados: Boolean(incluirFijados),
+    resumen,
+    cambios: lista(cambios),
+    fijadosSinTocar: lista(fijadosSinTocar),
+    noAsignables: noAsignables.slice(0, REEVALUAR_MAX_LISTA),
+  };
 };

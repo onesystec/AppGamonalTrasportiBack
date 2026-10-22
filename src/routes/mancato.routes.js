@@ -5,6 +5,7 @@ import {
   getById,
   list,
   rematch,
+  reevaluar,
   remove,
   stats,
   meses,
@@ -18,6 +19,7 @@ import {
   createMancatoSchema,
   idParamSchema,
   listMancatosQuerySchema,
+  reevaluarMancatosSchema,
   statsMancatosQuerySchema,
   summaryMancatosQuerySchema,
   updateMancatoSchema,
@@ -47,6 +49,9 @@ router.get("/meses", validate(summaryMancatosQuerySchema, "query"), meses);
 
 // Vuelve a evaluar los mancatos que la oficina no fijo a mano.
 router.post("/reasignar", rematch);
+
+// Reevalua los peajes de un mes (solo el Admin): simula o aplica. Ver reevaluarMesForActor.
+router.post("/reevaluar", validate(reevaluarMancatosSchema), reevaluar);
 
 router.get("/:id", validate(idParamSchema, "params"), getById);
 

@@ -122,6 +122,25 @@ export const findAssignedWithService = () =>
     select: { id: true, vehicleId: true, record: { select: { vehicleId: true, vehiculoFinalId: true } } },
   });
 
+// Todos los peajes de un mes (por la fecha del aviso) con el servicio al que estan asignados, para reevaluarlos (ver reevaluarMesForActor).
+export const findMancatosOfMonth = ({ from, to }) =>
+  prisma.mancatoPagamento.findMany({
+    where: { fecha: { gte: from, lt: to } },
+    select: {
+      id: true,
+      numero: true,
+      targa: true,
+      vehicleId: true,
+      driverId: true,
+      fecha: true,
+      fechaHoraTransito: true,
+      recordId: true,
+      asignacion: true,
+      record: { select: { id: true, codigo: true, vehicleId: true, vehiculoFinalId: true } },
+    },
+    orderBy: [{ fecha: "asc" }, { fechaHoraTransito: "asc" }],
+  });
+
 export const releaseMancatosByIds = (ids) =>
   prisma.mancatoPagamento.updateMany({
     where: { id: { in: ids } },

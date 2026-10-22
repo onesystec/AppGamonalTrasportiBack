@@ -92,6 +92,13 @@ export const idParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
 });
 
+// Reevaluar los peajes de un mes (solo el Admin): "aplicar" false = solo simular; incluirFijados = tambien los que la oficina fijo a mano.
+export const reevaluarMancatosSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (AAAA-MM)"),
+  aplicar: z.boolean().optional(),
+  incluirFijados: z.boolean().optional(),
+});
+
 const listFilters = {
   driverId: z.preprocess(emptyToUndefined, z.string().uuid().optional()),
   targa: z.preprocess(emptyToUndefined, z.string().trim().max(20).optional()),
