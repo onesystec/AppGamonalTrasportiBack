@@ -17,6 +17,7 @@ const SELECT = {
   salidaLat: true,
   salidaLng: true,
   pasaPorBrennero: true,
+  pasaPorFrejus: true,
   driverId: true,
   driver: { select: { id: true, nombre: true, apellido: true, numeroCelular: true } },
   vehicle: { select: { id: true, targa: true } },

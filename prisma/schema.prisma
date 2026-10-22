@@ -613,6 +613,8 @@ model Record {
 
   // El servicio pasa primero por Brennero (frontera): la ruta se calcula con ese punto de paso (ver constants/brennero.js).
   pasaPorBrennero  Boolean  @default(false)
+  // Igual con el tunel de Frejus (hacia Francia).
+  pasaPorFrejus    Boolean  @default(false)
 
   // Reprogramacion (ver reprogramacion.service.js). Del lado del servicio que se reprogramo: cuando, y el detalle
   // ({ kmPlanificado, kmHechos, motivo, nuevoId, nuevoCodigo, nuevaEta, nuevaSalida, cambioChofer, cambioVehiculo, porId }).

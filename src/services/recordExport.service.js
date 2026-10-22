@@ -73,6 +73,7 @@ const COLUMNAS = [
   ["Salida (latitud)", (r) => (r.salidaLat != null ? String(r.salidaLat) : "")],
   ["Salida (longitud)", (r) => (r.salidaLng != null ? String(r.salidaLng) : "")],
   ["Pasa por Brennero", (r) => sino(r.pasaPorBrennero)],
+  ["Pasa por Frejus", (r) => sino(r.pasaPorFrejus)],
   ["Cantidad de paradas", (r) => String(r.stops.length)],
   ["Paradas", (r) => r.stops.map((s, i) => `${i + 1}) ${s.direccion}`).join(" | ")],
   ["Paradas (con coordenadas)", (r) => r.stops.map((s, i) => `${i + 1}) ${s.direccion}${s.lat != null ? ` [${s.lat}, ${s.lng}]` : " [sin ubicar]"}`).join(" | ")],

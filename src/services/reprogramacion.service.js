@@ -251,6 +251,7 @@ export const reprogramarRecordForActor = async (actor, id, body) => {
         spedizzione: record.spedizzione,
         extrasPiazzaZona: record.extrasPiazzaZona,
         pasaPorBrennero: record.pasaPorBrennero,
+        pasaPorFrejus: record.pasaPorFrejus,
         // Siempre sale del lugar de espera: la salida y la ruta son las del servicio original (ya calculadas).
         salidaDireccion: record.salidaDireccion,
         salidaLat: record.salidaLat,

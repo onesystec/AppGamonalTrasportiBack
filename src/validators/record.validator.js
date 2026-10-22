@@ -112,8 +112,9 @@ export const createRecordSchema = z.object({
   origenExternoId: z.string().trim().min(1).optional(),
   stops: stopsField,
   salida: salidaField.optional(),
-  // "¿Pasa por Brennero?": la ruta lleva ese punto de paso.
+  // "¿Pasa por Brennero?" / "¿Pasa por Frejus?": la ruta lleva ese punto de paso.
   pasaPorBrennero: z.boolean().optional(),
+  pasaPorFrejus: z.boolean().optional(),
   ...operationalFields,
   ...economicFields,
 });
@@ -135,6 +136,7 @@ export const updateRecordSchema = z.object({
   stops: stopsField.optional(),
   salida: salidaField.nullable().optional(),
   pasaPorBrennero: z.boolean().optional(),
+  pasaPorFrejus: z.boolean().optional(),
   // Chofer que termino el servicio en lugar del asignado (null = nadie, quita el relevo).
   choferRelevoId: z.string().uuid("choferRelevoId invalido").nullable().optional(),
   // Furgon con el que termino el servicio si el chofer tuvo que cambiar de furgon (null = no cambio).
