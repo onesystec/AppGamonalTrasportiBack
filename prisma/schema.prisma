@@ -146,6 +146,8 @@ model User {
   documentos                Documento[]
   bustasPaga                BustaPaga[]             @relation("BustaPagaChofer")
   bustasPagaSubidas         BustaPaga[]             @relation("BustaPagaSubidaPor")
+  memorandumsEmitidos       Memorandum[]            @relation("MemorandumEmisor")
+  memorandumsRecibidos      MemorandumDestinatario[] @relation("MemorandumDestinatario")
   mancatosComoChofer        MancatoPagamento[]      @relation("MancatoChofer")
   mancatosCreados           MancatoPagamento[]      @relation("MancatoCreadoPor")
   multasComoChofer          Multa[]                 @relation("MultaChofer")
@@ -1016,6 +1018,88 @@ model BustaPaga {
   @@unique([choferId, anio, mes])
   @@index([choferId, anio, mes])
   @@map("busta_paga")
+}
+
+// Memorandum: comunicado formal de la empresa (circular, comunicacion individual, politica...) que emiten el Admin, Recursos Humanos o un
+// Responsable (a los choferes de sus areas). Se escribe en la app y el servidor genera el PDF con el logo; cada destinatario tiene que dar su
+// acuse (un toque o firma manuscrita, segun nivelFirma) antes de poder abrirlo, como la busta paga. Una vez firmado por alguien ya no se borra.
+// Ver memorandum.service.js.
+enum MemorandumTipo {
+  CIRCULAR
+  COMUNICACION
+  EQUIPO
+  ASIGNACION
+  VENCIMIENTO
+  SEGURIDAD
+  RECONOCIMIENTO
+  POLITICA
+}
+
+enum MemorandumNivelFirma {
+  ENTENDIDO
+  FIRMA
+}
+
+model Memorandum {
+  id          String               @id @default(uuid())
+  // "MEMO-2026-014": correlativo por ano.
+  numero      String               @unique
+  anio        Int
+  secuencia   Int
+  tipo        MemorandumTipo
+  titulo      String
+  cuerpo      String
+  nivelFirma  MemorandumNivelFirma
+  emisorId    String
+  emisor      User                 @relation("MemorandumEmisor", fields: [emisorId], references: [id], onDelete: Restrict)
+  // Texto de a quien va ("Todos los choferes", "Choferes de DHL Milano", "3 personas"), tal como se emitio.
+  audiencia   String
+  plazoAt     DateTime?
+  archivoKey  String
+  archivoHash String
+  createdAt   DateTime             @default(now())
+
+  destinatarios MemorandumDestinatario[]
+  accesos       MemorandumAcceso[]
+
+  @@unique([anio, secuencia])
+  @@index([emisorId, createdAt])
+  @@map("memorandums")
+}
+
+model MemorandumDestinatario {
+  id               String     @id @default(uuid())
+  memorandumId     String
+  memorandum       Memorandum @relation(fields: [memorandumId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User       @relation("MemorandumDestinatario", fields: [userId], references: [id], onDelete: Restrict)
+  firmadaAt        DateTime?
+  firmaKey         String?
+  firmaIp          String?
+  firmaDispositivo String?
+  // Recordatorios por push mientras no firme: cuando fue el ultimo (el del envio o un recordatorio) y cuantos van.
+  ultimoAvisoAt    DateTime?
+  avisos           Int        @default(0)
+  createdAt        DateTime   @default(now())
+
+  @@unique([memorandumId, userId])
+  @@index([userId, firmadaAt])
+  @@map("memorandum_destinatarios")
+}
+
+// Registro de quien hizo que con cada memorandum (emision, vista, firma, recordatorio).
+model MemorandumAcceso {
+  id           String     @id @default(uuid())
+  memorandumId String
+  memorandum   Memorandum @relation(fields: [memorandumId], references: [id], onDelete: Cascade)
+  usuarioId    String
+  accion       String
+  ip           String?
+  dispositivo  String?
+  createdAt    DateTime   @default(now())
+
+  @@index([memorandumId, createdAt])
+  @@map("memorandum_accesos")
 }
 
 // Registro de quien hizo que con cada busta paga (subida, firma, vista, descarga, reemplazo).

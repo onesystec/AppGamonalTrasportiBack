@@ -30,6 +30,7 @@ import { CLIENTE_MODULOS_DEFAULT } from "../constants/clientes.js";
 import { findClientById } from "../models/client.model.js";
 import { hashPassword } from "../utils/password.js";
 import { hasBustasPaga } from "./bustaPaga.service.js";
+import { hasMemorandums } from "./memorandum.service.js";
 
 // Solo un Admin (OWNER) puede crear o ascender a otro usuario a Admin o Responsable; evita que un
 // Responsable se autoascienda o cree otros con mas acceso.
@@ -462,6 +463,11 @@ export const deleteUser = async (actor, targetId) => {
   // Las busta paga se conservan: un usuario que tiene alguna no se elimina, se desactiva.
   if (await hasBustasPaga(targetId)) {
     throw new AppError("Este usuario tiene busta paga guardadas y no se puede eliminar. Desactivalo en su lugar", 409);
+  }
+
+  // Igual con los memorandums que recibio o emitio.
+  if (await hasMemorandums(targetId)) {
+    throw new AppError("Este usuario tiene memorandums y no se puede eliminar. Desactivalo en su lugar", 409);
   }
 
   // Se borran los objetos de R2 antes de la fila: el ON DELETE CASCADE limpia la tabla

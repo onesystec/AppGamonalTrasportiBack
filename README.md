@@ -499,6 +499,17 @@ Milano. La deteccion corre sola cada 3 minutos de lunes a viernes de 07:30 a 19:
 recordatorios se evaluan en memoria cada 5 minutos, sin consultar la base salvo que haya un push que enviar. El correo usa
 `APP_URL` para el logo y el boton.
 
+Memorandums (`memorandum.service.js`, ruta `/api/memorandums`): comunicados formales que se escriben en la app y el servidor convierte en un PDF
+con el logo y un numero correlativo (`MEMO-2026-014`, `memorandumPdf.service.js`, con `pdfkit`; el logo esta en `assets/logo.png`). Los emiten el
+Admin y Recursos Humanos (a cualquiera, 8 tipos) y los Responsables (solo a los choferes de sus areas y solo circular operativa, uso del
+vehiculo, cambio de asignacion y reconocimiento). Cada destinatario ve el asunto, pero para abrir el documento tiene que dar su acuse (un toque,
+`ENTENDIDO`) o su firma manuscrita (`FIRMA`), como la busta paga; quedan la hora, la IP, el dispositivo y la firma. Los tipos y sus textos de
+partida estan en `constants/memorandums.js` (POLITICA siempre se firma). Un memorandum que ya firmo alguien no se puede eliminar, y un usuario con
+memorandums no se puede borrar (se desactiva). Recordatorios por push a quien no confirmo (`memorandumAvisos.service.js`): cada
+`MEMO_RECORDATORIO_HORAS` horas (6), cada `MEMO_RECORDATORIO_URGENTE_HORAS` (3) cuando falta un dia o menos para el plazo o ya paso, de dia
+(`MEMO_SILENCIO`, 20:00-08:00 Roma) y hasta `MEMO_RECORDATORIO_MAX_DIAS` (14). Los pendientes se guardan en memoria: el recordatorio se evalua cada
+10 minutos sin consultar la base salvo que haya un push que enviar. Fase 2 prevista: amonestaciones (contestacion, descargos con plazo y resolucion).
+
 **11. Carga de servicios por chat de Telegram, con comandos.**
 Los servicios se cargan por **chat privado** con el bot (cada persona tiene su propia
 conversacion, sin cruces). Pueden escribirle por privado solo los miembros del grupo en

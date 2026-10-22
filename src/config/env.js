@@ -169,6 +169,15 @@ const envSchema = z.object({
   //  - AREA_C_SILENCIO: ventana "HH:MM-HH:MM" (hora de Roma) sin recordatorios; los pendientes salen al terminar. Vacio = sin silencio.
   //  - AREA_C_MONITOR_ENABLED: revisa la posicion de la flota cada 3 minutos (lunes a viernes de 07:30 a 19:30) aunque nadie tenga el mapa abierto.
   //  - APP_URL: direccion publica de la app (boton y logo del correo).
+  // Memorandums (ver memorandumAvisos.service.js): recordatorios por push a quienes todavia no confirmaron.
+  //  - MEMO_RECORDATORIO_HORAS: cada cuantas horas se repite; MEMO_RECORDATORIO_URGENTE_HORAS: lo mismo cuando falta un dia o menos para el
+  //    plazo (o ya paso). MEMO_RECORDATORIO_MAX_DIAS: pasados estos dias desde la emision ya no se insiste.
+  //  - MEMO_SILENCIO: ventana "HH:MM-HH:MM" (hora de Roma) sin recordatorios. Vacio = sin silencio.
+  MEMO_RECORDATORIO_HORAS: z.coerce.number().min(1).default(6),
+  MEMO_RECORDATORIO_URGENTE_HORAS: z.coerce.number().min(1).default(3),
+  MEMO_RECORDATORIO_MAX_DIAS: z.coerce.number().min(1).default(14),
+  MEMO_SILENCIO: z.string().default("20:00-08:00"),
+
   AREA_C_PLAZO_DIAS: z.coerce.number().int().min(0).default(1),
   AREA_C_RECORDATORIO_MIN: z.coerce.number().min(15).default(120),
   AREA_C_RECORDATORIO_URGENTE_MIN: z.coerce.number().min(15).default(60),

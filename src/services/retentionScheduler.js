@@ -5,6 +5,7 @@ import { advancePendingToEnCamino } from "./estadoAutomatico.service.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
 import { runSeguimientoAlerts } from "./seguimiento.service.js";
 import { loadPendingAreaCEntries, processAreaCReminders } from "./areaCAvisos.service.js";
+import { loadPendingMemorandums, processMemorandumReminders } from "./memorandumAvisos.service.js";
 import { runAreaCMonitor } from "./vehicle.service.js";
 import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
 
@@ -133,4 +134,12 @@ export const startAreaCAvisos = () => {
   setInterval(() => void processAreaCReminders().catch((err) => console.error("[area-c] fallo el recordatorio:", err.message)), 5 * 60 * 1000).unref();
   if (!env.AREA_C_MONITOR_ENABLED) return;
   setInterval(() => void runAreaCMonitor().catch((err) => console.error("[area-c] fallo la deteccion:", err.message)), 3 * 60 * 1000).unref();
+};
+
+// Recordatorios de memorandums sin confirmar (ver memorandumAvisos.service.js): cada 10 minutos revisa en memoria si toca insistir con alguien;
+// solo consulta la base cuando hay un push que enviar. Al arrancar carga los pendientes. Solo en produccion, como los demas.
+export const startMemorandumReminders = () => {
+  if (env.NODE_ENV !== "production") return;
+  void loadPendingMemorandums().catch((err) => console.error("[memorandum] no se pudieron cargar los pendientes:", err.message));
+  setInterval(() => void processMemorandumReminders().catch((err) => console.error("[memorandum] fallo el recordatorio:", err.message)), 10 * 60 * 1000).unref();
 };
