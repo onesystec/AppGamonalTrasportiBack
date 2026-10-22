@@ -193,7 +193,8 @@ export const sinSustentar = asyncHandler(async (req, res) => {
 // Circuito del servicio (o del viaje) para dibujarlo en un mapa y verificarlo.
 export const circuitoMapa = asyncHandler(async (req, res) => {
   const record = await getRecordByIdForActor(req.user, req.params.id);
-  const data = await getCircuitMapData(record.id);
+  // "?recalcular=1": el Admin vuelve a calcular el circuito de un servicio ya guardado (por ejemplo tras mejorar el calculo de rutas).
+  const data = await getCircuitMapData(record.id, { recalcular: req.query.recalcular === "1" && req.user.cargo === "OWNER" });
   res.status(200).json({ success: true, data: data ?? { circuito: null, puntos: [], geometria: null } });
 });
 

@@ -60,9 +60,10 @@ const decodePolyline6 = (encoded) => {
 
 const VALHALLA_TIMEOUT_MS = 20000;
 
-// Ruta evitando peajes (Valhalla, use_tolls=0): lo que el chofer declara cuando dice que no uso peaje. Mismo formato que la de OSRM,
-// mas "usaPeaje" (Valhalla dice si la ruta que eligio lleva algun peaje: solo pasa si no hay otro camino).
-const valhallaRoute = async (points) => {
+// Ruta de Valhalla. Por defecto evita los peajes (use_tolls=0): lo que el chofer declara cuando dice que no uso peaje. Con peajes: true los
+// permite (use_tolls=0.5, el valor normal de Valhalla): se usa para rodear el centro de Milan por las tangenciales. Mismo formato que la de
+// OSRM, mas "usaPeaje" (Valhalla dice si la ruta que eligio lleva algun peaje: con peajes: false solo pasa si no hay otro camino).
+const valhallaRoute = async (points, { peajes = false } = {}) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), VALHALLA_TIMEOUT_MS);
   try {
@@ -72,7 +73,7 @@ const valhallaRoute = async (points) => {
       body: JSON.stringify({
         locations: points.map((p) => ({ lat: p.lat, lon: p.lng, type: "break" })),
         costing: "auto",
-        costing_options: { auto: { use_tolls: 0 } },
+        costing_options: { auto: { use_tolls: peajes ? 0.5 : 0 } },
         directions_options: { units: "kilometers" },
       }),
       signal: controller.signal,
@@ -92,7 +93,7 @@ const valhallaRoute = async (points) => {
       geometria: { type: "LineString", coordinates },
       tramos: trip.legs.map((leg) => ({ distanciaKm: leg.summary.length, duracionMin: leg.summary.time / 60 })),
       motor: "valhalla",
-      evitoPeajes: true,
+      evitoPeajes: !peajes,
       usaPeaje: Boolean(trip.summary.has_toll),
     };
   } catch {
@@ -100,6 +101,21 @@ const valhallaRoute = async (points) => {
   } finally {
     clearTimeout(timer);
   }
+};
+
+// "El centro de Milan": 3 km alrededor del Duomo. Una ruta que mete varios puntos de su trazado ahi esta cruzando la ciudad. Si el servicio tiene
+// una parada (o la salida) dentro del centro es normal que entre, y no se toca.
+const DUOMO = { lat: 45.4642, lng: 9.19 };
+const CENTRO_RADIO_KM = 3;
+const CENTRO_PUNTOS_MIN = 8;
+const kmAlDuomo = (lat, lng) => Math.hypot((lat - DUOMO.lat) * 111, (lng - DUOMO.lng) * 111 * Math.cos((DUOMO.lat * Math.PI) / 180));
+export const cruzaElCentroDeMilan = (geometria, points) => {
+  if (points.some((p) => kmAlDuomo(p.lat, p.lng) <= CENTRO_RADIO_KM + 0.5)) return false;
+  let dentro = 0;
+  for (const [lng, lat] of geometria?.coordinates ?? []) {
+    if (kmAlDuomo(lat, lng) <= CENTRO_RADIO_KM && (dentro += 1) >= CENTRO_PUNTOS_MIN) return true;
+  }
+  return false;
 };
 
 // Calcula distancia/duracion/geometria de la ruta que pasa por "points" en orden (points[0] es siempre el deposito). Con
@@ -111,7 +127,14 @@ export const calculateRoute = async (points, { evitarPeajes = false } = {}) => {
     const route = await valhallaRoute(points);
     if (route) return route;
   }
-  return osrmRoute(points);
+  const route = await osrmRoute(points);
+  if (!route || evitarPeajes || !cruzaElCentroDeMilan(route.geometria, points)) return route;
+  // OSRM no conoce el trafico y a veces manda a la furgoneta por el medio de Milan, que nadie hace: se recalcula con Valhalla, que rodea
+  // la ciudad por las tangenciales (en una ruta de Milan Este a Busto Arsizio dio 140 km contra 138 de Google; OSRM, 107 por el centro). Solo se
+  // cambia si la nueva no cruza el centro y no es absurdamente mas larga; si no, queda la de OSRM.
+  const rodeo = await valhallaRoute(points, { peajes: true });
+  if (rodeo && !cruzaElCentroDeMilan(rodeo.geometria, points) && rodeo.distanciaKm <= route.distanciaKm * 1.8) return rodeo;
+  return route;
 };
 
 // El servidor publico de OSRM no matchea trazas muy largas en una sola llamada -

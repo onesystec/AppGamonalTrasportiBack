@@ -394,8 +394,9 @@ export const computeEstimacionForRecord = async (recordId) => {
 
 // Todo lo que hace falta para dibujar el circuito en un mapa y comprobar que es correcto: los puntos en orden (salida,
 // retiro, paradas, regreso), el recorrido por calles y el detalle de km de cada tramo.
-export const getCircuitMapData = async (recordId) => {
-  const circuito = await ensureCircuit(recordId);
+export const getCircuitMapData = async (recordId, { recalcular = false } = {}) => {
+  // recalcular (solo el Admin lo pide, ver el controlador): vuelve a calcular el circuito guardado con el calculo de rutas actual.
+  const circuito = await ensureCircuit(recordId, { force: recalcular });
   if (!circuito) return null;
   const record = await findRecordById(recordId);
   const members = await unitOf(record);
