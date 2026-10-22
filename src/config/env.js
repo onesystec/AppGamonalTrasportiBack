@@ -155,6 +155,10 @@ const envSchema = z.object({
 
   // Minutos despues de la hora de retiro (fechaRetiro) en que un servicio todavia "Pendiente" pasa solo a "En camino". 0 = apagado.
   AUTO_EN_CAMINO_MIN: z.coerce.number().min(0).default(15),
+  // Pausa nocturna de esa tarea (hora de Roma, "HH:MM-HH:MM"): no consulta la base en esas horas, asi Neon se duerme y no cobra computo. Los
+  // servicios que salgan dentro de la pausa pasan a "En camino" al terminar (se pone al dia solo). Vacio = sin pausa (corre las 24 h).
+  // Con los servicios de 2026 no sale ninguno entre las 23:15 y las 04:00, asi que "00:00-04:00" no cambia nada para nadie.
+  AUTO_EN_CAMINO_PAUSA: z.string().default("00:00-04:00"),
 
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando

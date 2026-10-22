@@ -483,6 +483,12 @@ mira las ultimas 24 h y solo toca servicios Pendientes con hora de retiro: no pi
 Retirados, En camino, Entregados, Anulados ni Reprogramados, ni los que no tienen hora de
 retiro. Si Render free duerme el servidor, se pone al dia al despertar.
 
+Pausa nocturna (`AUTO_EN_CAMINO_PAUSA`, por defecto `00:00-04:00`, hora de Roma, formato `HH:MM-HH:MM`; vacio
+= sin pausa): en esas horas el timer no consulta la base, asi Neon (que se apaga a los 5 minutos sin
+consultas y cobra por hora despierta) puede dormir. Elegida con los servicios reales de octubre de 2026: los
+retiros caen casi todos entre las 07:00 y las 19:00 y de lunes a viernes; el ultimo de la noche salio a las
+23:00 y el primero de la madrugada a las 04:00. Al terminar la pausa se pone al dia con lo que haya salido.
+
 **11. Carga de servicios por chat de Telegram, con comandos.**
 Los servicios se cargan por **chat privado** con el bot (cada persona tiene su propia
 conversacion, sin cruces). Pueden escribirle por privado solo los miembros del grupo en

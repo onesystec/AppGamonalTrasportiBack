@@ -4,6 +4,7 @@ import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
 import { advancePendingToEnCamino } from "./estadoAutomatico.service.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
 import { runSeguimientoAlerts } from "./seguimiento.service.js";
+import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
 // Antes los jobs de limpieza dependian de un scheduler externo porque Render free se
@@ -97,11 +98,15 @@ export const startSeguimientoMonitor = () => {
 };
 
 // Pendiente -> En camino: pasados AUTO_EN_CAMINO_MIN minutos de la hora de retiro (ver estadoAutomatico.service.js). Corre una vez al
-// arrancar (se pone al dia si el servidor estaba dormido) y luego cada minuto. Solo en produccion, como los demas, para que un
-// servidor local no cambie estados de la base compartida.
+// arrancar (se pone al dia si el servidor estaba dormido) y luego cada minuto, salvo en la pausa nocturna (AUTO_EN_CAMINO_PAUSA): cada
+// consulta mantiene despierta a Neon 5 minutos, y de noche no sale ningun servicio. Al terminar la pausa, el primer minuto se pone al dia
+// con lo que haya salido (mira las ultimas 24 h). Solo en produccion, como los demas, para que un servidor local no cambie estados de la
+// base compartida.
 export const startAutoEnCamino = () => {
   if (env.NODE_ENV !== "production" || !(env.AUTO_EN_CAMINO_MIN > 0)) return;
-  const tick = async () => {
+  const pausa = parsePausa(env.AUTO_EN_CAMINO_PAUSA);
+  const tick = async ({ ignorarPausa = false } = {}) => {
+    if (!ignorarPausa && enPausa(pausa)) return;
     try {
       const count = await advancePendingToEnCamino();
       if (count > 0) console.log(`[estado] ${count} servicio(s) pasaron a "En camino" (retiro hace mas de ${env.AUTO_EN_CAMINO_MIN} min)`);
@@ -109,6 +114,7 @@ export const startAutoEnCamino = () => {
       console.error("[estado] no se pudo pasar servicios a En camino:", err.message);
     }
   };
-  void tick();
-  setInterval(tick, 60 * 1000).unref();
+  if (pausa) console.log(`[estado] "En camino" automatico en pausa de ${env.AUTO_EN_CAMINO_PAUSA} (hora de Roma) para que la base pueda dormir`);
+  void tick({ ignorarPausa: true });
+  setInterval(() => void tick(), 60 * 1000).unref();
 };
