@@ -33,4 +33,8 @@ export const driverCanSeeVehicle = async (driverId, vehicleId) => {
 
 export const updateVehicleById = (id, data) => prisma.vehiculo.update({ where: { id }, data });
 
+// Mostrar u ocultar en el Mapa varios vehiculos de una vez (ver setMapaVisibilityForActor).
+export const setVehiclesMostrarEnMapa = (ids, mostrarEnMapa) =>
+  prisma.vehiculo.updateMany({ where: { id: { in: ids } }, data: { mostrarEnMapa } });
+
 export const deleteVehicleById = (id) => prisma.vehiculo.delete({ where: { id } });

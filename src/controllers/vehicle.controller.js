@@ -18,6 +18,7 @@ import {
   listVehicleLivePositionsForActor,
   listVehiclesForActor,
   registerKmForActor,
+  setMapaVisibilityForActor,
   syncVehiclesFromVelocityFleetForActor,
   resendAreaCEntryNoticeForActor,
   updateAreaCEntryForActor,
@@ -42,6 +43,10 @@ export const listLivePositions = asyncHandler(async (req, res) => {
 
 // Importa a demanda las targas que reporte Velocity Fleet y que todavia no tengan
 // ficha en la app (ver syncVehiclesFromVelocityFleetForActor) - boton en Vehiculos.
+export const setMapaVisibility = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await setMapaVisibilityForActor(req.body) });
+});
+
 export const syncVehiclesFromVelocityFleet = asyncHandler(async (req, res) => {
   const result = await syncVehiclesFromVelocityFleetForActor();
   res.status(200).json({ success: true, data: result });

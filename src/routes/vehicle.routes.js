@@ -20,6 +20,7 @@ import {
   resendAreaCEntryNotice,
   remove,
   removeMantenimiento,
+  setMapaVisibility,
   syncVehiclesFromVelocityFleet,
   update,
   updateAreaCEntry,
@@ -34,6 +35,7 @@ import {
   etaToDestinationSchema,
   idParamSchema,
   mantenimientoIdParamSchema,
+  mapaVisibilidadSchema,
   registerKmSchema,
   speedingEventsQuerySchema,
   updateAreaCEntrySchema,
@@ -109,6 +111,8 @@ router.post("/speeding-events/cleanup", authorize("OWNER"), cleanupSpeedingEvent
 // no una alerta descartable, y no queremos que un ADMIN "de area" importe vehiculos
 // fuera de su area sin querer.
 router.post("/sync-from-velocity-fleet", authorize("OWNER"), syncVehiclesFromVelocityFleet);
+// Mostrar u ocultar en el Mapa uno o varios vehiculos (antes de "/:id").
+router.post("/mapa-visibilidad", authorize("OWNER", "ADMIN"), validate(mapaVisibilidadSchema), setMapaVisibility);
 // El chofer solo ve la ficha de su vehiculo (se controla en el servicio).
 router.get("/:id", validate(idParamSchema, "params"), getById);
 

@@ -5,6 +5,7 @@ import {
   driverCanSeeVehicle,
   findVehicleById,
   findVehicleIdsAndTargas,
+  setVehiclesMostrarEnMapa,
   findVehiclesWithDrivers,
   updateVehicleById,
 } from "../models/vehicle.model.js";
@@ -157,6 +158,13 @@ export const getVehicleByIdForActor = async (id, actor) => {
     throw new AppError("No tienes permisos para ver este vehiculo", 403);
   }
   return toResponse(vehicle);
+};
+
+// Mostrar u ocultar en el Mapa varios vehiculos a la vez. Ocultar un vehiculo solo lo saca del Mapa: los avisos de Area C y de velocidad siguen.
+export const setMapaVisibilityForActor = async ({ ids, mostrarEnMapa }) => {
+  const { count } = await setVehiclesMostrarEnMapa(ids, mostrarEnMapa);
+  invalidateVehiclesCache();
+  return { actualizados: count };
 };
 
 export const updateVehicleForActor = async (id, data, files) => {

@@ -58,6 +58,12 @@ export const updateVehicleSchema = z.object({
   mostrarEnMapa: booleanFromFormSchema.optional(),
 });
 
+// Mostrar u ocultar en el Mapa uno o varios vehiculos (la fila de cada vehiculo y los botones "Mostrar todos" / "Ocultar todos").
+export const mapaVisibilidadSchema = z.object({
+  ids: z.array(z.string().uuid("Id invalido")).min(1, "Elige al menos un vehiculo").max(1000),
+  mostrarEnMapa: z.boolean(),
+});
+
 export const idParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
 });
