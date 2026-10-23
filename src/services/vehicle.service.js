@@ -11,7 +11,7 @@ import {
 } from "../models/vehicle.model.js";
 import { avisarEntradaAreaC, forgetAreaCEntry, trackAreaCEntry } from "./areaCAvisos.service.js";
 import { getOfficeScope } from "./notificationScope.service.js";
-import { evaluateMatch, loadCandidates } from "./mancatoMatching.service.js";
+import { currentServicesByVehicle, evaluateMatch, loadCandidates } from "./mancatoMatching.service.js";
 import { findUserNamesByIds } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import {
@@ -461,6 +461,23 @@ export const listVehicleLivePositionsForActor = async () => {
 
   // El Mapa solo recibe los vehiculos que el Admin dejo visibles (los avisos de arriba se evaluaron con todos).
   return matched.filter((m) => m.mostrarEnMapa).map(({ autorizadoAreaC, mostrarEnMapa, fuente, ...position }) => position);
+};
+
+// Servicio actual de cada vehiculo visible en el Mapa (y con el, su chofer): ver currentServicesByVehicle. Un cache corto evita repetir la consulta
+// por cada pestana del Mapa abierta.
+const SERVICIOS_ACTUALES_TTL_MS = 20 * 1000;
+let serviciosActualesCache = null;
+
+export const listCurrentServicesForActor = async () => {
+  if (serviciosActualesCache && Date.now() - serviciosActualesCache.at < SERVICIOS_ACTUALES_TTL_MS) return serviciosActualesCache.value;
+  const vehicles = (await getVehiclesForPositionLookup()).filter((v) => v.mostrarEnMapa);
+  const byVehicle = await currentServicesByVehicle(vehicles.map((v) => v.id));
+  const value = vehicles.map((v) => {
+    const current = byVehicle.get(v.id);
+    return { vehicleId: v.id, targa: v.targa, ...(current ?? { servicio: null, driver: null, tramo: null, varios: false }) };
+  });
+  serviciosActualesCache = { at: Date.now(), value };
+  return value;
 };
 
 // Monitor de fondo (ver startAreaCMonitor): solo la deteccion de Area C, para que los avisos salgan aunque nadie tenga el mapa abierto.

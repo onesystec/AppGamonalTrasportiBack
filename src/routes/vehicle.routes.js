@@ -11,6 +11,7 @@ import {
   getVelocityFleetUsage,
   list,
   listAreaCEntries,
+  listCurrentServices,
   listLivePositions,
   listMantenimientos,
   listMySpeedingEvents,
@@ -58,6 +59,8 @@ router.get("/", list);
 // las dudas (mismo criterio que "/pending"/"/search" en record.routes.js).
 // Posicion en vivo de toda la flota: solo oficina.
 router.get("/live-positions", authorize("OWNER", "ADMIN"), listLivePositions);
+// De quien es cada vehiculo ahora (el servicio actual y su chofer), para el Mapa.
+router.get("/servicios-actuales", authorize("OWNER", "ADMIN"), listCurrentServices);
 // Monitoreo de uso/costos de Velocity Fleet: solo OWNER/ADMIN (info interna, no un
 // dato operativo que necesite ver un chofer).
 router.get("/velocity-fleet-usage", authorize("OWNER", "ADMIN"), getVelocityFleetUsage);

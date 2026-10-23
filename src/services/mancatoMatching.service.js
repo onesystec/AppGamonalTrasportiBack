@@ -3,6 +3,7 @@ import {
   findAssignedWithService,
   releaseMancatosByIds,
   findCandidateServices,
+  findCandidateServicesForVehicles,
   findVehiclesWithAssignableMancatos,
   updateMancatoAssignment,
 } from "../models/mancato.model.js";
@@ -197,7 +198,7 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
 
   if (opts.directo) {
     const motivo = `${noun} ${where}.${dudas.length ? ` Se eligio el mas probable (${dudas.join("; ")}).` : ""}`;
-    return { recordId: chosen.id, asignacion: "AUTO", tramo, asignacionMotivo: motivo };
+    return { recordId: chosen.id, asignacion: "AUTO", tramo, asignacionMotivo: motivo, activos: active.length };
   }
 
   let asignacion = "AUTO";
@@ -213,7 +214,7 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
     motivo = `${noun} ${where}, pero el servicio no tiene Fecha de retiro y su horario es una estimacion.`;
   }
 
-  return { recordId: chosen.id, asignacion, tramo, asignacionMotivo: motivo };
+  return { recordId: chosen.id, asignacion, tramo, asignacionMotivo: motivo, activos: active.length };
 };
 
 export const loadCandidates = (vehicleId, transitAt) => {
@@ -331,3 +332,46 @@ export const rematchVehicleSafe = (vehicleId) =>
   rematchVehicle(vehicleId).catch((err) => {
     console.error("No se pudieron re-evaluar los mancatos del vehiculo:", err.message);
   });
+
+// ---- de quien es cada vehiculo AHORA (para el Mapa) ------------------------------------------------------------------------------------
+// El chofer que se muestra en el Mapa sale del servicio que tiene el vehiculo en este momento, no del "vehiculo habitual" de cada chofer: la misma
+// regla que usan los peajes, el combustible y los excesos de velocidad (evaluateMatch). Cuenta desde MAPA_ANTES_MS antes de la hora de retiro
+// hasta que termina la vuelta. Devuelve un Map vehicleId -> { servicio, driver, tramo, varios } (sin entrada = sin servicio).
+const MAPA_ANTES_MS = 50 * MIN;
+
+export const currentServicesByVehicle = async (vehicleIds, now = Date.now()) => {
+  const result = new Map();
+  if (!vehicleIds.length) return result;
+  const rows = await findCandidateServicesForVehicles({
+    vehicleIds,
+    from: new Date(now - BUSQUEDA_ATRAS_MS),
+    to: new Date(now + BUSQUEDA_ADELANTE_MS),
+  });
+  for (const vehicleId of vehicleIds) {
+    const candidates = rows.filter((r) => r.vehicleId === vehicleId || r.vehiculoFinalId === vehicleId);
+    if (candidates.length === 0) continue;
+    const match = evaluateMatch({
+      transitAt: new Date(now),
+      driverId: null,
+      candidates,
+      opts: { viajes: true, directo: true, tolBeforeMs: MAPA_ANTES_MS },
+    });
+    const service = match.recordId ? candidates.find((c) => c.id === match.recordId) : null;
+    if (!service) continue;
+    result.set(vehicleId, {
+      servicio: {
+        id: service.id,
+        codigo: service.codigo,
+        estado: service.estado,
+        destinazione: service.destinazione,
+        fechaRetiro: service.fechaRetiro,
+        eta: service.eta,
+      },
+      driver: service.driver ? { id: service.driver.id, nombre: service.driver.nombre, apellido: service.driver.apellido } : null,
+      tramo: match.tramo,
+      // Mas de un servicio del vehiculo en curso a esa hora: la oficina lo ve marcado en vez de adivinar.
+      varios: (match.activos ?? 1) > 1,
+    });
+  }
+  return result;
+};

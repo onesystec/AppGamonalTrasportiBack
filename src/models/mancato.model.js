@@ -152,6 +152,37 @@ export const releaseMancatosByIds = (ids) =>
     },
   });
 
+// Servicios de VARIOS vehiculos a la vez en una ventana de tiempo (con el vehiculo con el que salieron y con el que terminaron), para saber de
+// quien es cada vehiculo ahora (ver currentServicesByVehicle). Mismas reglas que findCandidateServices.
+export const findCandidateServicesForVehicles = ({ vehicleIds, from, to }) =>
+  prisma.record.findMany({
+    where: {
+      AND: [{ OR: [{ vehicleId: { in: vehicleIds } }, { vehiculoFinalId: { in: vehicleIds } }] }, ...WORKED_WHERE.AND],
+      servicioOrigenId: null,
+      OR: [
+        { fechaRetiro: { gte: from, lte: to } },
+        { fechaServicio: { gte: from, lte: to } },
+      ],
+    },
+    select: {
+      id: true,
+      codigo: true,
+      estado: true,
+      destinazione: true,
+      driverId: true,
+      vehicleId: true,
+      vehiculoFinalId: true,
+      fechaServicio: true,
+      fechaRetiro: true,
+      eta: true,
+      rutaDuracionMin: true,
+      compactadoId: true,
+      compactadoOrden: true,
+      client: { select: { nombre: true } },
+      driver: PERSON_SELECT,
+    },
+  });
+
 // Mancatos que el sistema puede volver a asignar (la oficina no los fijo a mano).
 export const findAssignableMancatos = ({ vehicleId, since }) =>
   prisma.mancatoPagamento.findMany({
