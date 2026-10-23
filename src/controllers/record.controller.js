@@ -30,6 +30,7 @@ import {
 } from "../services/reprogramacion.service.js";
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
+import { getRecordChanges } from "../utils/recordChanges.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { cachedResponse } from "../utils/responseCache.js";
 import { romeDay } from "../utils/romeTime.js";
@@ -145,6 +146,11 @@ export const listByDay = asyncHandler(async (req, res) => {
 
 // Version liviana de listByMonth: solo id/fechaServicio/estado, para armar el
 // acordeon de dias sin traer stops/ruta/economico de cada registro del mes.
+// Que dias de servicios cambiaron desde la ultima consulta de la pantalla (ver utils/recordChanges.js): barato, sin base de datos.
+export const recordChanges = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: getRecordChanges({ desde: req.query.desde, instancia: req.query.instancia }) });
+});
+
 export const listSummaryByMonth = asyncHandler(async (req, res) => {
   const dateRange = buildDateRange(req.params.year, req.params.month);
   const records = await listRecordsSummaryForActor(req.user, dateRange);

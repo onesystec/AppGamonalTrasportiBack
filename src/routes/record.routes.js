@@ -11,6 +11,7 @@ import {
   listByMonth,
   listPending,
   listSummaryByMonth,
+  recordChanges,
   listByYear,
   ajustarKmViaje,
   circuitoMapa,
@@ -92,6 +93,9 @@ router.get(
   validate(exportRecordsQuerySchema, "query"),
   exportRecords
 );
+
+// Dias de servicios que cambiaron (para que Registros se actualice solo, sin recargar la app).
+router.get("/cambios", recordChanges);
 
 // Rutas con constraint numerico: deben registrarse antes de "/:id" para no chocar con el UUID.
 router.get(

@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { noteRecordChange, recordChangeDays } from "../utils/recordChanges.js";
 import { bumpCacheVersion } from "../utils/responseCache.js";
 import { env } from "./env.js";
 
@@ -26,7 +27,11 @@ export const prisma = base.$extends({
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
         const result = await query(args);
-        if (CACHE_MODELS.has(model) && WRITE_OPERATIONS.has(operation)) bumpCacheVersion();
+        if (CACHE_MODELS.has(model) && WRITE_OPERATIONS.has(operation)) {
+          bumpCacheVersion();
+          // Que dia de servicios cambio, para que las pantallas de Registros refresquen solo ese dia (ver utils/recordChanges.js).
+          if (model === "Record") recordChangeDays(result, args, operation).forEach(noteRecordChange);
+        }
         return result;
       },
     },
