@@ -94,7 +94,7 @@ export const buildAreaCEntryEmail = ({ nombre, targa, modelo, enteredAt, plazoHa
                 ${fila("Vehículo", `${esc(targa)}${modelo ? ` · ${esc(modelo)}` : ""}`)}
                 ${fila("Zona", "Área C · Milán")}
                 ${fila("Fecha de entrada", esc(fechaLarga(enteredAt)))}
-                ${fila("Hora de entrada", `${hora(enteredAt)} (hora de Italia)`, true)}
+                ${fila("Hora de entrada", hora(enteredAt), true)}
               </table>
             </td>
           </tr>
@@ -162,7 +162,7 @@ export const buildAreaCEntryEmail = ({ nombre, targa, modelo, enteredAt, plazoHa
     `AVISO IMPORTANTE - ÁREA C DE MILÁN`,
     `El vehículo ${targa}${modelo ? ` (${modelo})` : ""} entró al Área C sin autorización.`,
     "",
-    `Entrada: ${fechaLarga(enteredAt)}, ${hora(enteredAt)} (hora de Italia)`,
+    `Entrada: ${fechaLarga(enteredAt)}, ${hora(enteredAt)}`,
     `Plazo para pagar sin recargo: ${fechaLarga(plazoHasta)}, ${hora(plazoHasta)}`,
     "",
     "Qué hay que hacer:",
