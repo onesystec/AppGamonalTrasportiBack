@@ -12,7 +12,7 @@ router.use(authenticate, authorize("OWNER", "ADMIN"));
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    res.status(200).json({ success: true, data: await getSeguimientoForActor(req.user) });
+    res.status(200).json({ success: true, data: await getSeguimientoForActor(req.user, { incluirAntiguos: req.query.incluirAntiguos === "1" }) });
   })
 );
 

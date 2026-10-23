@@ -109,6 +109,9 @@ const envSchema = z.object({
   ESTIMATE_TRAFFIC_FACTOR: z.coerce.number().default(1.15),
   ESTIMATE_BREAK_EVERY_MIN: z.coerce.number().default(270),
   ESTIMATE_BREAK_MIN: z.coerce.number().default(30),
+  // Seguimiento (mapa y avisos de la oficina): un servicio con mas de estas horas de retraso sobre su ETA se da por olvidado (sigue "en camino" porque nadie
+  // lo cerro) y no se muestra ni genera avisos; la oficina lo ve con "Ver antiguos". Los clientes tienen su propio limite (12 h).
+  SEGUIMIENTO_MAX_RETRASO_HORAS: z.coerce.number().min(1).default(6),
   // GPS de respaldo del celular del chofer: si el GPS del vehiculo (OneSystec) esta bloqueado o caido,
   // los choferes que lo autorizaron comparten su ubicacion SOLO durante sus servicios y las paradas se
   // calculan con eso (ver gpsHealth.service.js y gpsRespaldo.service.js). "false" lo apaga del todo.

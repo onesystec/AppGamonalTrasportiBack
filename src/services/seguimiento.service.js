@@ -7,6 +7,7 @@ import { findActiveForSeguimiento, findGroupMembers, markLlegadaGps } from "../m
 import { findOfficeUserIdsForArea, findUserLocationById } from "../models/user.model.js";
 import { canAccessAreaKey, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { deriveSpeeds, distanceMeters } from "../utils/stopDetection.js";
+import { findVehicleIdsAndTargas } from "../models/vehicle.model.js";
 import { findOnesystecVehicleIdByPlate, getVehiclePositions, isOnesystecConfigured } from "./onesystec.service.js";
 import { processClienteAvisos } from "./clienteAvisos.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
@@ -591,7 +592,9 @@ export const runSeguimientoAlerts = async (now = Date.now()) => {
   processing = (async () => {
     try {
       const { servicios } = await getSeguimiento({ cargo: "OWNER" }, { now });
-      await processAlerts(servicios, now);
+      // Los avisos de la oficina solo de lo que se ve en el seguimiento (sin servicios olvidados ni vehiculos ocultos); los de los clientes, de todos.
+      const { visibles } = await filtrarParaOficina(servicios, { now });
+      await processAlerts(visibles, now);
       // Avisos a los usuarios de empresas cliente: un fallo aca no afecta a los avisos de la oficina.
       await processClienteAvisos(servicios, now, { retrasoAvisoMin: RETRASO_AVISO_MIN }).catch((err) =>
         console.error("[seguimiento] no se pudieron mandar los avisos a clientes:", err.message)
@@ -607,9 +610,52 @@ export const runSeguimientoAlerts = async (now = Date.now()) => {
   return processing;
 };
 
-export const getSeguimientoForActor = async (actor) => {
+// Que servicios ve la oficina en el seguimiento (y de cuales recibe avisos): los mismos limites que el Mapa.
+//  - Un vehiculo oculto en el Mapa (interruptor de Vehiculos) no muestra sus servicios.
+//  - Un servicio con mas de SEGUIMIENTO_MAX_RETRASO_HORAS de retraso sobre su ETA se da por olvidado (nadie lo cerro): se oculta, y con incluirAntiguos
+//    se muestra de nuevo (para encontrarlo y cerrarlo).
+const normalizeTargaText = (targa) => targa?.replace(/\s+/g, "").toUpperCase() ?? "";
+const HIDDEN_TTL_MS = 60 * 1000;
+let hiddenTargasCache = null;
+const hiddenTargas = async () => {
+  if (hiddenTargasCache && Date.now() - hiddenTargasCache.at < HIDDEN_TTL_MS) return hiddenTargasCache.value;
+  const vehicles = await findVehicleIdsAndTargas();
+  const value = new Set(vehicles.filter((v) => v.mostrarEnMapa === false).map((v) => normalizeTargaText(v.targa)));
+  hiddenTargasCache = { at: Date.now(), value };
+  return value;
+};
+
+export const filtrarParaOficina = async (servicios, { now = Date.now(), incluirAntiguos = false } = {}) => {
+  const hidden = await hiddenTargas();
+  const maxRetrasoMin = env.SEGUIMIENTO_MAX_RETRASO_HORAS * 60;
+  const visibles = [];
+  let antiguos = 0;
+  let vehiculoOculto = 0;
+  for (const s of servicios) {
+    if (s.vehiculo && hidden.has(normalizeTargaText(s.vehiculo))) {
+      vehiculoOculto += 1;
+      continue;
+    }
+    // Un servicio que ya llego no cuenta como atrasado (sale solo de la lista a los 20 min).
+    if (!s.llego && (s.retrasoMin ?? 0) > maxRetrasoMin) {
+      antiguos += 1;
+      if (!incluirAntiguos) continue;
+    }
+    visibles.push(s);
+  }
+  return { visibles, antiguos, vehiculoOculto };
+};
+
+export const getSeguimientoForActor = async (actor, { incluirAntiguos = false } = {}) => {
   const result = await getSeguimiento(actor);
+  const { visibles, antiguos, vehiculoOculto } = await filtrarParaOficina(result.servicios, { incluirAntiguos });
   // Sin esperar: la respuesta no depende de que salgan los avisos.
   runSeguimientoAlerts().catch(() => {});
-  return { ...result, alertas: buildSeguimientoAlerts(result.servicios) };
+  return {
+    ...result,
+    servicios: visibles,
+    // Cuantos servicios no se muestran y por que: la pantalla lo avisa para no dar la impresion de que faltan.
+    ocultos: { antiguos: incluirAntiguos ? 0 : antiguos, vehiculoOculto, maxRetrasoHoras: env.SEGUIMIENTO_MAX_RETRASO_HORAS },
+    alertas: buildSeguimientoAlerts(visibles.filter((s) => (s.retrasoMin ?? 0) <= env.SEGUIMIENTO_MAX_RETRASO_HORAS * 60 || s.llego)),
+  };
 };
