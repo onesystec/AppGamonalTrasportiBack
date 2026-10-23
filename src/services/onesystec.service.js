@@ -42,15 +42,25 @@ const request = async (path, { timeoutMs = REQUEST_TIMEOUT_MS, root = false } = 
 let vehiclesCache = null;
 let vehiclesCachedAt = 0;
 
-// id de OneSystec de un vehiculo por su patente, o null si esa plataforma no lo tiene.
-export const findOnesystecVehicleIdByPlate = async (plate) => {
-  if (!vehiclesCache || Date.now() - vehiclesCachedAt > VEHICLES_TTL_MS) {
+const ensureVehicles = async ({ fresh = false } = {}) => {
+  if (fresh || !vehiclesCache || Date.now() - vehiclesCachedAt > VEHICLES_TTL_MS) {
     vehiclesCache = await request("/vehicles");
     vehiclesCachedAt = Date.now();
   }
-  const wanted = normalizePlate(plate);
-  return vehiclesCache.find((v) => normalizePlate(v.plate) === wanted)?.id ?? null;
+  return vehiclesCache;
 };
+
+// id de OneSystec de un vehiculo por su patente, o null si esa plataforma no lo tiene.
+export const findOnesystecVehicleIdByPlate = async (plate) => {
+  const wanted = normalizePlate(plate);
+  return (await ensureVehicles()).find((v) => normalizePlate(v.plate) === wanted)?.id ?? null;
+};
+
+// Todos los dispositivos (vehiculos) de la cuenta de OneSystec, pidiendo la lista de nuevo (para encontrar los recien instalados): [{ id, plate }].
+export const listOnesystecVehicles = async () =>
+  (await ensureVehicles({ fresh: true }))
+    .map((v) => ({ id: v.id, plate: normalizePlate(v.plate) }))
+    .filter((v) => v.plate);
 
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 
@@ -119,3 +129,67 @@ export const getVehicleDrivingStyle = (onesystecVehicleId, fromMs, toMs) =>
     `/vehicles/${encodeURIComponent(onesystecVehicleId)}/driving-style?from=${iso(fromMs)}&to=${iso(toMs)}`,
     { root: true, timeoutMs: DRIVING_STYLE_TIMEOUT_MS }
   );
+
+// ---- posiciones en vivo para el Mapa -------------------------------------------------------------------------------
+// Ultima posicion de los vehiculos que estan en OneSystec (los dispositivos Teltonika) y no en Velocity Fleet: se mira la ultima media hora
+// y, si el vehiculo esta quieto (casi no manda puntos), hasta hace hora y media. Resultado en el mismo formato que las posiciones de Velocity
+// Fleet, mas fuente "ONESYSTEC". Un cache corto evita repetir la consulta por cada pestana del Mapa abierta.
+const LIVE_TTL_MS = 40 * 1000;
+const LIVE_CONCURRENCY = 4;
+const LIVE_RECENT_MS = 10 * 60 * 1000;
+const LIVE_PARKED_MS = 90 * 60 * 1000;
+const liveCache = new Map();
+
+const latestOf = (rows) => rows.at(-1) ?? null;
+
+const fetchLatest = async (onesystecVehicleId, plate) => {
+  const now = Date.now();
+  let rows = await getVehiclePositions(onesystecVehicleId, now - LIVE_RECENT_MS, now);
+  if (!rows.length) rows = await getVehiclePositions(onesystecVehicleId, now - LIVE_PARKED_MS, now);
+  const last = latestOf(rows);
+  if (!last || last.lat == null || last.lng == null) return null;
+  return {
+    targa: plate,
+    lat: last.lat,
+    lng: last.lng,
+    speed: last.speed ?? null,
+    speedUnit: "km/h",
+    ignition: last.ignition === true,
+    direction: null,
+    updatedAt: last.at,
+    fuente: "ONESYSTEC",
+  };
+};
+
+export const getOnesystecLivePositions = async (plates) => {
+  if (!isOnesystecConfigured() || !plates?.length) return [];
+  const vehicles = await ensureVehicles();
+  const idByPlate = new Map(vehicles.map((v) => [normalizePlate(v.plate), v.id]));
+  const wanted = [...new Set(plates.map(normalizePlate))].filter((p) => idByPlate.has(p));
+
+  const out = [];
+  const pending = [];
+  for (const plate of wanted) {
+    const hit = liveCache.get(plate);
+    if (hit && Date.now() - hit.at < LIVE_TTL_MS) {
+      if (hit.position) out.push(hit.position);
+    } else pending.push(plate);
+  }
+  for (let i = 0; i < pending.length; i += LIVE_CONCURRENCY) {
+    const slice = pending.slice(i, i + LIVE_CONCURRENCY);
+    const results = await Promise.all(
+      slice.map((plate) =>
+        fetchLatest(idByPlate.get(plate), plate)
+          .then((position) => ({ plate, position }))
+          .catch(() => ({ plate, position: undefined }))
+      )
+    );
+    for (const { plate, position } of results) {
+      // Un error de la consulta no se guarda (se reintenta en la siguiente); "sin datos" si.
+      if (position === undefined) continue;
+      liveCache.set(plate, { at: Date.now(), position });
+      if (position) out.push(position);
+    }
+  }
+  return out;
+};

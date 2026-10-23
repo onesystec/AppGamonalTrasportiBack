@@ -50,6 +50,7 @@ import { geocodeAddress } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { getVehicleLivePositions } from "./velocityFleet.service.js";
+import { getOnesystecLivePositions, listOnesystecVehicles, isOnesystecConfigured } from "./onesystec.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { pointInPolygon } from "../utils/pointInPolygon.js";
 import { AppError } from "../utils/AppError.js";
@@ -306,11 +307,16 @@ export const isAreaCActiveNow = () => {
 // vivo del Mapa.
 const areaCInProgress = new Set();
 
+// Una posicion de OneSystec puede ser de hace una hora (vehiculo quieto): sirve para ubicarlo en el Mapa, pero no para avisar de Area C ni de velocidad.
+// Las de Velocity Fleet no se tocan (se evaluan como siempre).
+const DETECCION_MAX_EDAD_MS = 10 * 60 * 1000;
+const esPosicionFresca = (m) => m.fuente !== "ONESYSTEC" || (m.updatedAt != null && Date.now() - new Date(m.updatedAt).getTime() <= DETECCION_MAX_EDAD_MS);
+
 const checkAreaCEntries = async (matched) => {
   if (!isAreaCActiveNow()) return;
 
   const insideUnauthorized = matched.filter(
-    (m) => !m.autorizadoAreaC && pointInPolygon({ lat: m.lat, lng: m.lng }, AREA_C_PATH)
+    (m) => !m.autorizadoAreaC && esPosicionFresca(m) && pointInPolygon({ lat: m.lat, lng: m.lng }, AREA_C_PATH)
   );
   if (insideUnauthorized.length === 0) return;
 
@@ -368,7 +374,7 @@ const driverNow = async (vehicleId) => {
 const checkSpeedingEvents = async (matched) => {
   const speeding = matched
     .map((m) => ({ ...m, speedKmh: toKmh(m.speed, m.speedUnit) }))
-    .filter((m) => m.speedKmh != null && m.speedKmh > env.SPEEDING_THRESHOLD_KMH);
+    .filter((m) => m.speedKmh != null && m.speedKmh > env.SPEEDING_THRESHOLD_KMH && esPosicionFresca(m));
   if (speeding.length === 0) return;
 
   for (const vehicle of speeding) {
@@ -398,17 +404,27 @@ const checkSpeedingEvents = async (matched) => {
 // sigue mostrando la ubicacion del celular del chofer para ese vehiculo en ese caso,
 // nunca lo deja sin pin.
 const matchLivePositions = async () => {
-  let positions;
+  let positions = [];
   try {
     positions = await getVehicleLivePositions();
   } catch (err) {
     console.error("No se pudo consultar Velocity Fleet:", err.message);
-    return [];
   }
-  if (positions.length === 0) return [];
 
   const byTarga = new Map(positions.map((p) => [p.targa, p]));
   const vehicles = await getVehiclesForPositionLookup();
+
+  // Los vehiculos que Velocity Fleet no tiene pero si OneSystec (dispositivos Teltonika, los instalados mas nuevos) se ubican con la ultima
+  // posicion de OneSystec. Solo los visibles en el Mapa y que Velocity no reporta.
+  if (isOnesystecConfigured()) {
+    const faltantes = vehicles.filter((v) => v.mostrarEnMapa && !byTarga.has(normalizeTarga(v.targa)));
+    try {
+      for (const p of await getOnesystecLivePositions(faltantes.map((v) => v.targa))) byTarga.set(p.targa, p);
+    } catch (err) {
+      console.error("No se pudo consultar OneSystec:", err.message);
+    }
+  }
+  if (byTarga.size === 0) return [];
 
   const matched = vehicles
     .map((v) => {
@@ -426,6 +442,7 @@ const matchLivePositions = async () => {
         ignition: position.ignition,
         direction: position.direction,
         updatedAt: position.updatedAt,
+        fuente: position.fuente ?? "VELOCITY",
       };
     })
     .filter(Boolean);
@@ -443,7 +460,7 @@ export const listVehicleLivePositionsForActor = async () => {
   await checkSpeedingEvents(matched);
 
   // El Mapa solo recibe los vehiculos que el Admin dejo visibles (los avisos de arriba se evaluaron con todos).
-  return matched.filter((m) => m.mostrarEnMapa).map(({ autorizadoAreaC, mostrarEnMapa, ...position }) => position);
+  return matched.filter((m) => m.mostrarEnMapa).map(({ autorizadoAreaC, mostrarEnMapa, fuente, ...position }) => position);
 };
 
 // Monitor de fondo (ver startAreaCMonitor): solo la deteccion de Area C, para que los avisos salgan aunque nadie tenga el mapa abierto.
@@ -465,11 +482,26 @@ export const runAreaCMonitor = async () => {
 // apagado justo ahora, no aparece esta vez, pero se importa solo la proxima vez que
 // este encendido y se vuelva a correr esto.
 export const syncVehiclesFromVelocityFleetForActor = async () => {
-  let positions;
+  let positions = [];
+  let velocityError = null;
   try {
     positions = await getVehicleLivePositions();
   } catch (err) {
-    throw new AppError(`No se pudo consultar Velocity Fleet: ${err.message}`, 502);
+    velocityError = err;
+  }
+
+  // Dispositivos de OneSystec (los Teltonika): se vuelve a pedir la lista para encontrar los recien instalados.
+  let onesystec = [];
+  let onesystecError = null;
+  if (isOnesystecConfigured()) {
+    try {
+      onesystec = await listOnesystecVehicles();
+    } catch (err) {
+      onesystecError = err;
+    }
+  }
+  if (velocityError && (!isOnesystecConfigured() || onesystecError)) {
+    throw new AppError(`No se pudo consultar Velocity Fleet: ${velocityError.message}`, 502);
   }
 
   const existingTargas = new Set(
@@ -478,26 +510,38 @@ export const syncVehiclesFromVelocityFleetForActor = async () => {
 
   const seen = new Set();
   const created = [];
-  for (const position of positions) {
-    const normTarga = normalizeTarga(position.targa);
+  // Velocity Fleet: la cuenta trae tambien vehiculos de otras empresas (UNIVEX...), asi que nacen ocultos hasta que el Admin los active.
+  // OneSystec: son los dispositivos instalados en la flota, y nacen visibles en el Mapa.
+  const candidates = [
+    ...positions.map((p) => ({ targa: p.targa, fuente: "VELOCITY", mostrarEnMapa: false })),
+    ...onesystec.map((v) => ({ targa: v.plate, fuente: "ONESYSTEC", mostrarEnMapa: true })),
+  ];
+  for (const candidate of candidates) {
+    const normTarga = normalizeTarga(candidate.targa);
     if (!normTarga || existingTargas.has(normTarga) || seen.has(normTarga)) continue;
     seen.add(normTarga);
 
     const vehicle = await createVehicleRecord({
       id: randomUUID(),
-      targa: position.targa,
+      targa: normTarga,
       modelo: "Por completar",
       area: "SIN_ASIGNAR",
       estado: "DISPONIBLE",
-      // Importado solo: puede ser de otra empresa de la cuenta de Velocity (UNIVEX...), asi que nace oculto en el Mapa hasta que el Admin lo active.
-      mostrarEnMapa: false,
+      mostrarEnMapa: candidate.mostrarEnMapa,
     });
-    created.push({ id: vehicle.id, targa: vehicle.targa });
+    created.push({ id: vehicle.id, targa: vehicle.targa, fuente: candidate.fuente });
   }
 
   if (created.length > 0) invalidateVehiclesCache();
 
-  return { createdCount: created.length, created };
+  return {
+    createdCount: created.length,
+    created,
+    velocity: created.filter((c) => c.fuente === "VELOCITY").length,
+    onesystec: created.filter((c) => c.fuente === "ONESYSTEC").length,
+    dispositivosOnesystec: onesystec.length,
+    avisos: [velocityError && "Velocity Fleet no respondio", onesystecError && "OneSystec no respondio"].filter(Boolean),
+  };
 };
 
 // El bucket es privado: la respuesta siempre lleva una URL firmada fresca del
