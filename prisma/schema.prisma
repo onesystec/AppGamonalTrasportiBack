@@ -570,6 +570,10 @@ model Record {
   // Cuando el GPS vio al vehiculo en la parada final del servicio (a menos de 150 m y casi parado). Lo detecta el seguimiento
   // en vivo (seguimiento.service.js); da la hora real de llegada para medir la puntualidad contra la ETA.
   llegadaGpsAt        DateTime?
+  // Resultado de comparar el recorrido real del vehiculo (GPS de OneSystec) con la ruta planificada: "OK", "REVISAR" (hay un desvio grande) o
+  // "SIN_DATOS" (no se pudo comparar). El detalle esta en RecorridoReal. Ver recorridoReal.service.js.
+  recorridoEstado     String?
+  recorrido           RecorridoReal?
   estiloManejo        Json?
   estiloCalculadoAt   DateTime?
   // Estimacion del tiempo del servicio solo con las direcciones (retiro, paradas, retorno) cuando no hay
@@ -1110,6 +1114,19 @@ model MemorandumAcceso {
 
   @@index([memorandumId, createdAt])
   @@map("memorandum_accesos")
+}
+
+// Recorrido real de un servicio comparado con el plan: un resumen (km reales, desvio maximo, tramos fuera de ruta, peajes cruzados, Area C) y la
+// linea del recorrido ya simplificada. Se guarda al cerrar el servicio o la primera vez que alguien lo mira. Tabla aparte para que las listas de
+// servicios no carguen la linea. Ver recorridoReal.service.js.
+model RecorridoReal {
+  recordId    String   @id
+  record      Record   @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  resumen     Json
+  geometria   Json?
+  calculadoAt DateTime @default(now())
+
+  @@map("recorridos_reales")
 }
 
 // Registro de quien hizo que con cada busta paga (subida, firma, vista, descarga, reemplazo).

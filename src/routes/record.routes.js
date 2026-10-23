@@ -12,6 +12,7 @@ import {
   listPending,
   listSummaryByMonth,
   recordChanges,
+  recorridoReal,
   listByYear,
   ajustarKmViaje,
   circuitoMapa,
@@ -118,6 +119,8 @@ router.post("/", authorize("OWNER", "ADMIN"), validate(createRecordSchema), crea
 router.get("/:id", validate(idParamSchema, "params"), getById);
 // Circuito (lugar de espera -> retiro -> paradas -> lugar de espera) con sus tramos y el recorrido, para verlo en el mapa.
 router.get("/:id/circuito", validate(idParamSchema, "params"), circuitoMapa);
+// Recorrido real del vehiculo contra el plan (solo oficina).
+router.get("/:id/recorrido", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), recorridoReal);
 
 // A demanda desde el mapa (solo el servicio abierto/seleccionado, no todos en cada poll).
 router.get(

@@ -17,6 +17,7 @@ import {
 import { findUserById, findUserLocationById } from "../models/user.model.js";
 import { purgeFilesForRecord } from "./recordFile.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
+import { computeRecorridoSafe } from "./recorridoReal.service.js";
 import { syncRelevoForRecord } from "./traspaso.service.js";
 import { groupFuelByRecord } from "../models/combustible.model.js";
 import { computeFaltantes } from "../utils/faltantes.js";
@@ -339,6 +340,7 @@ const toFullResponse = (record) => {
     faltantes: faltantesOf(record),
     compactado: record.compactado ?? null,
     circuito: record.circuito ?? null,
+    recorridoEstado: record.recorridoEstado ?? null,
     descripcion: record.descripcion,
     codigo: record.codigo,
     destinazione: record.destinazione,
@@ -964,6 +966,9 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   const updated = await updateRecordById(id, payload);
   if (viaje.estadoViaje) await setGroupOpenEstado(record.compactadoId, viaje.estadoViaje);
+
+  // Al cerrar el servicio (Entregado) se compara el recorrido real del vehiculo con el plan y se guarda el resumen (en segundo plano).
+  if (payload.estado === "CONSEGNATO" && record.estado !== "CONSEGNATO") void computeRecorridoSafe(id);
 
   // Cambiar cuando sale el servicio, su ETA, el vehiculo, el estado o las paradas (ruta) puede
   // cambiar a que servicio pertenece un peaje.

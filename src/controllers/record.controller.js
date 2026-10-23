@@ -30,6 +30,7 @@ import {
 } from "../services/reprogramacion.service.js";
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
+import { getRecorridoForActor } from "../services/recorridoReal.service.js";
 import { getRecordChanges } from "../utils/recordChanges.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { cachedResponse } from "../utils/responseCache.js";
@@ -202,6 +203,12 @@ export const circuitoMapa = asyncHandler(async (req, res) => {
   // "?recalcular=1": el Admin vuelve a calcular el circuito de un servicio ya guardado (por ejemplo tras mejorar el calculo de rutas).
   const data = await getCircuitMapData(record.id, { recalcular: req.query.recalcular === "1" && req.user.cargo === "OWNER" });
   res.status(200).json({ success: true, data: data ?? { circuito: null, puntos: [], geometria: null } });
+});
+
+// Recorrido real del servicio (GPS de OneSystec) comparado con la ruta planificada. ?recalcular=1 lo vuelve a pedir al GPS.
+export const recorridoReal = asyncHandler(async (req, res) => {
+  const data = await getRecorridoForActor(req.user, req.params.id, { recalcular: req.query.recalcular === "1" });
+  res.status(200).json({ success: true, data });
 });
 
 export const ajustarKmViaje = asyncHandler(async (req, res) => {
