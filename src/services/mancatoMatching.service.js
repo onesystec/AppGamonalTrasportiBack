@@ -334,10 +334,53 @@ export const rematchVehicleSafe = (vehicleId) =>
   });
 
 // ---- de quien es cada vehiculo AHORA (para el Mapa) ------------------------------------------------------------------------------------
-// El chofer que se muestra en el Mapa sale del servicio que tiene el vehiculo en este momento, no del "vehiculo habitual" de cada chofer: la misma
-// regla que usan los peajes, el combustible y los excesos de velocidad (evaluateMatch). Cuenta desde MAPA_ANTES_MS antes de la hora de retiro
-// hasta que termina la vuelta. Devuelve un Map vehicleId -> { servicio, driver, tramo, varios } (sin entrada = sin servicio).
+// El chofer que se muestra en el Mapa sale del servicio que tiene el vehiculo en este momento, no del "vehiculo habitual" de cada chofer. A
+// diferencia de los peajes (que miran ventanas de tiempo), aca importa el ESTADO del servicio, para no confundir un servicio terminado con uno
+// pendiente:
+//  1. Servicios en transito (Retirado / En camino) que ya salieron (hasta 24 h): es el que lleva el vehiculo.
+//  2. Si no hay ninguno en transito, los pendientes (En suspenso) que salen en los proximos 50 min (MAPA_ANTES_MS) o ya empezaron.
+//  3. Si no hay pendientes, un servicio ya entregado cuya vuelta a la base sigue en curso (misma ventana que los peajes): "volviendo".
+// Un viaje compacto cuenta como uno solo. Se marca "varios" solo cuando, en el mismo nivel, hay servicios de CHOFERES distintos a la vez (el mismo
+// chofer con dos servicios seguidos no es un conflicto). Devuelve un Map vehicleId -> { servicio, driver, tramo, varios } (sin entrada = sin servicio).
 const MAPA_ANTES_MS = 50 * MIN;
+const MAPA_MAX_EN_TRANSITO_MS = 24 * HOUR;
+const EN_TRANSITO = ["RITIRATO", "IN_CONSEGNA"];
+
+const pickCurrent = (candidates, now) => {
+  const windows = candidates.map((service) => ({ service, ...serviceWindow(service) }));
+  // Un viaje compacto es un solo recorrido: se queda con su primer servicio (por orden) y se descartan los demas.
+  const colapsar = (items) => {
+    const seen = new Set();
+    return [...items]
+      .sort((a, b) => (a.service.compactadoOrden ?? 0) - (b.service.compactadoOrden ?? 0))
+      .filter((w) => {
+        const id = w.service.compactadoId;
+        if (!id) return true;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+  };
+  const transito = colapsar(
+    windows.filter((w) => EN_TRANSITO.includes(w.service.estado) && w.start - MAPA_ANTES_MS <= now && now <= w.start + MAPA_MAX_EN_TRANSITO_MS)
+  );
+  const porSalir = colapsar(
+    windows.filter((w) => w.service.estado === "IN_SOSPESO" && w.start - MAPA_ANTES_MS <= now && now <= Math.max(w.idaEnd, w.start + 30 * MIN))
+  );
+  const tier = transito.length ? transito : porSalir;
+  if (tier.length) {
+    const chosen = [...tier].sort((a, b) => b.start - a.start)[0].service;
+    return { service: chosen, tramo: "IDA", varios: new Set(tier.map((w) => w.service.driverId)).size > 1 };
+  }
+  // Volviendo a la base: un servicio entregado cuya vuelta sigue en curso (cuenta desde la entrega hasta el fin de la ventana de vuelta).
+  const entregados = windows.filter((w) => w.service.estado === "CONSEGNATO");
+  const volviendo = entregados.filter((w) => now >= w.start - MAPA_ANTES_MS && now <= w.returnEnd);
+  if (volviendo.length) {
+    const chosen = [...volviendo].sort((a, b) => b.start - a.start)[0].service;
+    return { service: chosen, tramo: "VUELTA", varios: false };
+  }
+  return null;
+};
 
 export const currentServicesByVehicle = async (vehicleIds, now = Date.now()) => {
   const result = new Map();
@@ -350,14 +393,9 @@ export const currentServicesByVehicle = async (vehicleIds, now = Date.now()) => 
   for (const vehicleId of vehicleIds) {
     const candidates = rows.filter((r) => r.vehicleId === vehicleId || r.vehiculoFinalId === vehicleId);
     if (candidates.length === 0) continue;
-    const match = evaluateMatch({
-      transitAt: new Date(now),
-      driverId: null,
-      candidates,
-      opts: { viajes: true, directo: true, tolBeforeMs: MAPA_ANTES_MS },
-    });
-    const service = match.recordId ? candidates.find((c) => c.id === match.recordId) : null;
-    if (!service) continue;
+    const current = pickCurrent(candidates, now);
+    if (!current) continue;
+    const { service } = current;
     result.set(vehicleId, {
       servicio: {
         id: service.id,
@@ -368,9 +406,8 @@ export const currentServicesByVehicle = async (vehicleIds, now = Date.now()) => 
         eta: service.eta,
       },
       driver: service.driver ? { id: service.driver.id, nombre: service.driver.nombre, apellido: service.driver.apellido } : null,
-      tramo: match.tramo,
-      // Mas de un servicio del vehiculo en curso a esa hora: la oficina lo ve marcado en vez de adivinar.
-      varios: (match.activos ?? 1) > 1,
+      tramo: current.tramo,
+      varios: current.varios,
     });
   }
   return result;
