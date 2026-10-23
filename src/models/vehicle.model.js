@@ -20,7 +20,7 @@ export const findVehiclesWithDrivers = () =>
 // listVehicleLivePositionsForActor/checkAreaCEntries en vehicle.service.js). Menos
 // columnas viajando en cada consulta a Neon.
 export const findVehicleIdsAndTargas = () =>
-  prisma.vehiculo.findMany({ select: { id: true, targa: true, autorizadoAreaC: true } });
+  prisma.vehiculo.findMany({ select: { id: true, targa: true, autorizadoAreaC: true, mostrarEnMapa: true } });
 
 // El chofer solo puede ver la ficha de su vehiculo habitual o de uno que use en alguno de sus servicios.
 export const driverCanSeeVehicle = async (driverId, vehicleId) => {

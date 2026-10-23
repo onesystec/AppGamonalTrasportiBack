@@ -40,6 +40,7 @@ export const createVehicleSchema = z.object({
   kmUltimoMantenimiento: z.coerce.number().nonnegative().optional(),
   kmActual: z.coerce.number().nonnegative().optional(),
   autorizadoAreaC: booleanFromFormSchema.optional(),
+  mostrarEnMapa: booleanFromFormSchema.optional(),
 });
 
 export const updateVehicleSchema = z.object({
@@ -54,6 +55,7 @@ export const updateVehicleSchema = z.object({
   kmUltimoMantenimiento: z.coerce.number().nonnegative().optional(),
   kmActual: z.coerce.number().nonnegative().optional(),
   autorizadoAreaC: booleanFromFormSchema.optional(),
+  mostrarEnMapa: booleanFromFormSchema.optional(),
 });
 
 export const idParamSchema = z.object({

@@ -235,6 +235,9 @@ model Vehiculo {
   // y el GPS del vehiculo (Velocity Fleet) lo detecta dentro del poligono de Area C, se
   // dispara una alerta (ver computeAreaCAlerts en el front) para evitar una multa.
   autorizadoAreaC       Boolean            @default(false)
+  // Si el vehiculo se ve en el Mapa (posicion de Velocity Fleet). La cuenta de Velocity trae tambien vehiculos de otras empresas (UNIVEX...): los
+  // que se importan solos nacen ocultos y el Admin activa a mano los que quiera ver. Ocultarlo NO apaga los avisos de Area C ni de velocidad.
+  mostrarEnMapa         Boolean            @default(true)
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 

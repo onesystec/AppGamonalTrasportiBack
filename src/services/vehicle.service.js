@@ -96,6 +96,7 @@ const toResponse = async (vehicle) => ({
   kmUltimoMantenimiento: vehicle.kmUltimoMantenimiento,
   kmActual: vehicle.kmActual,
   autorizadoAreaC: vehicle.autorizadoAreaC,
+  mostrarEnMapa: vehicle.mostrarEnMapa,
   createdAt: vehicle.createdAt,
   updatedAt: vehicle.updatedAt,
   // Solo viene cuando la consulta incluyo los choferes (lista de vehiculos).
@@ -127,6 +128,7 @@ export const createVehicleRecordForActor = async (data, files) => {
     kmUltimoMantenimiento: data.kmUltimoMantenimiento,
     kmActual: data.kmActual,
     autorizadoAreaC: data.autorizadoAreaC ?? false,
+    mostrarEnMapa: data.mostrarEnMapa ?? true,
     imagenKey,
     libretoKey,
     assicurazioneKey,
@@ -406,6 +408,7 @@ const matchLivePositions = async () => {
         vehicleId: v.id,
         targa: v.targa,
         autorizadoAreaC: v.autorizadoAreaC,
+        mostrarEnMapa: v.mostrarEnMapa,
         lat: position.lat,
         lng: position.lng,
         speed: position.speed,
@@ -429,7 +432,8 @@ export const listVehicleLivePositionsForActor = async () => {
   await checkAreaCEntries(matched);
   await checkSpeedingEvents(matched);
 
-  return matched.map(({ autorizadoAreaC, ...position }) => position);
+  // El Mapa solo recibe los vehiculos que el Admin dejo visibles (los avisos de arriba se evaluaron con todos).
+  return matched.filter((m) => m.mostrarEnMapa).map(({ autorizadoAreaC, mostrarEnMapa, ...position }) => position);
 };
 
 // Monitor de fondo (ver startAreaCMonitor): solo la deteccion de Area C, para que los avisos salgan aunque nadie tenga el mapa abierto.
@@ -475,6 +479,8 @@ export const syncVehiclesFromVelocityFleetForActor = async () => {
       modelo: "Por completar",
       area: "SIN_ASIGNAR",
       estado: "DISPONIBLE",
+      // Importado solo: puede ser de otra empresa de la cuenta de Velocity (UNIVEX...), asi que nace oculto en el Mapa hasta que el Admin lo active.
+      mostrarEnMapa: false,
     });
     created.push({ id: vehicle.id, targa: vehicle.targa });
   }
