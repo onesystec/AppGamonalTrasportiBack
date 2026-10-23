@@ -208,6 +208,12 @@ enum CategoriaVehiculo {
   CASONATO
 }
 
+// De quien es el vehiculo: Gamonal (la flota actual) o Piazza (vehiculos que aportara Piazza). Separa las pestanias de la lista del Mapa.
+enum EmpresaVehiculo {
+  GAMONAL
+  PIAZZA
+}
+
 enum EstadoVehiculo {
   DISPONIBLE
   EN_MANTENIMIENTO
@@ -238,6 +244,7 @@ model Vehiculo {
   // Si el vehiculo se ve en el Mapa (posicion de Velocity Fleet). La cuenta de Velocity trae tambien vehiculos de otras empresas (UNIVEX...): los
   // que se importan solos nacen ocultos y el Admin activa a mano los que quiera ver. Ocultarlo NO apaga los avisos de Area C ni de velocidad.
   mostrarEnMapa         Boolean            @default(true)
+  empresa               EmpresaVehiculo    @default(GAMONAL)
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
 

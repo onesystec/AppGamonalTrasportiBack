@@ -98,6 +98,7 @@ const toResponse = async (vehicle) => ({
   kmActual: vehicle.kmActual,
   autorizadoAreaC: vehicle.autorizadoAreaC,
   mostrarEnMapa: vehicle.mostrarEnMapa,
+  empresa: vehicle.empresa,
   createdAt: vehicle.createdAt,
   updatedAt: vehicle.updatedAt,
   // Solo viene cuando la consulta incluyo los choferes (lista de vehiculos).
@@ -130,6 +131,7 @@ export const createVehicleRecordForActor = async (data, files) => {
     kmActual: data.kmActual,
     autorizadoAreaC: data.autorizadoAreaC ?? false,
     mostrarEnMapa: data.mostrarEnMapa ?? true,
+    empresa: data.empresa ?? "GAMONAL",
     imagenKey,
     libretoKey,
     assicurazioneKey,

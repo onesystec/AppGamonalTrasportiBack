@@ -13,6 +13,7 @@ const categoriaField = z.preprocess(
 // area real cargada a mano.
 const AREA_VALUES = ["EXTRAS_PIAZZA", "DHL", "FARMACIA", "SIN_ASIGNAR"];
 const GRUPO_VALUES = ["SOCIEDAD", "MILANO_NORD", "MILANO_SUD", "ROMA", "FARMACIA"];
+const EMPRESA_VEHICULO_VALUES = ["GAMONAL", "PIAZZA"];
 const ESTADO_VEHICULO_VALUES = ["DISPONIBLE", "EN_MANTENIMIENTO", "FUERA_DE_SERVICIO"];
 
 const targaSchema = z
@@ -41,6 +42,7 @@ export const createVehicleSchema = z.object({
   kmActual: z.coerce.number().nonnegative().optional(),
   autorizadoAreaC: booleanFromFormSchema.optional(),
   mostrarEnMapa: booleanFromFormSchema.optional(),
+  empresa: z.enum(EMPRESA_VEHICULO_VALUES, { errorMap: () => ({ message: "Empresa invalida" }) }).optional(),
 });
 
 export const updateVehicleSchema = z.object({
@@ -56,6 +58,7 @@ export const updateVehicleSchema = z.object({
   kmActual: z.coerce.number().nonnegative().optional(),
   autorizadoAreaC: booleanFromFormSchema.optional(),
   mostrarEnMapa: booleanFromFormSchema.optional(),
+  empresa: z.enum(EMPRESA_VEHICULO_VALUES).optional(),
 });
 
 // Mostrar u ocultar en el Mapa uno o varios vehiculos (la fila de cada vehiculo y los botones "Mostrar todos" / "Ocultar todos").
