@@ -15,7 +15,7 @@ import { countCombustibleByAsignacion } from "../models/combustible.model.js";
 import { fuelNeedsAudit } from "../utils/fuelCost.js";
 import { esFestivoIT } from "../utils/feriadosIt.js";
 import { romeHHMM, romeDay, romeWeekdayShort } from "../utils/romeTime.js";
-import { computeShiftHours, isDayTime } from "../utils/workHours.js";
+import { computeShiftHours, isDayTime, splitDayNightMinutes } from "../utils/workHours.js";
 import { kmFacturables } from "../utils/kmFacturables.js";
 import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
@@ -74,13 +74,25 @@ const romeWeekday = (date) =>
 // Redondea al multiplo mas cercano (0 = no redondea).
 const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : value);
 
+// Servicio de noche: sale fuera de la banda de dia, o la mayor parte de su duracion cae en la noche. El fin es el declarado por el
+// chofer; sin el, la salida mas la duracion del circuito/ruta (un servicio sin duracion conocida solo cuenta por su hora de salida).
+const esServicioNocturno = (record, salida, banda, rutaMin) => {
+  if (!isDayTime(romeHHMM(salida), banda)) return true;
+  const startMs = new Date(salida).getTime();
+  const finMs = record.horaFinReal ? new Date(record.horaFinReal).getTime() : null;
+  const durMin = finMs && finMs > startMs ? (finMs - startMs) / 60000 : numberOr0(rutaMin) || numberOr0(record.circuitoMin) || numberOr0(record.rutaDuracionMin);
+  if (!(durMin > 0)) return false;
+  const { diaMin, nocheMin } = splitDayNightMinutes(startMs, startMs + durMin * 60000);
+  return nocheMin > diaMin;
+};
+
 // Pago de UN servicio, con la tarifa vigente el mes en que se hizo (config/payRates.js).
 //  - Con horas APROBADAS por el responsable se paga por hora, de dia o de noche; sin horas aprobadas
 //    (no las cargo, estan pendientes o fueron devueltas) se paga por distancia: cada bloque de km (85)
 //    vale lo de una hora, de dia o de noche segun la hora de salida.
 //  - La espera solo se suma con horas aprobadas.
-//  - Reperibilidad: si el servicio SALE fuera del horario laboral (fin de semana o festivo) se suma el extra,
-//    con cualquiera de las dos modalidades.
+//  - Reperibilidad: si el servicio es fuera del horario laboral (sale en fin de semana o festivo, o es de noche) se suma
+//    un solo extra, con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
 export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeSinCircuito = false } = {}) => {
   const month = romeDay(record.fechaServicio).slice(0, 7);
@@ -181,6 +193,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     const day = romeDay(new Date(salida));
     if (tariff.reperibilidad.festivosCuentan && esFestivoIT(day)) reperibilidad = "FESTIVO";
     else if (!tariff.reperibilidad.diasLaborales.includes(romeWeekday(salida))) reperibilidad = "FIN_DE_SEMANA";
+    else if (tariff.reperibilidad.nocheCuenta && esServicioNocturno(record, salida, tariff.banda, rutaMin)) reperibilidad = "NOCHE";
     if (reperibilidad) pagoReperibilidad = tariff.reperibilidad.extraEur;
   }
 
@@ -296,13 +309,14 @@ export const payOf = (record, ctx) => {
   return { ...computeServicePay(record, { kmViaje: viaje.km, viajeMin: viaje.min, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
 };
 
-const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, servicios: 0, choferes: new Set() });
+const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, salidasNoche: 0, servicios: 0, choferes: new Set() });
 const addPay = (acc, record, pay) => {
   acc.total += pay.total;
   acc.base += pay.pagoBase;
   acc.espera += pay.pagoEspera;
   acc.reperibilidad += pay.pagoReperibilidad;
   if (pay.reperibilidad) acc.salidas += 1;
+  if (pay.reperibilidad === "NOCHE") acc.salidasNoche += 1;
   acc.servicios += 1;
   acc.choferes.add(record.driverId);
 };
@@ -312,6 +326,7 @@ const finishPay = (acc) => ({
   espera: round2(acc.espera),
   reperibilidad: round2(acc.reperibilidad),
   salidasReperibilidad: acc.salidas,
+  salidasNoche: acc.salidasNoche,
   servicios: acc.servicios,
   choferes: acc.choferes.size,
 });
@@ -670,6 +685,7 @@ const newPayEntry = (driverId, nombre) => ({
   pagoEspera: 0,
   pagoReperibilidad: 0,
   salidasReperibilidad: 0,
+  salidasNoche: 0,
   total: 0,
   serviciosSinDato: 0,
   // Trabajos adicionales aprobados (tareas fuera de los servicios): sus horas se suman a las del chofer y se pagan a tarifa de horas.
@@ -720,6 +736,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoEspera += pay.pagoEspera;
     entry.pagoReperibilidad += pay.pagoReperibilidad;
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
+    if (pay.reperibilidad === "NOCHE") entry.salidasNoche += 1;
     entry.total += pay.total;
     if (["SIN_DATO", "TRASPASO_SIN_KM", "VIAJE_SIN_CIRCUITO"].includes(pay.kmFuente)) entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
