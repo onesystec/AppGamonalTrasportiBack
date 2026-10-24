@@ -110,6 +110,8 @@ export const createRecordSchema = z.object({
     .enum(EXTRAS_PIAZZA_ZONA_VALUES, { errorMap: () => ({ message: "Zona invalida" }) })
     .optional(),
   origenExternoId: z.string().trim().min(1).optional(),
+  // Solicitud de un usuario cliente (Piazza) que este servicio completa: al crearlo, la solicitud queda aceptada y enlazada.
+  solicitudId: z.string().uuid("solicitudId invalido").optional(),
   stops: stopsField,
   salida: salidaField.optional(),
   // "¿Pasa por Brennero?" / "¿Pasa por Frejus?": la ruta lleva ese punto de paso.

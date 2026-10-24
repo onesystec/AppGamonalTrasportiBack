@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { exportar, fotos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { createCliente, listCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
 import { clienteMesQuerySchema, clienteServicioIdSchema } from "../validators/cliente.validator.js";
+import { createSolicitudSchema, solicitudIdSchema, updateSolicitudSchema } from "../validators/solicitud.validator.js";
 
 const router = Router();
 
@@ -16,5 +18,11 @@ router.get("/seguimiento/:id/ruta", validate(clienteServicioIdSchema, "params"),
 router.get("/servicios", validate(clienteMesQuerySchema, "query"), servicios);
 router.get("/exportar", validate(clienteMesQuerySchema, "query"), exportar);
 router.get("/servicios/:id/fotos", validate(clienteServicioIdSchema, "params"), fotos);
+
+// Registro limitado: el cliente pide servicios a la oficina (modulo REGISTRO). Solo ve y toca sus solicitudes (y las de su empresa).
+router.get("/solicitudes", listCliente);
+router.post("/solicitudes", validate(createSolicitudSchema), createCliente);
+router.patch("/solicitudes/:id", validate(solicitudIdSchema, "params"), validate(updateSolicitudSchema), updateCliente);
+router.delete("/solicitudes/:id", validate(solicitudIdSchema, "params"), removeCliente);
 
 export default router;

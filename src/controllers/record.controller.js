@@ -31,6 +31,7 @@ import {
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { getRecorridoForActor } from "../services/recorridoReal.service.js";
+import { linkSolicitudToRecord } from "../services/solicitud.service.js";
 import { getRecordChanges } from "../utils/recordChanges.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { cachedResponse } from "../utils/responseCache.js";
@@ -39,7 +40,9 @@ import { romeDay } from "../utils/romeTime.js";
 const RECORDS_CACHE_TTL_MS = 60 * 1000;
 
 export const create = asyncHandler(async (req, res) => {
-  const record = await createRecord(req.body, { actor: req.user });
+  const { solicitudId, ...data } = req.body;
+  const record = await createRecord(data, { actor: req.user });
+  if (solicitudId) await linkSolicitudToRecord(req.user, solicitudId, record.id);
   res.status(201).json({ success: true, data: { record } });
 });
 

@@ -7,6 +7,7 @@ export const CLIENTE_MODULOS = {
   HISTORIAL: "Historial de servicios",
   FOTOS: "Fotos de entrega y bolla",
   EXCEL: "Descargar sus servicios en Excel",
+  REGISTRO: "Registro limitado: pedir servicios a la oficina",
 };
 export const CLIENTE_MODULOS_KEYS = Object.keys(CLIENTE_MODULOS);
 

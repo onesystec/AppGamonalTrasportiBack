@@ -164,6 +164,8 @@ model User {
   permisosComoChofer        Permiso[]               @relation("PermisoChofer")
   permisosCreados           Permiso[]               @relation("PermisoCreadoPor")
   permisosRevisados         Permiso[]               @relation("PermisoRevisadoPor")
+  solicitudesServicio       SolicitudServicio[]     @relation("SolicitudCreadaPor")
+  solicitudesRevisadas      SolicitudServicio[]     @relation("SolicitudRevisadaPor")
 
   @@map("users")
 }
@@ -455,6 +457,7 @@ model Client {
 
   records  Record[]
   usuarios User[]   @relation("ClienteUsuarios")
+  solicitudes SolicitudServicio[]
 
   @@map("clients")
 }
@@ -650,6 +653,7 @@ model Record {
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]
+  solicitud    SolicitudServicio?
 
   @@index([fechaServicio])
   @@index([driverId])
@@ -1290,4 +1294,60 @@ model AvisoCliente {
   @@unique([recordId, tipo])
   @@index([createdAt])
   @@map("avisos_cliente")
+}
+
+// Tipo de servicio que pide un usuario cliente (Piazza) en una solicitud: decide la plantilla del mensaje de WhatsApp y, al aceptarla, la
+// spedizione y la zona del servicio real.
+enum SolicitudServicioTipo {
+  DHL_MILANO
+  DHL_ROMA
+  AB_SERVICE
+  EXTRA_PIAZZA
+}
+
+enum SolicitudEstado {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+}
+
+// Registro limitado que carga un usuario CLIENTE (Piazza Spedizioni) con pocos datos. Llega a la oficina como solicitud: la oficina completa el
+// formulario real del servicio y, al crearlo, la solicitud queda ACEPTADA y enlazada (recordId). Ver solicitud.service.js.
+model SolicitudServicio {
+  id          String  @id @default(uuid())
+  creadoPorId String
+  creadoPor   User    @relation("SolicitudCreadaPor", fields: [creadoPorId], references: [id], onDelete: Cascade)
+  // Empresa cliente del usuario que la creo (User.clienteId): los usuarios de una misma empresa ven las solicitudes de los demas.
+  empresaId   String?
+  empresa     Client? @relation(fields: [empresaId], references: [id], onDelete: SetNull)
+
+  servicio     SolicitudServicioTipo
+  // "Cliente" del registro limitado: el cliente final del envio (texto libre, no es una ficha de Client).
+  cliente      String
+  destinazione String
+  fechaHora    DateTime
+  km           Float?
+  // Importe (EUR) que anota quien carga la solicitud.
+  pagato       Float?
+  varie        String?
+  varie2       String?
+  // Numero de Milano / Roma (aplicativo) para el "A CHI ASSEGNO?" del mensaje de WhatsApp de DHL. Opcional.
+  aplicativo   Aplicativo?
+
+  estado        SolicitudEstado @default(PENDIENTE)
+  motivoRechazo String?
+  revisadoPorId String?
+  revisadoPor   User?           @relation("SolicitudRevisadaPor", fields: [revisadoPorId], references: [id], onDelete: SetNull)
+  revisadoAt    DateTime?
+  // Servicio real creado a partir de esta solicitud.
+  recordId      String?         @unique
+  record        Record?         @relation(fields: [recordId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([estado, fechaHora])
+  @@index([creadoPorId])
+  @@index([empresaId])
+  @@map("solicitudes_servicio")
 }
