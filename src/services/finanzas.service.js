@@ -7,7 +7,7 @@ import {
   findRecordsDetailed,
   findRecordsLite,
 } from "../models/finanzas.model.js";
-import { combustibleAreaWhere, multaAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
+import { combustibleAreaWhere, multaAreaWhere, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { countRecordsByHorasEstado } from "../models/record.model.js";
 import { spedizzioneFilterForActor } from "./record.service.js";
@@ -73,6 +73,11 @@ const romeWeekday = (date) =>
 
 // Redondea al multiplo mas cercano (0 = no redondea).
 const roundTo = (value, step) => (step > 0 ? Math.round(value / step) * step : value);
+
+// Un circuito con muchos mas km que los planificados casi siempre es una parada mal ubicada (un nombre o un cliente leido como lugar...), no un
+// viaje real: se avisa a la oficina para que lo revise antes de pagar. No cambia el importe.
+const KM_DUDOSO_RATIO = 2.5;
+const KM_DUDOSO_DIF_MIN = 80;
 
 // Servicio de noche: sale fuera de la banda de dia, o la mayor parte de su duracion cae en la noche. El fin es el declarado por el
 // chofer; sin el, la salida mas la duracion del circuito/ruta (un servicio sin duracion conocida solo cuenta por su hora de salida).
@@ -197,6 +202,10 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     if (reperibilidad) pagoReperibilidad = tariff.reperibilidad.extraEur;
   }
 
+  const kmPlan = modo === "KM" ? numberOr0(kmFacturables(record)) : 0;
+  const kmDudoso =
+    modo === "KM" && kmFuente === "CIRCUITO" && kmPlan > 0 && km > kmPlan * KM_DUDOSO_RATIO && km - kmPlan > KM_DUDOSO_DIF_MIN;
+
   return {
     modo,
     franja,
@@ -205,6 +214,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     horasDia: round2(modo === "HORAS" ? horasDia : 0),
     horasNoche: round2(modo === "HORAS" ? horasNoche : 0),
     km: km == null ? null : round2(km),
+    kmPlan: round2(kmPlan),
+    kmDudoso,
     horasManejo: round2(horasManejo),
     tiempoRuta,
     kmFuente,
@@ -309,7 +320,7 @@ export const payOf = (record, ctx) => {
   return { ...computeServicePay(record, { kmViaje: viaje.km, viajeMin: viaje.min, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
 };
 
-const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, salidasNoche: 0, servicios: 0, choferes: new Set() });
+const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, salidasNoche: 0, kmDudosos: 0, servicios: 0, choferes: new Set() });
 const addPay = (acc, record, pay) => {
   acc.total += pay.total;
   acc.base += pay.pagoBase;
@@ -317,6 +328,7 @@ const addPay = (acc, record, pay) => {
   acc.reperibilidad += pay.pagoReperibilidad;
   if (pay.reperibilidad) acc.salidas += 1;
   if (pay.reperibilidad === "NOCHE") acc.salidasNoche += 1;
+  if (pay.kmDudoso) acc.kmDudosos += 1;
   acc.servicios += 1;
   acc.choferes.add(record.driverId);
 };
@@ -327,6 +339,7 @@ const finishPay = (acc) => ({
   reperibilidad: round2(acc.reperibilidad),
   salidasReperibilidad: acc.salidas,
   salidasNoche: acc.salidasNoche,
+  serviciosKmRevisar: acc.kmDudosos,
   servicios: acc.servicios,
   choferes: acc.choferes.size,
 });
@@ -650,7 +663,7 @@ const serviceItem = (record, pay) => ({
 
 // El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
 // los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
-const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago"];
+const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago", "kmDudoso", "kmRevisar"];
 const withoutMoney = (row) => {
   const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
   // Los trabajos adicionales: el chofer ve cuantos y cuantas horas, no el importe.
@@ -688,6 +701,8 @@ const newPayEntry = (driverId, nombre) => ({
   salidasNoche: 0,
   total: 0,
   serviciosSinDato: 0,
+  // Servicios cuyo circuito tiene muchos mas km que los planificados (revisar la ruta antes de pagar).
+  kmRevisar: [],
   // Trabajos adicionales aprobados (tareas fuera de los servicios): sus horas se suman a las del chofer y se pagan a tarifa de horas.
   adicionales: { count: 0, horas: 0, pago: 0 },
 });
@@ -737,6 +752,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoReperibilidad += pay.pagoReperibilidad;
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     if (pay.reperibilidad === "NOCHE") entry.salidasNoche += 1;
+    if (pay.kmDudoso) entry.kmRevisar.push({ id: r.id, codigo: r.codigo, destino: r.destinazione, km: pay.km, kmPlan: pay.kmPlan });
     entry.total += pay.total;
     if (["SIN_DATO", "TRASPASO_SIN_KM", "VIAJE_SIN_CIRCUITO"].includes(pay.kmFuente)) entry.serviciosSinDato += 1;
     byDriver.set(r.driverId, entry);
@@ -803,6 +819,94 @@ export const getPagosChoferesForActor = async (actor, query) => {
       : null,
   };
   return privileged ? result : redactPagosForChofer(result);
+};
+
+// ---------------------------------------------------------------- ranking de km
+// Los km del ranking son LOS MISMOS que se pagan (payOf): los km reales que anoto el chofer o, si no, el circuito completo del sistema
+// (salida, retiro, entrega y vuelta), un viaje compactado una sola vez, y solo servicios pagables. Antes el ranking sumaba los km planificados
+// del cliente (DHL x2), que no se parecen a lo recorrido ni a lo pagado.
+const KM_CATEGORIA = {
+  "dhl-milano": "DHL",
+  "dhl-roma": "DHL",
+  "ab-service": "AB_SERVICE",
+  "piazza-milano": "EXTRA_PIAZZA",
+  "piazza-roma": "EXTRA_PIAZZA",
+  otros: "EXTRAS_STEFANIA",
+};
+const kmOfPay = (record, pay) => {
+  if (pay.incluidoEnViaje) return 0;
+  if (pay.modo === "KM") return numberOr0(pay.km);
+  return numberOr0(record.kilometrosReales) || numberOr0(kmFacturables(record));
+};
+const addDaysTo = (day, n) => new Date(new Date(`${day}T00:00:00.000Z`).getTime() + n * DAY_MS).toISOString().slice(0, 10);
+
+export const getKmRankingForActor = async (actor, query) => {
+  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  await ensureKmhPago();
+  const periodo = query.periodo ?? "mes";
+  const today = romeDay();
+  const month = today.slice(0, 7);
+  // Semana: de lunes a hoy (hora de Roma). Mes: el mes en curso.
+  const firstDay = periodo === "semana" ? addDaysTo(today, -(romeWeekday(new Date()) - 1)) : `${month}-01`;
+  const from = new Date(new Date(`${firstDay}T00:00:00.000Z`).getTime() - DAY_MS);
+  const to = new Date(Date.now() + 2 * DAY_MS);
+
+  const allRecords = await findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }).then((rows) => rows.map(withEffectiveTolls));
+  const keys = actorAreaKeys(actor);
+  const records = allRecords.filter((r) => {
+    const day = romeDay(r.fechaServicio);
+    if (day < firstDay || (periodo === "mes" && day.slice(0, 7) !== month) || !isPayable(r)) return false;
+    if (query.zona && r.extrasPiazzaZona !== query.zona) return false;
+    // Sin areas pedidas, las 5 principales (sin "Otros"); un Responsable solo ve las suyas.
+    const area = recordAreaKey(r);
+    if (keys && !keys.includes(area)) return false;
+    return query.areas ? query.areas.includes(area) : keys !== null || area !== "otros";
+  });
+
+  const viajes = buildViajeContext(records);
+  for (const viaje of viajes.values()) if (viaje.sinCircuito) void ensureCircuitSafe(viaje.holderId);
+
+  const choferes = new Map();
+  const vehiculos = new Map();
+  const add = (map, id, nombre, record, km) => {
+    if (!id) return;
+    const entry = map.get(id) ?? { id, nombre, km: 0, servicios: 0, breakdown: { EXTRA_PIAZZA: 0, DHL: 0, AB_SERVICE: 0, EXTRAS_STEFANIA: 0 } };
+    entry.km += km;
+    entry.servicios += 1;
+    entry.breakdown[KM_CATEGORIA[recordAreaKey(record)]] += km;
+    map.set(id, entry);
+  };
+  for (const r of records) {
+    const km = kmOfPay(r, payOf(r, viajes));
+    add(choferes, r.driverId, r.driver ? `${r.driver.nombre} ${r.driver.apellido}` : "Sin chofer", r, km);
+    add(vehiculos, r.vehicleId, r.vehicle ? `${r.vehicle.targa}${r.vehicle.modelo ? ` - ${r.vehicle.modelo}` : ""}` : "Sin vehiculo", r, km);
+  }
+  const finish = (map) =>
+    [...map.values()]
+      .map((e) => ({ ...e, km: round2(e.km), breakdown: Object.fromEntries(Object.entries(e.breakdown).map(([k, v]) => [k, round2(v)])) }))
+      .sort((a, b) => b.km - a.km);
+  return { periodo, choferes: finish(choferes), vehiculos: finish(vehiculos) };
+};
+
+// Km pagados de cada chofer en un mes ("AAAA-MM"), de todas las areas: lo que cuenta para la meta de km de su nivel (meta.service.js). Mismos km
+// que el pago y el ranking. Con driverId, solo de ese chofer.
+export const getPaidKmByDriver = async (month, { driverId } = {}) => {
+  await ensureKmhPago();
+  const { from, to } = windowFor(month, month);
+  const records = await findRecordsDetailed({ from, to, driverId }).then((rows) =>
+    rows.map(withEffectiveTolls).filter((r) => monthOfRecord(r) === month && isPayable(r))
+  );
+  const viajes = buildViajeContext(records);
+  for (const viaje of viajes.values()) if (viaje.sinCircuito) void ensureCircuitSafe(viaje.holderId);
+  const totals = new Map();
+  for (const r of records) {
+    if (!r.driverId) continue;
+    const entry = totals.get(r.driverId) ?? { km: 0, servicios: 0 };
+    entry.km += kmOfPay(r, payOf(r, viajes));
+    entry.servicios += 1;
+    totals.set(r.driverId, entry);
+  }
+  return totals;
 };
 
 // ---------------------------------------------------------------- planilla de presencias

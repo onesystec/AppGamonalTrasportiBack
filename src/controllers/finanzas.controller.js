@@ -3,6 +3,7 @@ import {
   getGastosServiciosForActor,
   getPagosChoferesForActor,
   getPresenciasDataForActor,
+  getKmRankingForActor,
 } from "../services/finanzas.service.js";
 import { buildPresenciasWorkbook, presenciasFileName } from "../services/presenciasExcel.service.js";
 import { setKmhPagoForActor } from "../services/velocidadPago.service.js";
@@ -13,6 +14,12 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 export const resumen = asyncHandler(async (req, res) => {
   const result = await sharedForOffice("finanzas-resumen", req.user, req.query, () => getFinanzasResumenForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { resumen: result } });
+});
+
+// Ranking de km de choferes y vehiculos: los mismos km que se pagan (ver getKmRankingForActor).
+export const rankingKm = asyncHandler(async (req, res) => {
+  const result = await sharedForOffice("finanzas-ranking-km", req.user, req.query, () => getKmRankingForActor(req.user, req.query));
+  res.status(200).json({ success: true, data: { ranking: result } });
 });
 
 export const pagos = asyncHandler(async (req, res) => {

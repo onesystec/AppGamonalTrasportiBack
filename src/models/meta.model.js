@@ -1,24 +1,5 @@
 import { prisma } from "../config/prisma.js";
 
-// Servicios hechos (entregados o retirados) de unos choferes en una ventana: solo lo necesario para
-// sumar kilometros. No se recorta por area: los km del chofer cuentan completos para su meta.
-export const findDoneRecordsForKm = ({ from, to, driverIds }) =>
-  prisma.record.findMany({
-    where: {
-      fechaServicio: { gte: from, lt: to },
-      estado: { in: ["CONSEGNATO", "RITIRATO"] },
-      ...(driverIds ? { driverId: { in: driverIds } } : {}),
-    },
-    select: {
-      driverId: true,
-      fechaServicio: true,
-      kilometrosReales: true,
-      kilometros: true,
-      rutaDistanciaKm: true,
-      spedizzione: true,
-    },
-  });
-
 // Servicios hechos de un chofer desde una fecha que tienen su jornada cargada, con el estilo de manejo de
 // esa jornada si ya se calculo (ver drivingStyle.service.js).
 export const findDriverServicesForEstilo = ({ driverId, from }) =>

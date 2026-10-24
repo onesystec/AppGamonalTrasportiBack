@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AREA_KEYS } from "../constants/areas.js";
 
 const emptyToUndefined = (value) => (typeof value === "string" && value.trim() === "" ? undefined : value);
 
@@ -9,6 +10,18 @@ const month = z.preprocess(
     .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)")
     .optional()
 );
+
+// Ranking de km: el mes en curso o la semana en curso (lunes a hoy).
+export const rankingKmQuerySchema = z.object({
+  periodo: z.preprocess(emptyToUndefined, z.enum(["mes", "semana"]).default("mes")),
+  // Solo los servicios de esa zona (como el filtro de Resumen semanal).
+  zona: z.preprocess(emptyToUndefined, z.enum(["MILANO", "ROMA"]).optional()),
+  // Solo esas areas (claves separadas por coma, p. ej. "piazza-milano,dhl-roma"); sin esto, las 5 principales (sin "Otros").
+  areas: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() ? v.split(",").map((k) => k.trim()) : undefined),
+    z.array(z.enum(AREA_KEYS)).optional()
+  ),
+});
 
 export const monthQuerySchema = z.object({ month });
 

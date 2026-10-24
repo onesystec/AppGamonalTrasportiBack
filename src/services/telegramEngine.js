@@ -248,12 +248,34 @@ export const parseExtrasRoute = (text) => {
   return stops;
 };
 
+// Mensajes reenviados / copiados de WhatsApp o Telegram traen marcas invisibles (aislantes de direccion U+2066-2069, espacios de ancho
+// cero, word joiners) y las menciones llegan como "@⁨Romario Dhl⁩" o hasta con una marca entre cada letra ("⁠J⁠a⁠r⁠e⁠d"). Sin limpiarlas, los
+// nombres de la oficina quedaban como paradas (y el servicio se geolocalizaba lejisimos: un circuito de 1.282 km por 14 km planificados).
+const INVISIBLES = /[\u200B-\u200F\u2060-\u2069\u202A-\u202E\uFEFF]/g;
+const MENCION = /@[\u200B-\u200F\u2060]*\u2068[^\u2069]*\u2069|@[\p{L}\p{N}_.]+/gu;
+const stripInvisibles = (text) => text.replace(INVISIBLES, "");
+// Una mencion nombra a alguien de la oficina o al chofer; solo cuenta como chofer cuando es la respuesta a "¿a quien asigno?" (allowDriver).
+const stripMentions = (text) => stripInvisibles(text.replace(MENCION, " "));
+
+// DHL Milano / Roma: el destino va en la linea "PER <lugar>" (la linea del cliente, el aplicativo, la ETA, los numeros de pedido... no son paradas).
+const parseDhlPer = (input) => {
+  const places = [];
+  for (const line of input.split("\n")) {
+    const m = /^\s*per\s+(.+?)\s*$/i.exec(line);
+    if (!m) continue;
+    const place = cleanPlace(m[1]);
+    if (place && /[A-Za-zÀ-ÿ]{3}/.test(place) && place !== places.at(-1)) places.push(place);
+  }
+  return places;
+};
+
 // found: lo que se entendio de ESTE texto (solo claves presentes). leftover: pedazos largos que no se pudieron ubicar.
 export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = false } = {}) => {
   const found = {};
   const leftover = [];
   // Las menciones (@Romario) y el "GT" (Gamonal Trasporti) que se agrega a los nombres no son datos.
-  let text = ` ${input.replace(/@/g, " ").replace(/\bGT\b/gi, " ")} `;
+  input = allowDriver ? stripInvisibles(input.replace(/@/g, " ")) : stripMentions(input);
+  let text = ` ${input.replace(/\bGT\b/gi, " ")} `;
   const today = ctx.today;
   let m;
 
@@ -281,6 +303,7 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
     }
   }
   if (tipo === "PM" || tipo === "PR") routeParsed = parseExtrasRoute(input);
+  else if (tipo === "DM" || tipo === "DR") routeParsed = parseDhlPer(input);
 
   ({ text, match: m } = take(text, /\b(?:desc(?:ripcion|ripción)?|nota)\s*[:=]\s*([^\n]+)/i));
   if (m) found.descripcion = m[1].trim();

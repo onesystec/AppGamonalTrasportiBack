@@ -1,10 +1,9 @@
 import { getConfig, setConfig } from "../models/permiso.model.js";
-import { findDoneRecordsForKm, findDrivingUsers } from "../models/meta.model.js";
-import { kmRecorrido } from "../utils/kmFacturables.js";
+import { findDrivingUsers } from "../models/meta.model.js";
+import { getPaidKmByDriver } from "./finanzas.service.js";
 import { AppError } from "../utils/AppError.js";
 import { romeDay } from "../utils/romeTime.js";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const CLAVE = "metas.km";
 const NIVELES = ["NOVATO", "MASTER", "SENIOR"];
 
@@ -24,32 +23,10 @@ export const setMetasConfig = async (values) => {
   return next;
 };
 
-// Mismo criterio de km que el pago: lo que reporto el chofer, si no el del servicio y, de ultima, el de la ruta.
-const kmOf = (r) => kmRecorrido(r);
-
 const resolveMonth = (month) => month ?? romeDay().slice(0, 7);
 
-const windowFor = (month) => {
-  const start = new Date(`${month}-01T00:00:00.000Z`);
-  const [y, m] = month.split("-").map(Number);
-  const next = new Date(Date.UTC(y, m, 1));
-  // Un dia de margen a cada lado; despues se filtra por el dia de Roma.
-  return { from: new Date(start.getTime() - DAY_MS), to: new Date(next.getTime() + DAY_MS) };
-};
-
-const kmByDriver = async (month, driverIds) => {
-  const { from, to } = windowFor(month);
-  const rows = await findDoneRecordsForKm({ from, to, driverIds });
-  const totals = new Map();
-  for (const r of rows) {
-    if (!r.driverId || romeDay(r.fechaServicio).slice(0, 7) !== month) continue;
-    const entry = totals.get(r.driverId) ?? { km: 0, servicios: 0 };
-    entry.km += kmOf(r);
-    entry.servicios += 1;
-    totals.set(r.driverId, entry);
-  }
-  return totals;
-};
+// Los mismos km que se pagan (circuito del sistema o km reales del chofer) y que muestra el ranking.
+const kmByDriver = (month, driverId) => getPaidKmByDriver(month, { driverId });
 
 const progressOf = (nivel, metas, entry, month) => {
   const meta = nivel ? (metas[nivel] ?? null) : null;
@@ -69,7 +46,7 @@ const progressOf = (nivel, metas, entry, month) => {
 // Avance del mes de quien consulta (cualquier usuario que maneja).
 export const getMyProgress = async (actor, query) => {
   const month = resolveMonth(query.month);
-  const [metas, totals] = await Promise.all([getMetasConfig(), kmByDriver(month, [actor.id])]);
+  const [metas, totals] = await Promise.all([getMetasConfig(), kmByDriver(month, actor.id)]);
   return progressOf(actor.nivelChofer, metas, totals.get(actor.id), month);
 };
 
@@ -80,7 +57,7 @@ export const listDriversProgress = async (actor, query) => {
   }
   const month = resolveMonth(query.month);
   const users = await findDrivingUsers();
-  const [metas, totals] = await Promise.all([getMetasConfig(), kmByDriver(month, users.map((u) => u.id))]);
+  const [metas, totals] = await Promise.all([getMetasConfig(), kmByDriver(month)]);
   return {
     month,
     metas,
