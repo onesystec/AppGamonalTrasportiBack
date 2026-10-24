@@ -198,7 +198,7 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
 
   if (opts.directo) {
     const motivo = `${noun} ${where}.${dudas.length ? ` Se eligio el mas probable (${dudas.join("; ")}).` : ""}`;
-    return { recordId: chosen.id, asignacion: "AUTO", tramo, asignacionMotivo: motivo, activos: active.length };
+    return { recordId: chosen.id, asignacion: "AUTO", tramo, asignacionMotivo: motivo };
   }
 
   let asignacion = "AUTO";
@@ -214,7 +214,7 @@ export const evaluateMatch = ({ transitAt, driverId, candidates, opts = {} }) =>
     motivo = `${noun} ${where}, pero el servicio no tiene Fecha de retiro y su horario es una estimacion.`;
   }
 
-  return { recordId: chosen.id, asignacion, tramo, asignacionMotivo: motivo, activos: active.length };
+  return { recordId: chosen.id, asignacion, tramo, asignacionMotivo: motivo };
 };
 
 export const loadCandidates = (vehicleId, transitAt) => {
