@@ -21,22 +21,49 @@ const optionalText = (max) => z.preprocess(emptyToNull, z.string().trim().max(ma
 const optionalNumber = (label) =>
   z.preprocess(emptyToNull, z.coerce.number({ invalid_type_error: `${label} invalido` }).min(0, `${label} invalido`).max(1e6, `${label} invalido`).nullable());
 
+// KM destino: un numero ("25", "25 KM", "68,5") va a km; cualquier otro texto ("NAVETTA HP") queda como kmTexto y km sin valor.
+const KM_NUMERO = /^\s*(\d+(?:[.,]\d+)?)\s*(?:km)?\s*$/i;
+const splitKm = (value) => {
+  if (value === undefined || value === null) return { km: null, kmTexto: null };
+  if (typeof value === "number") return Number.isFinite(value) && value >= 0 ? { km: value, kmTexto: null } : { km: null, kmTexto: null };
+  const text = String(value).trim();
+  if (!text) return { km: null, kmTexto: null };
+  const match = KM_NUMERO.exec(text);
+  if (match) return { km: Number(match[1].replace(",", ".")), kmTexto: null };
+  return { km: null, kmTexto: text.slice(0, 100) };
+};
+const applyKm = ({ km, ...rest }, hasKm) => (hasKm ? { ...rest, ...splitKm(km) } : rest);
+
+const boolean = z.preprocess((v) => (v === "true" || v === "on" ? true : v === "false" ? false : v), z.boolean());
+
 const fields = {
   servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Elige el tipo de servicio" }) }),
   cliente: text("El cliente", 150),
   destinazione: text("La destinazione", 250),
   fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La fecha y hora son invalidas" }) })),
-  km: optionalNumber("Los km"),
+  km: z.union([z.string(), z.number(), z.null()]).optional(),
   pagato: optionalNumber("El importe pagado"),
-  varie: optionalText(4000),
-  varie2: optionalText(2000),
+  pagato50: boolean,
+  fornitore: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? "Gamonal" : v), z.string().trim().max(100, "El fornitore es demasiado largo").default("Gamonal")),
+  autRitiro: optionalText(100),
+  varie: optionalText(500),
+  varie2: optionalNumber("Varie 2"),
+  descripcion: optionalText(4000),
   aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero invalido" }) }).nullable()),
 };
 
-export const createSolicitudSchema = z.object(fields);
-export const updateSolicitudSchema = z.object(fields).partial().refine((v) => Object.keys(v).length > 0, { message: "No hay cambios" });
+export const createSolicitudSchema = z.object({ ...fields, pagato50: boolean.default(false) }).transform((data) => applyKm(data, true));
+export const updateSolicitudSchema = z
+  .object(fields)
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: "No hay cambios" })
+  .transform((data) => applyKm(data, "km" in data));
 
 export const solicitudIdSchema = z.object({ id: z.string().uuid("Id invalido") });
+
+export const clienteSolicitudesQuerySchema = z.object({
+  month: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)").optional()),
+});
 
 export const listSolicitudesQuerySchema = z.object({
   estado: z.preprocess(emptyToUndefined, z.enum(["PENDIENTE", "ACEPTADA", "RECHAZADA", "TODAS"]).default("PENDIENTE")),

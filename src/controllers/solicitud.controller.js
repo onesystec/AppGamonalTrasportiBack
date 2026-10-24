@@ -11,7 +11,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 // Usuario cliente (rutas /cliente/solicitudes)
 export const listCliente = asyncHandler(async (req, res) => {
   res.set("Cache-Control", "no-store");
-  res.status(200).json({ success: true, data: { items: await listSolicitudesCliente(req.user) } });
+  res.status(200).json({ success: true, data: { items: await listSolicitudesCliente(req.user, req.query) } });
 });
 
 export const createCliente = asyncHandler(async (req, res) => {

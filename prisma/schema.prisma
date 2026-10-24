@@ -1326,11 +1326,22 @@ model SolicitudServicio {
   cliente      String
   destinazione String
   fechaHora    DateTime
+  // KM destino: el numero (km) y, si lo escrito no es un numero (ej. "NAVETTA HP"), el texto (kmTexto). En AB Service es el "Totale" del Excel.
   km           Float?
+  kmTexto      String?
   // Importe (EUR) que anota quien carga la solicitud.
   pagato       Float?
+  // Solo DHL Roma: "Pagato al 50%".
+  pagato50     Boolean @default(false)
+  // Quien presta el servicio (columna Fornitore del Excel). Por defecto Gamonal; queda como dato para cuando otros proveedores usen la app.
+  fornitore    String  @default("Gamonal")
+  // Solo AB Service: persona autorizada al retiro (Aut. ritiro).
+  autRitiro    String?
+  // Varie: nota corta (ej. "1 H ONSITE"). Varie 2: importe (EUR) extra (ej. lo que se cobra por la espera onsite).
   varie        String?
-  varie2       String?
+  varie2       Float?
+  // Solo AB Service: descripcion completa del envio (se usa en el mensaje de WhatsApp).
+  descripcion  String?
   // Numero de Milano / Roma (aplicativo) para el "A CHI ASSEGNO?" del mensaje de WhatsApp de DHL. Opcional.
   aplicativo   Aplicativo?
 

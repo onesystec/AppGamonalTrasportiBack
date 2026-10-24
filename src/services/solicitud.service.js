@@ -2,6 +2,7 @@ import { prisma } from "../config/prisma.js";
 import { SOLICITUD_SERVICIOS } from "../constants/solicitudes.js";
 import { AppError } from "../utils/AppError.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
+import { romeLocalToDate } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -22,9 +23,14 @@ const toDto = (s, { office = false } = {}) => ({
   destinazione: s.destinazione,
   fechaHora: s.fechaHora,
   km: s.km,
+  kmTexto: s.kmTexto,
   pagato: s.pagato,
+  pagato50: s.pagato50,
+  fornitore: s.fornitore,
+  autRitiro: s.autRitiro,
   varie: s.varie,
   varie2: s.varie2,
+  descripcion: s.descripcion,
   aplicativo: s.aplicativo,
   estado: s.estado,
   motivoRechazo: s.motivoRechazo,
@@ -47,15 +53,22 @@ const findOwned = async (user, id) => {
   return solicitud;
 };
 
-const HISTORY_DAYS = 60;
+// Mes (AAAA-MM) -> [desde, hasta) en hora de Roma.
+const monthRange = (month) => {
+  const [year, mon] = month.split("-").map(Number);
+  const next = mon === 12 ? `${year + 1}-01` : `${year}-${String(mon + 1).padStart(2, "0")}`;
+  return { gte: romeLocalToDate(`${month}-01`, "00:00"), lt: romeLocalToDate(`${next}-01`, "00:00") };
+};
 
-export const listSolicitudesCliente = async (user) => {
+// Con month: las solicitudes de ese mes (como la hoja mensual del Excel). Sin month: las pendientes y las de los ultimos 60 dias.
+export const listSolicitudesCliente = async (user, { month } = {}) => {
   requireRegistro(user);
-  const since = new Date(Date.now() - HISTORY_DAYS * 24 * 60 * 60 * 1000);
+  const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
+  const when = month ? { fechaHora: monthRange(month) } : { OR: [{ estado: "PENDIENTE" }, { fechaHora: { gte: since } }] };
   const rows = await prisma.solicitudServicio.findMany({
-    where: { AND: [scopeWhere(user), { OR: [{ estado: "PENDIENTE" }, { fechaHora: { gte: since } }] }] },
+    where: { AND: [scopeWhere(user), when] },
     orderBy: { fechaHora: "desc" },
-    take: 300,
+    take: 600,
   });
   return rows.map((s) => toDto(s));
 };
