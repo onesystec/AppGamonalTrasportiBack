@@ -7,6 +7,7 @@ import { romeDay } from "../utils/romeTime.js";
 import { calculateRoute } from "./routing.service.js";
 import { getSeguimiento, RETRASO_AVISO_MIN } from "./seguimiento.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
+import { listVehicleLivePositionsForActor } from "./vehicle.service.js";
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
@@ -58,6 +59,29 @@ const ESTADO_LABEL = {
 // Una sola lectura de todos los viajes en camino para todos los clientes que miran a la vez (el calculo de GPS es pesado).
 const allSeguimiento = () =>
   cachedResponse("cliente-seguimiento", SEGUIMIENTO_TTL_MS, () => getSeguimiento({ cargo: "OWNER" }), { small: true });
+
+// Mapa "En Vivo": la posicion de los vehiculos visibles en el Mapa de la oficina (los mismos que ve el Admin), solo con lo que hace falta para
+// dibujarlos: targa, posicion, movimiento y hora. Sin chofer, servicio ni cliente: una furgoneta lleva paquetes de varios clientes. Una sola
+// lectura compartida entre todos los que miran a la vez (cada una consulta al GPS).
+const EN_VIVO_TTL_MS = 20 * 1000;
+
+export const getEnVivoCliente = async (user) => {
+  requireModulo(user, "EN_VIVO");
+  const positions = await cachedResponse("cliente-en-vivo", EN_VIVO_TTL_MS, () => listVehicleLivePositionsForActor(), { small: true });
+  return {
+    generadoAt: new Date().toISOString(),
+    vehiculos: positions.map((p) => ({
+      targa: p.targa,
+      lat: p.lat,
+      lng: p.lng,
+      speed: p.speed ?? null,
+      speedUnit: p.speedUnit ?? null,
+      ignition: p.ignition ?? null,
+      direction: p.direction ?? null,
+      updatedAt: p.updatedAt ?? null,
+    })),
+  };
+};
 
 export const toClienteServicio = (s, { conMapa }) => {
   const llego = Boolean(s.llego);

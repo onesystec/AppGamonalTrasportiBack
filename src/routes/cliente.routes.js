@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { exportar, fotos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { enVivo, exportar, fotos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
 import { createCliente, listCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
@@ -14,6 +14,7 @@ router.use(authenticate, authorize("CLIENTE"));
 
 router.get("/me", me);
 router.get("/seguimiento", seguimiento);
+router.get("/en-vivo", enVivo);
 router.get("/seguimiento/:id/ruta", validate(clienteServicioIdSchema, "params"), ruta);
 router.get("/servicios", validate(clienteMesQuerySchema, "query"), servicios);
 router.get("/exportar", validate(clienteMesQuerySchema, "query"), exportar);

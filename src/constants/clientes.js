@@ -8,6 +8,7 @@ export const CLIENTE_MODULOS = {
   FOTOS: "Fotos de entrega y bolla",
   EXCEL: "Descargar sus servicios en Excel",
   REGISTRO: "Registro limitado: pedir servicios a la oficina",
+  EN_VIVO: "Mapa En Vivo: posicion de los vehiculos en tiempo real",
 };
 export const CLIENTE_MODULOS_KEYS = Object.keys(CLIENTE_MODULOS);
 
