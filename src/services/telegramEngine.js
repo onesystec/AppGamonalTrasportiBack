@@ -258,12 +258,16 @@ const stripInvisibles = (text) => text.replace(INVISIBLES, "");
 const stripMentions = (text) => stripInvisibles(text.replace(MENCION, " "));
 
 // DHL Milano / Roma: el destino va en la linea "PER <lugar>" (la linea del cliente, el aplicativo, la ETA, los numeros de pedido... no son paradas).
+// Lineas de encabezado de los mensajes de DHL ("NUOVO SERVIZIO ASAP", "CISCO SCHEDULED CON APP", "HP ASAP CON APP"): describen el tipo de pedido,
+// no un lugar.
+const DHL_ENCABEZADO = /\b(?:con\s+app|asap|scheduled|schedulato|nuovo\s+(?:hp|servizio)|nuova\s+spedizione)\b/i;
 const parseDhlPer = (input) => {
   const places = [];
   for (const line of input.split("\n")) {
     const m = /^\s*per\s+(.+?)\s*$/i.exec(line);
     if (!m) continue;
-    const place = cleanPlace(m[1]);
+    // "PER ROMA ETA 13.36" / "PER ROMA KM 22": la hora y los km de la misma linea no son parte del lugar.
+    const place = cleanPlace(m[1].replace(/\s+(?:eta|ore|km)\b.*$/i, ""));
     if (place && /[A-Za-zÀ-ÿ]{3}/.test(place) && place !== places.at(-1)) places.push(place);
   }
   return places;
@@ -433,6 +437,8 @@ export const extractFields = (input, ctx, { tipo, onlyDrivers, allowDriver = fal
   const addStop = (raw, force) => {
     let s = raw.replace(LEADING_FILLER, "").replace(/^[\s.:\-–]+|[\s.:\-–]+$/g, "").trim();
     if (s.length < 2 || s.includes("?")) return;
+    // El cliente de la linea de encabezado ya se reconocio arriba; lo que queda de ella no es un lugar.
+    if ((tipo === "DM" || tipo === "DR") && DHL_ENCABEZADO.test(s)) return;
     if (DEPOT_WORDS.has(s.toLowerCase()) && stops.length === 0) return;
     if (!force && (s.split(/\s+/).length > 8 || s.length > 80)) {
       leftover.push(s);
