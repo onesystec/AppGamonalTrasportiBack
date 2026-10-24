@@ -3,7 +3,7 @@ import { AREA_LABELS } from "../constants/areas.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 import { findLastRespaldoPing, findRespaldoPings } from "../models/gpsRespaldo.model.js";
 import { getConfig, setConfig } from "../models/permiso.model.js";
-import { findActiveForSeguimiento, findGroupMembers, markLlegadaGps } from "../models/seguimiento.model.js";
+import { findActiveForSeguimiento, findGroupMembers, findProgramadosForSeguimiento, markLlegadaGps } from "../models/seguimiento.model.js";
 import { findOfficeUserIdsForArea, findUserLocationById } from "../models/user.model.js";
 import { canAccessAreaKey, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { deriveSpeeds, distanceMeters } from "../utils/stopDetection.js";
@@ -646,14 +646,51 @@ export const filtrarParaOficina = async (servicios, { now = Date.now(), incluirA
   return { visibles, antiguos, vehiculoOculto };
 };
 
+// Servicios asignados que aun no salieron (IN_SOSPESO), para tenerlos a la vista junto a los que van en camino. Sin GPS ni llegada estimada:
+// solo chofer, vehiculo, destino y ETA. Los de un viaje compactado que ya esta en camino ya salen en la lista principal.
+const PROGRAMADOS_BEFORE_MS = 12 * HOUR_MS;
+const PROGRAMADOS_AFTER_MS = 24 * HOUR_MS;
+export const getProgramados = async (actor, enCamino, { now = Date.now() } = {}) => {
+  const [records, hidden] = await Promise.all([
+    findProgramadosForSeguimiento({
+      gte: new Date(now - PROGRAMADOS_BEFORE_MS),
+      lte: new Date(now + PROGRAMADOS_AFTER_MS),
+      areaWhere: recordAreaWhere(actor),
+    }),
+    hiddenTargas(),
+  ]);
+  const yaListados = new Set(enCamino.map((s) => s.id));
+  return records
+    .filter((r) => !yaListados.has(r.id) && !(r.vehicle?.targa && hidden.has(normalizeTargaText(r.vehicle.targa))))
+    .map((r) => {
+      const areaKey = recordAreaKey(r);
+      return {
+        id: r.id,
+        codigo: r.codigo,
+        tipo: areaKey,
+        tipoLabel: TIPOS_SEGUIMIENTO[areaKey],
+        chofer: { id: r.driver.id, nombre: `${r.driver.nombre} ${r.driver.apellido}`.trim(), telefono: r.driver.numeroCelular ?? null },
+        vehiculo: r.vehicle?.targa ?? null,
+        cliente: r.client?.nombre ?? null,
+        destino: r.stops.at(-1)?.direccion ?? r.destinazione,
+        etaPlan: r.eta.toISOString(),
+        salidaPlan: r.fechaRetiro ? r.fechaRetiro.toISOString() : null,
+        // Ya paso su hora y sigue sin salir.
+        sinSalir: r.eta.getTime() < now,
+      };
+    });
+};
+
 export const getSeguimientoForActor = async (actor, { incluirAntiguos = false } = {}) => {
   const result = await getSeguimiento(actor);
   const { visibles, antiguos, vehiculoOculto } = await filtrarParaOficina(result.servicios, { incluirAntiguos });
+  const programados = await getProgramados(actor, result.servicios);
   // Sin esperar: la respuesta no depende de que salgan los avisos.
   runSeguimientoAlerts().catch(() => {});
   return {
     ...result,
     servicios: visibles,
+    programados,
     // Cuantos servicios no se muestran y por que: la pantalla lo avisa para no dar la impresion de que faltan.
     ocultos: { antiguos: incluirAntiguos ? 0 : antiguos, vehiculoOculto, maxRetrasoHoras: env.SEGUIMIENTO_MAX_RETRASO_HORAS },
     alertas: buildSeguimientoAlerts(visibles.filter((s) => (s.retrasoMin ?? 0) <= env.SEGUIMIENTO_MAX_RETRASO_HORAS * 60 || s.llego)),

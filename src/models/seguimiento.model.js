@@ -35,6 +35,14 @@ export const findActiveForSeguimiento = ({ estados, gte, lte, areaWhere }) =>
     orderBy: { eta: "asc" },
   });
 
+// Servicios asignados que todavia no salieron (IN_SOSPESO): no tienen GPS ni ETA en vivo, solo se listan.
+export const findProgramadosForSeguimiento = ({ gte, lte, areaWhere }) =>
+  prisma.record.findMany({
+    where: { estado: "IN_SOSPESO", eta: { gte, lte }, ...(areaWhere ?? {}) },
+    select: SELECT,
+    orderBy: { eta: "asc" },
+  });
+
 // Todos los servicios de los viajes compactados indicados (incluidos los ya entregados, para la linea de tiempo).
 export const findGroupMembers = (compactadoIds) =>
   compactadoIds.length
