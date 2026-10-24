@@ -132,12 +132,16 @@ export const getVehicleDrivingStyle = (onesystecVehicleId, fromMs, toMs) =>
 
 // ---- posiciones en vivo para el Mapa -------------------------------------------------------------------------------
 // Ultima posicion de los vehiculos que estan en OneSystec (los dispositivos Teltonika) y no en Velocity Fleet: se mira la ultima media hora
-// y, si el vehiculo esta quieto (casi no manda puntos), hasta hace hora y media. Resultado en el mismo formato que las posiciones de Velocity
+// y, si el vehiculo esta quieto (casi no manda puntos), hasta hace hora y media. Si tampoco hay nada, se busca hacia atras hasta LIVE_STALE_MAX_MS
+// para no perder del Mapa un vehiculo apagado: se muestra su ultima ubicacion conocida, con su antiguedad (el Mapa la marca "sin senal"). Resultado en el mismo formato que las posiciones de Velocity
 // Fleet, mas fuente "ONESYSTEC". Un cache corto evita repetir la consulta por cada pestana del Mapa abierta.
 const LIVE_TTL_MS = 40 * 1000;
 const LIVE_CONCURRENCY = 4;
 const LIVE_RECENT_MS = 10 * 60 * 1000;
 const LIVE_PARKED_MS = 90 * 60 * 1000;
+// Hasta donde se busca la ultima posicion de un vehiculo que lleva rato sin transmitir, y cada cuanto se repite esa busqueda (son varias consultas).
+const LIVE_STALE_MAX_MS = 48 * 60 * 60 * 1000;
+const LIVE_STALE_TTL_MS = 10 * 60 * 1000;
 const liveCache = new Map();
 
 const latestOf = (rows) => rows.at(-1) ?? null;
@@ -146,9 +150,15 @@ const fetchLatest = async (onesystecVehicleId, plate) => {
   const now = Date.now();
   let rows = await getVehiclePositions(onesystecVehicleId, now - LIVE_RECENT_MS, now);
   if (!rows.length) rows = await getVehiclePositions(onesystecVehicleId, now - LIVE_PARKED_MS, now);
+  let stale = false;
+  // Sin puntos en la ultima hora y media: se busca hacia atras, de a tramos, hasta el primero que tenga datos.
+  for (let to = now - LIVE_PARKED_MS; !rows.length && to > now - LIVE_STALE_MAX_MS; to -= CHUNK_MS) {
+    stale = true;
+    rows = await getVehiclePositions(onesystecVehicleId, to - CHUNK_MS, to);
+  }
   const last = latestOf(rows);
-  if (!last || last.lat == null || last.lng == null) return null;
-  return {
+  if (!last || last.lat == null || last.lng == null) return { stale: true, position: null };
+  const position = {
     targa: plate,
     lat: last.lat,
     lng: last.lng,
@@ -159,6 +169,7 @@ const fetchLatest = async (onesystecVehicleId, plate) => {
     updatedAt: last.at,
     fuente: "ONESYSTEC",
   };
+  return { stale, position };
 };
 
 export const getOnesystecLivePositions = async (plates) => {
@@ -171,7 +182,7 @@ export const getOnesystecLivePositions = async (plates) => {
   const pending = [];
   for (const plate of wanted) {
     const hit = liveCache.get(plate);
-    if (hit && Date.now() - hit.at < LIVE_TTL_MS) {
+    if (hit && Date.now() - hit.at < (hit.stale ? LIVE_STALE_TTL_MS : LIVE_TTL_MS)) {
       if (hit.position) out.push(hit.position);
     } else pending.push(plate);
   }
@@ -180,14 +191,14 @@ export const getOnesystecLivePositions = async (plates) => {
     const results = await Promise.all(
       slice.map((plate) =>
         fetchLatest(idByPlate.get(plate), plate)
-          .then((position) => ({ plate, position }))
+          .then(({ stale, position }) => ({ plate, position, stale }))
           .catch(() => ({ plate, position: undefined }))
       )
     );
-    for (const { plate, position } of results) {
+    for (const { plate, position, stale } of results) {
       // Un error de la consulta no se guarda (se reintenta en la siguiente); "sin datos" si.
       if (position === undefined) continue;
-      liveCache.set(plate, { at: Date.now(), position });
+      liveCache.set(plate, { at: Date.now(), position, stale });
       if (position) out.push(position);
     }
   }
