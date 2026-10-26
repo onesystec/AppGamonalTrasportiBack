@@ -1233,6 +1233,8 @@ model Sollecito {
   numeroAtto     String          @unique
   fechaCarta     DateTime?       @db.Date
   fechaTransito  DateTime?       @db.Date
+  // Ultimo dia para pagar que indica la carta (si lo dice).
+  fechaLimitePago DateTime?      @db.Date
   targa          String?
   numerosMancato String[]        @default([])
   importe        Decimal?        @db.Decimal(10, 2)

@@ -60,7 +60,10 @@ const toResponse = async (s, mancatosByNumero) => {
     numeroAtto: s.numeroAtto,
     fechaCarta: toDay(s.fechaCarta),
     fechaTransito: toDay(s.fechaTransito),
+    fechaLimitePago: toDay(s.fechaLimitePago),
     targa: s.targa,
+    // Targas a la vista: la de la carta y las de los mancatos de la app que reclama.
+    targas: [...new Set([s.targa, ...mancatos.filter((m) => m.enApp).map((m) => m.targa)].filter(Boolean))],
     numerosMancato: s.numerosMancato,
     mancatos,
     importe: s.importe === null ? null : Number(s.importe),
@@ -107,6 +110,9 @@ const dataFrom = (fields) => {
   }
   if (fields.fechaCarta !== undefined) data.fechaCarta = fields.fechaCarta ? dayToDate(fields.fechaCarta) : null;
   if (fields.fechaTransito !== undefined) data.fechaTransito = fields.fechaTransito ? dayToDate(fields.fechaTransito) : null;
+  if (fields.fechaLimitePago !== undefined) {
+    data.fechaLimitePago = fields.fechaLimitePago ? dayToDate(fields.fechaLimitePago) : null;
+  }
   return data;
 };
 
