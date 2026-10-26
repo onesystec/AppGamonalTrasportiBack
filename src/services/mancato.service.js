@@ -123,14 +123,15 @@ const estadoWhere = (estado, today) => {
   return {};
 };
 
-// Atajo "Vencen hoy y mañana": sin pagar, no observados y con vencimiento hoy o mañana.
+// Atajo "Vencen hoy / mañana": sin pagar, no observados y con vencimiento ese dia (o los dos).
 const venceWhere = (vence, today) => {
-  if (vence !== "HOY_MANANA") return null;
-  return {
-    pagado: false,
-    observado: false,
-    fechaVencimiento: { gte: dayToDate(today), lte: addDays(today, 1) },
+  const rangos = {
+    HOY: { gte: dayToDate(today), lte: dayToDate(today) },
+    MANANA: { gte: addDays(today, 1), lte: addDays(today, 1) },
+    HOY_MANANA: { gte: dayToDate(today), lte: addDays(today, 1) },
   };
+  if (!rangos[vence]) return null;
+  return { pagado: false, observado: false, fechaVencimiento: rangos[vence] };
 };
 
 // El chofer solo ve los suyos; OWNER/ADMIN ven todos y pueden filtrar por chofer.

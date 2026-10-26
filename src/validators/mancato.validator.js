@@ -108,8 +108,8 @@ const listFilters = {
   fueraDePlazo: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
   // REVISAR = lo que la oficina debe mirar: sugeridos + en espera de servicio.
   asignacion: z.preprocess(emptyToUndefined, z.enum(ASIGNACION_VALUES).optional()),
-  // Atajo: los que vencen hoy o mañana.
-  vence: z.preprocess(emptyToUndefined, z.enum(["HOY_MANANA"]).optional()),
+  // Atajo: los que vencen hoy, mañana o los dos dias.
+  vence: z.preprocess(emptyToUndefined, z.enum(["HOY", "MANANA", "HOY_MANANA"]).optional()),
 };
 
 const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto"];
