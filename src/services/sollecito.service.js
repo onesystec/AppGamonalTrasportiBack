@@ -63,7 +63,12 @@ const toResponse = async (s, mancatosByNumero) => {
     fechaLimitePago: toDay(s.fechaLimitePago),
     targa: s.targa,
     // Targas a la vista: la de la carta y las de los mancatos de la app que reclama.
-    targas: [...new Set([s.targa, ...mancatos.filter((m) => m.enApp).map((m) => m.targa)].filter(Boolean))],
+    // ("SIN TARGA" es un relleno de algunos mancatos: no cuenta como targa).
+    targas: [
+      ...new Set(
+        [s.targa, ...mancatos.filter((m) => m.enApp).map((m) => m.targa)].filter((t) => t && !/^SIN/i.test(t))
+      ),
+    ],
     numerosMancato: s.numerosMancato,
     mancatos,
     importe: s.importe === null ? null : Number(s.importe),
