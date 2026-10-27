@@ -106,14 +106,12 @@ const asignacionWhere = (value) => {
 
 const calcVencimiento = (fechaDay) => addDays(fechaDay, PLAZO_DIAS_DESPUES_DE_LA_FECHA);
 
-// Historial vencidos: sin pagar y vencidos hace mas de 2 meses. Pasan solos (se calcula con la fecha de hoy).
+// Historial vencidos: sin pagar, ya vencidos y con fecha de aviso de antes de los 2 meses anteriores al actual
+// (en octubre quedan a la vista agosto, septiembre y octubre). Pasan solos al cambiar de mes.
 const HISTORIAL_MESES = 2;
 const historialCutoff = (today) => {
-  const [y, m, d] = today.split("-").map(Number);
-  const target = new Date(Date.UTC(y, m - 1 - HISTORIAL_MESES, 1));
-  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  target.setUTCDate(Math.min(d, lastDay));
-  return target.toISOString().slice(0, 10);
+  const [y, m] = today.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1 - HISTORIAL_MESES, 1)).toISOString().slice(0, 10);
 };
 
 // Pendiente / Vencido / Historial / Pagado nunca se guardan: se derivan de pagado + fechaVencimiento.
@@ -121,9 +119,8 @@ const historialCutoff = (today) => {
 const deriveEstado = (m, today) => {
   if (m.pagado) return "PAGADO";
   if (m.observado) return "OBSERVADO";
-  const vence = dateOnlyToDay(m.fechaVencimiento);
-  if (vence < historialCutoff(today)) return "HISTORIAL_VENCIDO";
-  return vence < today ? "VENCIDO" : "PENDIENTE";
+  if (dateOnlyToDay(m.fechaVencimiento) >= today) return "PENDIENTE";
+  return dateOnlyToDay(m.fecha) < historialCutoff(today) ? "HISTORIAL_VENCIDO" : "VENCIDO";
 };
 
 const estadoWhere = (estado, today) => {
@@ -131,9 +128,11 @@ const estadoWhere = (estado, today) => {
   const cutoffDate = dayToDate(historialCutoff(today));
   if (estado === "PAGADO") return { pagado: true };
   if (estado === "OBSERVADO") return { pagado: false, observado: true };
-  if (estado === "HISTORIAL_VENCIDO") return { pagado: false, observado: false, fechaVencimiento: { lt: cutoffDate } };
+  if (estado === "HISTORIAL_VENCIDO") {
+    return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate }, fecha: { lt: cutoffDate } };
+  }
   if (estado === "VENCIDO") {
-    return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate, gte: cutoffDate } };
+    return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate }, fecha: { gte: cutoffDate } };
   }
   if (estado === "PENDIENTE") return { pagado: false, observado: false, fechaVencimiento: { gte: todayDate } };
   return {};
