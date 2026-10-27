@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { romeDay } from "../utils/romeTime.js";
 
-const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO", "OBSERVADO"];
+const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO", "HISTORIAL_VENCIDO", "OBSERVADO"];
 
 // Los formularios llegan como multipart: todo viene como string, y un campo opcional sin
 // completar puede venir vacio.

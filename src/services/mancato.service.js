@@ -106,19 +106,35 @@ const asignacionWhere = (value) => {
 
 const calcVencimiento = (fechaDay) => addDays(fechaDay, PLAZO_DIAS_DESPUES_DE_LA_FECHA);
 
-// Pendiente / Vencido / Pagado nunca se guardan: se derivan de pagado + fechaVencimiento.
+// Historial vencidos: sin pagar y vencidos hace mas de 2 meses. Pasan solos (se calcula con la fecha de hoy).
+const HISTORIAL_MESES = 2;
+const historialCutoff = (today) => {
+  const [y, m, d] = today.split("-").map(Number);
+  const target = new Date(Date.UTC(y, m - 1 - HISTORIAL_MESES, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
+};
+
+// Pendiente / Vencido / Historial / Pagado nunca se guardan: se derivan de pagado + fechaVencimiento.
 // Observado = la oficina lo marco porque no se puede pagar por algun motivo (si se paga, pasa a Pagado).
 const deriveEstado = (m, today) => {
   if (m.pagado) return "PAGADO";
   if (m.observado) return "OBSERVADO";
-  return dateOnlyToDay(m.fechaVencimiento) < today ? "VENCIDO" : "PENDIENTE";
+  const vence = dateOnlyToDay(m.fechaVencimiento);
+  if (vence < historialCutoff(today)) return "HISTORIAL_VENCIDO";
+  return vence < today ? "VENCIDO" : "PENDIENTE";
 };
 
 const estadoWhere = (estado, today) => {
   const todayDate = dayToDate(today);
+  const cutoffDate = dayToDate(historialCutoff(today));
   if (estado === "PAGADO") return { pagado: true };
   if (estado === "OBSERVADO") return { pagado: false, observado: true };
-  if (estado === "VENCIDO") return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate } };
+  if (estado === "HISTORIAL_VENCIDO") return { pagado: false, observado: false, fechaVencimiento: { lt: cutoffDate } };
+  if (estado === "VENCIDO") {
+    return { pagado: false, observado: false, fechaVencimiento: { lt: todayDate, gte: cutoffDate } };
+  }
   if (estado === "PENDIENTE") return { pagado: false, observado: false, fechaVencimiento: { gte: todayDate } };
   return {};
 };
@@ -375,6 +391,7 @@ const ORDER_BY_ESTADO = {
   // Lo mas urgente primero: el que vence antes (o lleva mas tiempo vencido).
   PENDIENTE: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
   VENCIDO: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
+  HISTORIAL_VENCIDO: [{ fechaVencimiento: "desc" }, { createdAt: "desc" }],
   OBSERVADO: [{ fechaVencimiento: "asc" }, { createdAt: "asc" }],
   PAGADO: [{ pagadoAt: "desc" }, { createdAt: "desc" }],
 };
@@ -414,7 +431,7 @@ export const listMancatosForActor = async (actor, query) => {
 export const getMancatoSummaryForActor = async (actor, query) => {
   const today = romeDay();
   const entries = await Promise.all(
-    ["VENCIDO", "PENDIENTE", "OBSERVADO", "PAGADO"].map(async (estado) => {
+    ["VENCIDO", "PENDIENTE", "OBSERVADO", "HISTORIAL_VENCIDO", "PAGADO"].map(async (estado) => {
       const where = buildWhere(actor, { ...query, estado }, today);
       const [count, total] = await Promise.all([countMancatos(where), sumMancatosCosto(where)]);
       return [estado, { count, total }];
@@ -439,6 +456,7 @@ export const getMancatoMesesForActor = async (actor, query) => {
         total: 0,
         PENDIENTE: { count: 0, total: 0 },
         VENCIDO: { count: 0, total: 0 },
+        HISTORIAL_VENCIDO: { count: 0, total: 0 },
         OBSERVADO: { count: 0, total: 0 },
         PAGADO: { count: 0, total: 0 },
       });
@@ -459,6 +477,7 @@ export const getMancatoMesesForActor = async (actor, query) => {
       total: round(m.total),
       PENDIENTE: { ...m.PENDIENTE, total: round(m.PENDIENTE.total) },
       VENCIDO: { ...m.VENCIDO, total: round(m.VENCIDO.total) },
+      HISTORIAL_VENCIDO: { ...m.HISTORIAL_VENCIDO, total: round(m.HISTORIAL_VENCIDO.total) },
       OBSERVADO: { ...m.OBSERVADO, total: round(m.OBSERVADO.total) },
       PAGADO: { ...m.PAGADO, total: round(m.PAGADO.total) },
     }));
