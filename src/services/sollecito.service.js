@@ -58,6 +58,7 @@ const toResponse = async (s, mancatosByNumero) => {
     id: s.id,
     emisor: s.emisor,
     numeroAtto: s.numeroAtto,
+    numeroSollecito: s.numeroSollecito,
     fechaCarta: toDay(s.fechaCarta),
     fechaTransito: toDay(s.fechaTransito),
     fechaLimitePago: toDay(s.fechaLimitePago),
@@ -98,6 +99,7 @@ const buildWhere = (query) => {
     and.push({
       OR: [
         { numeroAtto: { contains: q, mode: "insensitive" } },
+        { numeroSollecito: { contains: q, mode: "insensitive" } },
         { emisor: { contains: q, mode: "insensitive" } },
         { targa: { contains: q.replace(/\s+/g, "").toUpperCase() } },
         { comentarios: { contains: q, mode: "insensitive" } },
@@ -110,7 +112,7 @@ const buildWhere = (query) => {
 
 const dataFrom = (fields) => {
   const data = {};
-  for (const key of ["emisor", "numeroAtto", "targa", "numerosMancato", "importe", "sitioPago", "comentarios"]) {
+  for (const key of ["emisor", "numeroAtto", "numeroSollecito", "targa", "numerosMancato", "importe", "sitioPago", "comentarios"]) {
     if (key in fields && fields[key] !== undefined) data[key] = fields[key];
   }
   if (fields.fechaCarta !== undefined) data.fechaCarta = fields.fechaCarta ? dayToDate(fields.fechaCarta) : null;

@@ -1231,6 +1231,8 @@ model Sollecito {
   id             String          @id @default(uuid())
   emisor         String
   numeroAtto     String          @unique
+  // Numero de sollecito con el que se paga (no siempre coincide con el atto).
+  numeroSollecito String?
   fechaCarta     DateTime?       @db.Date
   fechaTransito  DateTime?       @db.Date
   // Ultimo dia para pagar que indica la carta (si lo dice).

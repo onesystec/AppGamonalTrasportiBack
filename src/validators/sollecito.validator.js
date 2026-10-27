@@ -37,6 +37,7 @@ const numerosMancato = z.preprocess((value) => {
 const base = {
   emisor: z.string().trim().min(1, "El emisor es obligatorio").max(120),
   numeroAtto: z.string().trim().min(1, "El numero de atto es obligatorio").max(60),
+  numeroSollecito: z.preprocess(emptyToUndefined, z.string().trim().max(60).optional()),
   fechaCarta: z.preprocess(emptyToUndefined, dateOnly.optional()),
   fechaTransito: z.preprocess(emptyToUndefined, dateOnly.optional()),
   fechaLimitePago: z.preprocess(emptyToUndefined, dateOnly.optional()),
@@ -54,6 +55,7 @@ export const createSollecitoSchema = z.object(base);
 export const updateSollecitoSchema = z.object({
   emisor: base.emisor.optional(),
   numeroAtto: base.numeroAtto.optional(),
+  numeroSollecito: z.preprocess(emptyToNull, z.string().trim().max(60).nullable().optional()),
   fechaCarta: z.preprocess(emptyToNull, dateOnly.nullable().optional()),
   fechaTransito: z.preprocess(emptyToNull, dateOnly.nullable().optional()),
   fechaLimitePago: z.preprocess(emptyToNull, dateOnly.nullable().optional()),
