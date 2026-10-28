@@ -152,6 +152,8 @@ model User {
   mancatosCreados           MancatoPagamento[]      @relation("MancatoCreadoPor")
   multasComoChofer          Multa[]                 @relation("MultaChofer")
   trabajosAdicionales       TrabajoAdicional[]      @relation("TrabajoAdicionalChofer")
+  otrosGastos               OtroGasto[]             @relation("OtroGastoChofer")
+  otrosGastosRevisados      OtroGasto[]             @relation("OtroGastoRevisor")
   velocidadesPago           VelocidadPagoChofer[]   @relation("VelocidadPagoChofer")
   trabajosAdicionalesRevisados TrabajoAdicional[]   @relation("TrabajoAdicionalRevisor")
   multasCreadas             Multa[]                 @relation("MultaCreadaPor")
@@ -255,6 +257,7 @@ model Vehiculo {
   mantenimientos    MantenimientoVehiculo[]
   choferesAsignados User[]
   trabajosAdicionales TrabajoAdicional[]
+  otrosGastos         OtroGasto[]
   areaCEntries      AreaCEntry[]
   speedingEvents    SpeedingEvent[]
   paradas           ParadaVehiculo[]
@@ -1221,6 +1224,42 @@ model TrabajoAdicional {
   @@index([driverId, inicio])
   @@index([estado, area])
   @@map("trabajos_adicionales")
+}
+
+// Otros gastos del chofer ("Mis cargos > Otros gastos"): compras que no son combustible ni peajes (aceite, liquido refrigerante, lavado...). El chofer
+// los carga con su comprobante y la oficina los marca como reembolsados (o los rechaza con una nota).
+enum OtroGastoEstado {
+  PENDIENTE
+  REEMBOLSADO
+  RECHAZADO
+}
+
+model OtroGasto {
+  id        String   @id @default(uuid())
+  driverId  String
+  driver    User     @relation("OtroGastoChofer", fields: [driverId], references: [id], onDelete: Cascade)
+  vehicleId String?
+  vehicle   Vehiculo? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  // ACEITE | REFRIGERANTE | LAVADO | NEUMATICOS | REPUESTO | OTRO (ver validators/otroGasto.validator.js).
+  concepto       String
+  descripcion    String?
+  monto          Decimal  @db.Decimal(10, 2)
+  fecha          DateTime @db.Date
+  comprobanteKey String?
+
+  estado        OtroGastoEstado @default(PENDIENTE)
+  nota          String?
+  revisadoAt    DateTime?
+  revisadoPorId String?
+  revisadoPor   User?    @relation("OtroGastoRevisor", fields: [revisadoPorId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([driverId, fecha])
+  @@index([estado, fecha])
+  @@map("otros_gastos")
 }
 
 // Sollecito ("solicito"): carta de la autopista que reclama uno o varios mancati pagamenti
