@@ -99,6 +99,8 @@ model User {
   // muestran y se pagan APARTE del basico. Con false (lo normal), todo va junto en un solo total. No cambia el importe, solo como se separa.
   // Lo cambia solo el Admin, con el interruptor de Pago a choferes.
   pagoAparte                   Boolean          @default(false)
+  // Idioma de la app para el personal de la oficina ("es" o "it"); cada uno lo elige en Ajustes de la app y lo sigue en todos sus dispositivos.
+  idioma                       String           @default("es")
   estado                       Estado           @default(ACTIVO)
   fechaNacimiento              DateTime         @db.Date
   numeroCelular                String

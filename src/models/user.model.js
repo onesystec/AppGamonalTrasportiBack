@@ -16,6 +16,7 @@ export const SAFE_USER_SELECT = {
   clienteModulos: true,
   clienteAreas: true,
   nivelChofer: true,
+  idioma: true,
   estado: true,
   fechaNacimiento: true,
   numeroCelular: true,

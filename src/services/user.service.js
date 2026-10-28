@@ -120,6 +120,7 @@ const SELF_EDITABLE_FIELDS = [
   "numeroCelular",
   "password",
   "compartirUbicacion",
+  "idioma",
   "direccion",
   "contactoEmergenciaNombre",
   "contactoEmergenciaParentesco",
