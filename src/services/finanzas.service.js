@@ -23,7 +23,7 @@ import { getMultaStatsForActor } from "./multa.service.js";
 import { getApprovedPermisosForMonth, getAttendanceByDriver } from "./permiso.service.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { approvedByDriverForMonth, approvedListForMonth } from "./trabajoAdicional.service.js";
-import { ensureKmhPago, kmhPagoFor, kmhPagoInfo, VELOCIDADES_PAGO } from "./velocidadPago.service.js";
+import { ensureKmhPago, kmhPagoFor, kmhPagoInfo, pagaFueraHorarioFor, VELOCIDADES_PAGO } from "./velocidadPago.service.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -108,6 +108,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   // Km/h con los que se pasan los km a horas de manejo: el que la oficina eligio para este chofer (85, 90 o 95), si no el de la tarifa.
   const kmBloque = (porKm ? kmhPagoFor(record.driverId, month) : null) ?? tariff.kmBloque;
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
+  // Solo rige con la tarifa que tiene reperibilidad (octubre de 2026 en adelante): los meses anteriores ya estan pagados.
+  const fueraHorarioCuenta = !tariff.reperibilidad || pagaFueraHorarioFor(record.driverId);
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
   // si no, se usan las guardadas al cargar la jornada.
@@ -181,7 +183,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
       km = 0;
       kmFuente = "SIN_DATO";
     }
-    franja = isDayTime(romeHHMM(salida), tariff.banda) ? "DIA" : "NOCHE";
+    // A un chofer con "horas fuera de horario" apagada (perfil, solo Admin) la noche no se paga aparte: va a tarifa de dia.
+    franja = isDayTime(romeHHMM(salida), tariff.banda) || !fueraHorarioCuenta ? "DIA" : "NOCHE";
     // Servicio corto con circuito: se paga el tiempo de ruta (ida + vuelta) y no km / 85.
     tiempoRuta = Boolean(tariff.tiempoRutaHastaKm) && rutaMin > 0 && km > 0 && km < tariff.tiempoRutaHastaKm;
     pagoBase = tiempoRuta
@@ -194,7 +197,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
 
   let reperibilidad = null;
   let pagoReperibilidad = 0;
-  if (tariff.reperibilidad) {
+  if (tariff.reperibilidad && fueraHorarioCuenta) {
     const day = romeDay(new Date(salida));
     if (tariff.reperibilidad.festivosCuentan && esFestivoIT(day)) reperibilidad = "FESTIVO";
     else if (!tariff.reperibilidad.diasLaborales.includes(romeWeekday(salida))) reperibilidad = "FIN_DE_SEMANA";
@@ -216,6 +219,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     km: km == null ? null : round2(km),
     kmPlan: round2(kmPlan),
     kmDudoso,
+    fueraHorarioCuenta,
     horasManejo: round2(horasManejo),
     tiempoRuta,
     kmFuente,
@@ -787,6 +791,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
         ...e,
         // Velocidad de pago (km/h) que rige este mes y si se eligio en este mes o se hereda de uno anterior.
         kmhPago: kmhPagoInfo(e.driverId, month, tariff.kmBloque),
+        // Si a este chofer se le cuentan aparte las horas fuera del horario laboral y la reperibilita (casilla de su perfil).
+        pagaFueraHorario: !tariff.reperibilidad || pagaFueraHorarioFor(e.driverId),
         horas: round2(e.horas),
         horasDia: round2(e.horasDia),
         horasNoche: round2(e.horasNoche),

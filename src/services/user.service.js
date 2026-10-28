@@ -31,6 +31,7 @@ import { findClientById } from "../models/client.model.js";
 import { hashPassword } from "../utils/password.js";
 import { hasBustasPaga } from "./bustaPaga.service.js";
 import { hasMemorandums } from "./memorandum.service.js";
+import { refreshPagoSettings } from "./velocidadPago.service.js";
 
 // Solo un Admin (OWNER) puede crear o ascender a otro usuario a Admin o Responsable; evita que un
 // Responsable se autoascienda o cree otros con mas acceso.
@@ -204,6 +205,10 @@ export const updateUser = async (actor, targetId, data) => {
   if (payload.cargo && payload.cargo !== target.cargo) {
     assertCanAssignCargo(actor, payload.cargo);
   }
+  // Si las horas fuera del horario laboral y la reperibilita se cuentan aparte del basico cambia lo que se le paga: solo lo define el Admin.
+  if (payload.pagaFueraHorario !== undefined && payload.pagaFueraHorario !== target.pagaFueraHorario && actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede definir si se cuentan las horas fuera del horario laboral", 403);
+  }
   if (isPrivileged) {
     payload = normalizeResponsableFields(actor, payload, target);
     // La empresa y los modulos de un usuario cliente solo los toca un Admin.
@@ -226,6 +231,7 @@ export const updateUser = async (actor, targetId, data) => {
   }
 
   const updated = await updateUserById(targetId, payload);
+  if (payload.pagaFueraHorario !== undefined) await refreshPagoSettings();
   return toUserResponse(updated);
 };
 
