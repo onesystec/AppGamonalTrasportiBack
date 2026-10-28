@@ -15,7 +15,7 @@ const CACHE_TTL_MS = 30 * 1000;
 const PRIMER_MES = PAY_TARIFFS.find((t) => t.pagoPorKm)?.desde ?? "2026-10";
 
 let byDriver = new Map(); // driverId -> [{ mes, kmh }] ordenado por mes
-let conFueraHorario = new Set(); // choferes a quienes SI se les cuentan aparte las horas fuera del horario laboral y la reperibilita
+let conPagoAparte = new Set(); // choferes con el pago aparte del basico (fuera de horario y reperibilita) activado
 let loadedAt = 0;
 let loading = null;
 
@@ -27,19 +27,24 @@ const load = async () => {
     map.get(row.driverId).push({ mes: row.mes, kmh: row.kmh });
   }
   byDriver = map;
-  // Casilla "horas fuera de horario" del perfil (User.pagaFueraHorario): solo se guardan los que la tienen marcada.
-  const con = await prisma.user.findMany({ where: { pagaFueraHorario: true }, select: { id: true } });
-  conFueraHorario = new Set(con.map((u) => u.id));
+  // Interruptor "pago aparte" de Pago a choferes (User.pagoAparte): solo se guardan los que lo tienen activado.
+  const con = await prisma.user.findMany({ where: { pagoAparte: true }, select: { id: true } });
+  conPagoAparte = new Set(con.map((u) => u.id));
   loadedAt = Date.now();
 };
 
-// true = las horas fuera del horario laboral (noche, fin de semana, festivo) y la reperibilita se cuentan aparte del basico de este chofer.
-export const pagaFueraHorarioFor = (driverId) => conFueraHorario.has(driverId);
+// true = el trabajo fuera del horario laboral (noche, fin de semana, festivo) y la reperibilita se muestran y pagan APARTE del basico de este chofer.
+export const pagoAparteFor = (driverId) => conPagoAparte.has(driverId);
 
-// Despues de cambiar la casilla de un chofer: el pago se recalcula con el valor nuevo y los resumenes en cache se descartan.
-export const refreshPagoSettings = async () => {
+// Interruptor "pago aparte" de un chofer (Pago a choferes, solo el Admin). No cambia el importe: solo si lo de fuera de horario va aparte o junto.
+export const setPagoAparteForActor = async (actor, { driverId, activo }) => {
+  if (actor.cargo !== "OWNER") throw new AppError("Solo un Admin puede activar el pago aparte", 403);
+  const driver = await prisma.user.findUnique({ where: { id: driverId }, select: { id: true } });
+  if (!driver) throw new AppError("Chofer no encontrado", 404);
+  await prisma.user.update({ where: { id: driverId }, data: { pagoAparte: activo } });
   await ensureKmhPago({ force: true });
   bumpCacheVersion();
+  return { driverId, activo };
 };
 
 // Un fallo al leer la tabla no frena los pagos: sigue con lo que ya se tenia (o con el valor de la tarifa).

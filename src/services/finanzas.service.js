@@ -23,7 +23,7 @@ import { getMultaStatsForActor } from "./multa.service.js";
 import { getApprovedPermisosForMonth, getAttendanceByDriver } from "./permiso.service.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { approvedByDriverForMonth, approvedListForMonth } from "./trabajoAdicional.service.js";
-import { ensureKmhPago, kmhPagoFor, kmhPagoInfo, pagaFueraHorarioFor, VELOCIDADES_PAGO } from "./velocidadPago.service.js";
+import { ensureKmhPago, kmhPagoFor, kmhPagoInfo, pagoAparteFor, VELOCIDADES_PAGO } from "./velocidadPago.service.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -108,8 +108,6 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   // Km/h con los que se pasan los km a horas de manejo: el que la oficina eligio para este chofer (85, 90 o 95), si no el de la tarifa.
   const kmBloque = (porKm ? kmhPagoFor(record.driverId, month) : null) ?? tariff.kmBloque;
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
-  // Solo rige con la tarifa que tiene reperibilidad (octubre de 2026 en adelante): los meses anteriores ya estan pagados.
-  const fueraHorarioCuenta = !tariff.reperibilidad || pagaFueraHorarioFor(record.driverId);
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
   // si no, se usan las guardadas al cargar la jornada.
@@ -183,8 +181,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
       km = 0;
       kmFuente = "SIN_DATO";
     }
-    // A un chofer con "horas fuera de horario" apagada (perfil, solo Admin) la noche no se paga aparte: va a tarifa de dia.
-    franja = isDayTime(romeHHMM(salida), tariff.banda) || !fueraHorarioCuenta ? "DIA" : "NOCHE";
+    franja = isDayTime(romeHHMM(salida), tariff.banda) ? "DIA" : "NOCHE";
     // Servicio corto con circuito: se paga el tiempo de ruta (ida + vuelta) y no km / 85.
     tiempoRuta = Boolean(tariff.tiempoRutaHastaKm) && rutaMin > 0 && km > 0 && km < tariff.tiempoRutaHastaKm;
     pagoBase = tiempoRuta
@@ -197,7 +194,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
 
   let reperibilidad = null;
   let pagoReperibilidad = 0;
-  if (tariff.reperibilidad && fueraHorarioCuenta) {
+  if (tariff.reperibilidad) {
     const day = romeDay(new Date(salida));
     if (tariff.reperibilidad.festivosCuentan && esFestivoIT(day)) reperibilidad = "FESTIVO";
     else if (!tariff.reperibilidad.diasLaborales.includes(romeWeekday(salida))) reperibilidad = "FIN_DE_SEMANA";
@@ -219,7 +216,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     km: km == null ? null : round2(km),
     kmPlan: round2(kmPlan),
     kmDudoso,
-    fueraHorarioCuenta,
+    // Servicio fuera del horario laboral (noche, fin de semana o festivo): es lo que va "aparte del basico" en los choferes con el pago aparte activado.
+    fueraHorario: reperibilidad !== null,
     horasManejo: round2(horasManejo),
     tiempoRuta,
     kmFuente,
@@ -305,6 +303,7 @@ const includedPay = (record, viaje) => ({
   kmFuente: null,
   esperaHoras: 0,
   reperibilidad: null,
+  fueraHorario: false,
   pagoBase: 0,
   pagoEspera: 0,
   pagoReperibilidad: 0,
@@ -667,7 +666,7 @@ const serviceItem = (record, pay) => ({
 
 // El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
 // los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
-const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago", "kmDudoso", "kmRevisar"];
+const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago", "kmDudoso", "kmRevisar", "aparte", "basico", "pagoAparte"];
 const withoutMoney = (row) => {
   const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
   // Los trabajos adicionales: el chofer ve cuantos y cuantas horas, no el importe.
@@ -707,6 +706,8 @@ const newPayEntry = (driverId, nombre) => ({
   serviciosSinDato: 0,
   // Servicios cuyo circuito tiene muchos mas km que los planificados (revisar la ruta antes de pagar).
   kmRevisar: [],
+  // Lo que se paga por servicios fuera del horario laboral (noche, fin de semana, festivo): base, reperibilita y espera de esos servicios.
+  aparte: { servicios: 0, km: 0, horasManejo: 0, base: 0, espera: 0, reperibilidad: 0, total: 0 },
   // Trabajos adicionales aprobados (tareas fuera de los servicios): sus horas se suman a las del chofer y se pagan a tarifa de horas.
   adicionales: { count: 0, horas: 0, pago: 0 },
 });
@@ -756,6 +757,15 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoReperibilidad += pay.pagoReperibilidad;
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     if (pay.reperibilidad === "NOCHE") entry.salidasNoche += 1;
+    if (pay.fueraHorario && !pay.incluidoEnViaje) {
+      entry.aparte.servicios += 1;
+      entry.aparte.km += pay.modo === "KM" ? (pay.km ?? 0) : 0;
+      entry.aparte.horasManejo += pay.horasManejo ?? 0;
+      entry.aparte.base += pay.pagoBase;
+      entry.aparte.espera += pay.pagoEspera;
+      entry.aparte.reperibilidad += pay.pagoReperibilidad;
+      entry.aparte.total += pay.total;
+    }
     if (pay.kmDudoso) entry.kmRevisar.push({ id: r.id, codigo: r.codigo, destino: r.destinazione, km: pay.km, kmPlan: pay.kmPlan });
     entry.total += pay.total;
     if (["SIN_DATO", "TRASPASO_SIN_KM", "VIAJE_SIN_CIRCUITO"].includes(pay.kmFuente)) entry.serviciosSinDato += 1;
@@ -791,8 +801,11 @@ export const getPagosChoferesForActor = async (actor, query) => {
         ...e,
         // Velocidad de pago (km/h) que rige este mes y si se eligio en este mes o se hereda de uno anterior.
         kmhPago: kmhPagoInfo(e.driverId, month, tariff.kmBloque),
-        // Si a este chofer se le cuentan aparte las horas fuera del horario laboral y la reperibilita (casilla de su perfil).
-        pagaFueraHorario: !tariff.reperibilidad || pagaFueraHorarioFor(e.driverId),
+        // Interruptor de pago aparte: con true, lo de fuera de horario y la reperibilita se muestran y se pagan aparte del basico.
+        // El total a pagar es siempre el de todo el trabajo junto; "basico" + "aparte" lo reparte (no cambia el importe).
+        pagoAparte: Boolean(tariff.reperibilidad) && pagoAparteFor(e.driverId),
+        aparte: Object.fromEntries(Object.entries(e.aparte).map(([k, v]) => [k, round2(v)])),
+        basico: round2(totalPago - e.aparte.total),
         horas: round2(e.horas),
         horasDia: round2(e.horasDia),
         horasNoche: round2(e.horasNoche),

@@ -43,6 +43,12 @@ export const velocidadPagoSchema = z.object({
   kmh: z.coerce.number().int("Velocidad invalida").refine((v) => [85, 90, 95].includes(v), "La velocidad tiene que ser 85, 90 o 95 km/h"),
 });
 
+// Pago aparte del basico (fuera de horario y reperibilita) de un chofer: activarlo o apagarlo.
+export const pagoAparteSchema = z.object({
+  driverId: z.string().uuid("Chofer invalido"),
+  activo: z.boolean({ invalid_type_error: "Valor invalido" }),
+});
+
 // Tarifas por km (EUR/km): cualquiera de las categorias de vehiculo o la de DHL/AB Service.
 const tarifa = z.coerce.number({ invalid_type_error: "Tarifa invalida" }).min(0, "La tarifa no puede ser negativa").max(100, "Tarifa invalida");
 export const tarifasKmSchema = z.object({

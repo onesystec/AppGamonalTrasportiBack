@@ -67,7 +67,6 @@ export const updateUserSchema = z
     clienteAreas: clienteAreas.optional(),
     clienteModulos: clienteModulos.optional(),
     nivelChofer: nivelChofer.nullable().optional(),
-    pagaFueraHorario: z.boolean().optional(),
     estado: z.enum(ESTADO_VALUES).optional(),
     fechaNacimiento: z.coerce.date().optional(),
     numeroCelular: z.string().trim().min(6).optional(),

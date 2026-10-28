@@ -6,7 +6,7 @@ import {
   getKmRankingForActor,
 } from "../services/finanzas.service.js";
 import { buildPresenciasWorkbook, presenciasFileName } from "../services/presenciasExcel.service.js";
-import { setKmhPagoForActor } from "../services/velocidadPago.service.js";
+import { setKmhPagoForActor, setPagoAparteForActor } from "../services/velocidadPago.service.js";
 import { getTarifasKm, setTarifasKm } from "../services/tarifas.service.js";
 import { sharedForOffice } from "../utils/responseCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -41,6 +41,11 @@ export const presencias = asyncHandler(async (req, res) => {
 export const velocidadPago = asyncHandler(async (req, res) => {
   const result = await setKmhPagoForActor(req.user, req.body);
   res.status(200).json({ success: true, data: { velocidadPago: result } });
+});
+
+export const pagoAparte = asyncHandler(async (req, res) => {
+  const result = await setPagoAparteForActor(req.user, req.body);
+  res.status(200).json({ success: true, data: { pagoAparte: result } });
 });
 
 export const gastosServicios = asyncHandler(async (req, res) => {

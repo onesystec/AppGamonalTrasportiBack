@@ -95,9 +95,10 @@ model User {
   clienteAreas                 String[]         @default([])
   // Nivel del chofer (cualquier usuario que maneja): fija su meta de km.
   nivelChofer                  NivelChofer?
-  // Si las horas fuera del horario laboral (noche, fin de semana, festivo) y la reperibilita se cuentan aparte del basico de este chofer.
-  // Con false (lo normal), esos servicios se pagan como uno normal (sin recargo de noche ni extra de reperibilita). Lo cambia solo el Admin.
-  pagaFueraHorario             Boolean          @default(false)
+  // Pago aparte del basico: con true, en Pago a choferes el trabajo fuera del horario laboral (noche, fin de semana, festivo) y la reperibilita se
+  // muestran y se pagan APARTE del basico. Con false (lo normal), todo va junto en un solo total. No cambia el importe, solo como se separa.
+  // Lo cambia solo el Admin, con el interruptor de Pago a choferes.
+  pagoAparte                   Boolean          @default(false)
   estado                       Estado           @default(ACTIVO)
   fechaNacimiento              DateTime         @db.Date
   numeroCelular                String
