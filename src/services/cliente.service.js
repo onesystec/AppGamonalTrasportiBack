@@ -85,9 +85,10 @@ export const getEnVivoCliente = async (user) => {
   };
 };
 
-// Disponibilitá: que vehiculos estan libres cada dia y cuantos choferes hay libres, SIN nombres ni motivos: del chofer no se ve ni el nombre (ni si
-// esta enfermo, de vacaciones o de permiso) y del vehiculo solo la targa y los dias en que no esta disponible (por un servicio, de cualquier cliente, o
-// por mantenimiento). Los mismos vehiculos que ve el cliente en el mapa En Vivo. Una lectura compartida por rango de fechas (cada una consulta la base).
+// Disponibilitá: que vehiculos y que choferes estan libres cada dia, SIN motivos: del chofer se ve el nombre y los dias en que no esta disponible, pero no
+// por que (ni si esta enfermo, de vacaciones, de permiso o con un servicio); del vehiculo, la targa y los dias en que no esta disponible (por un servicio, de
+// cualquier cliente, o por mantenimiento). Los mismos vehiculos que ve el cliente en el mapa En Vivo. Una lectura compartida por rango de fechas (cada una
+// consulta la base).
 const DISPONIBILIDAD_TTL_MS = 60 * 1000;
 
 export const getDisponibilidadCliente = async (user, { desde, hasta } = {}) => {
@@ -110,7 +111,12 @@ export const getDisponibilidadCliente = async (user, { desde, hasta } = {}) => {
     vehiculos: full.vehiculos
       .filter((v) => v.visible)
       .map((v) => ({ targa: v.nombre, ocupados: full.dias.filter((day) => (v.dias[day] ?? []).length > 0) })),
-    choferes: { total: full.choferes.length, libres },
+    choferes: {
+      total: full.choferes.length,
+      libres,
+      // Un permiso todavia en revision no cuenta como no disponible (igual que arriba).
+      lista: full.choferes.map((c) => ({ nombre: c.nombre, ocupados: full.dias.filter((day) => (c.dias[day] ?? []).some((i) => !i.pendiente)) })),
+    },
   };
 };
 
