@@ -8,6 +8,7 @@ import { calculateRoute } from "./routing.service.js";
 import { getSeguimiento, RETRASO_AVISO_MIN } from "./seguimiento.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
 import { listVehicleLivePositionsForActor } from "./vehicle.service.js";
+import { getDisponibilidadForActor } from "./disponibilidad.service.js";
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
@@ -80,6 +81,35 @@ export const getEnVivoCliente = async (user) => {
       direction: p.direction ?? null,
       updatedAt: p.updatedAt ?? null,
     })),
+  };
+};
+
+// Disponibilitá: que vehiculos estan libres cada dia y cuantos choferes hay libres, SIN nombres ni motivos: del chofer no se ve ni el nombre (ni si
+// esta enfermo, de vacaciones o de permiso) y del vehiculo solo la targa y los dias en que no esta disponible (por un servicio, de cualquier cliente, o
+// por mantenimiento). Los mismos vehiculos que ve el cliente en el mapa En Vivo. Una lectura compartida por rango de fechas (cada una consulta la base).
+const DISPONIBILIDAD_TTL_MS = 60 * 1000;
+
+export const getDisponibilidadCliente = async (user, { desde, hasta } = {}) => {
+  requireModulo(user, "DISPONIBILIDAD");
+  const full = await cachedResponse(
+    `cliente-disponibilidad:${desde ?? ""}:${hasta ?? ""}`,
+    DISPONIBILIDAD_TTL_MS,
+    () => getDisponibilidadForActor({ cargo: "OWNER" }, { desde, hasta }),
+    { small: true }
+  );
+  // Un permiso todavia en revision no saca al chofer de la lista de libres (igual que en la oficina).
+  const libres = Object.fromEntries(
+    full.dias.map((day) => [day, full.choferes.filter((c) => (c.dias[day] ?? []).every((i) => i.pendiente)).length])
+  );
+  return {
+    desde: full.desde,
+    hasta: full.hasta,
+    hoy: full.hoy,
+    dias: full.dias,
+    vehiculos: full.vehiculos
+      .filter((v) => v.visible)
+      .map((v) => ({ targa: v.nombre, ocupados: full.dias.filter((day) => (v.dias[day] ?? []).length > 0) })),
+    choferes: { total: full.choferes.length, libres },
   };
 };
 

@@ -9,6 +9,7 @@ export const CLIENTE_MODULOS = {
   EXCEL: "Descargar sus servicios en Excel",
   REGISTRO: "Registro limitado: pedir servicios a la oficina",
   EN_VIVO: "Mapa En Vivo: posicion de los vehiculos en tiempo real",
+  DISPONIBILIDAD: "Disponibilitá: que vehiculos y cuantos choferes estan libres cada dia",
 };
 export const CLIENTE_MODULOS_KEYS = Object.keys(CLIENTE_MODULOS);
 

@@ -81,7 +81,7 @@ export const getDisponibilidadForActor = async (actor, { desde, hasta } = {}) =>
   const choferes = new Map(drivers.map((d) => [d.id, { ...person(d), dias: {} }]));
   const conServicios = new Set(records.map((r) => r.vehicleId));
   const vehiculos = new Map(
-    vehicles.filter((v) => v.mostrarEnMapa || conServicios.has(v.id)).map((v) => [v.id, { id: v.id, nombre: v.targa, modelo: v.modelo, estado: v.estado, dias: {} }])
+    vehicles.filter((v) => v.mostrarEnMapa || conServicios.has(v.id)).map((v) => [v.id, { id: v.id, nombre: v.targa, modelo: v.modelo, estado: v.estado, visible: v.mostrarEnMapa, dias: {} }])
   );
   const push = (entry, day, item) => {
     if (!entry || !inRange.has(day)) return;
