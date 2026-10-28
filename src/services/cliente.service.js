@@ -12,7 +12,8 @@ import { getDisponibilidadForActor } from "./disponibilidad.service.js";
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
-//  - Del chofer solo se ve la targa del vehiculo: nunca su nombre ni su telefono.
+//  - Del chofer solo se ve la targa del vehiculo: nunca su telefono. Su nombre y el Milano/Roma asignado (aplicativo) se ven solo en el historial
+//    de servicios (el seguimiento, el mapa y la disponibilidad siguen sin nombres).
 //  - No se devuelve la ruta del viaje ni las paradas de otros clientes: una furgoneta lleva paquetes de varios clientes.
 //  - La posicion de la furgoneta se muestra solo mientras el servicio de ese cliente esta en camino; en cuanto llega o se
 //    entrega deja de verse, para no seguirla durante el reparto de los demas.
@@ -178,7 +179,9 @@ export const listServiciosCliente = async (user, { month } = {}) => {
       eta: true,
       llegadaGpsAt: true,
       destinazione: true,
+      aplicativo: true,
       vehicle: { select: { targa: true } },
+      driver: { select: { nombre: true, apellido: true } },
       stops: { orderBy: { orden: "asc" }, select: { direccion: true } },
       files: { where: { tipoArchivo: { in: FOTO_TIPOS } }, select: { id: true } },
     },
@@ -197,6 +200,8 @@ export const listServiciosCliente = async (user, { month } = {}) => {
         estado: r.estado,
         estadoLabel: ESTADO_LABEL[r.estado] ?? r.estado,
         targa: r.vehicle?.targa ?? null,
+        chofer: r.driver ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null,
+        aplicativo: r.aplicativo ?? null,
         destino: r.stops.at(-1)?.direccion ?? r.destinazione,
         etaPlan: r.eta.toISOString(),
         llegoAt: r.llegadaGpsAt ? r.llegadaGpsAt.toISOString() : null,
