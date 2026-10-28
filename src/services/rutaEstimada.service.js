@@ -24,8 +24,18 @@ const RETURN_KEY = "ruta.retorno";
 const placeByName = (name) => WORK_PLACES.find((p) => p.nombre === name);
 const DEFAULT_RETURN_PLACE = () => placeByName("Lugar de espera Milano");
 
+// "Otros" (Extras Stefania) no tiene zona ni numero que diga de que lugar de espera sale: es el que se elige como salida (Milano o
+// Roma), y ahi mismo vuelve. null si la salida no es uno de los lugares de espera.
+const chosenWaitingPlace = (record) => {
+  if (record.spedizzione !== "EXTRAS_STEFANIA" || record.salidaLat == null || record.salidaLng == null) return null;
+  const salida = { lat: record.salidaLat, lng: record.salidaLng };
+  return WORK_PLACES.find((p) => p.nombre.startsWith("Lugar de espera") && distanceMeters(p, salida) <= 150) ?? null;
+};
+
 // A que lugar de espera vuelve el vehiculo segun el area del servicio.
 const areaReturnPlace = (record) => {
+  const chosen = chosenWaitingPlace(record);
+  if (chosen) return chosen;
   // Roma tiene dos lugares de espera: el de DHL Roma y el de Extras Piazza Roma (Cargo City).
   if (record.extrasPiazzaZona === "ROMA") {
     return record.spedizzione === "DHL" ? placeByName("Lugar de espera Roma") : placeByName("Lugar de espera Roma (Extras Piazza)");
