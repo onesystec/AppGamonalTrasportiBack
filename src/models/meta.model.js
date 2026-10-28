@@ -1,17 +1,28 @@
 import { prisma } from "../config/prisma.js";
 
-// Servicios hechos de un chofer desde una fecha que tienen su jornada cargada, con el estilo de manejo de
-// esa jornada si ya se calculo (ver drivingStyle.service.js).
+// Servicios hechos de un chofer desde una fecha, con el estilo de manejo de su tramo si ya se calculo (ver drivingStyle.service.js).
+// Con jornada declarada o, si no, con hora de salida (fechaRetiro): de ahi sale el tramo que se le pide a OneSystec.
 export const findDriverServicesForEstilo = ({ driverId, from }) =>
   prisma.record.findMany({
     where: {
       driverId,
       fechaServicio: { gte: from },
       estado: { in: ["CONSEGNATO", "RITIRATO"] },
-      horaInicioReal: { not: null },
-      horaFinReal: { not: null },
+      OR: [{ horaInicioReal: { not: null }, horaFinReal: { not: null } }, { fechaRetiro: { not: null } }],
     },
-    select: { id: true, horaFinReal: true, estiloManejo: true, estiloCalculadoAt: true },
+    select: {
+      id: true,
+      horaInicioReal: true,
+      horaFinReal: true,
+      fechaRetiro: true,
+      llegadaGpsAt: true,
+      circuitoMin: true,
+      rutaDuracionMin: true,
+      compactadoId: true,
+      compactadoOrden: true,
+      estiloManejo: true,
+      estiloCalculadoAt: true,
+    },
   });
 
 // Usuarios que manejan: choferes y cualquier otro usuario al que se le haya puesto nivel.

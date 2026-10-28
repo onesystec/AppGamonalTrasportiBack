@@ -1,6 +1,6 @@
 import { findDriverServicesForEstilo } from "../models/meta.model.js";
 import { findRecordById, updateRecordById } from "../models/record.model.js";
-import { aggregateEstilo } from "../utils/drivingStyle.js";
+import { aggregateEstilo, estiloWindow } from "../utils/drivingStyle.js";
 import { AppError } from "../utils/AppError.js";
 import { findOnesystecVehicleIdByPlate, getVehicleDrivingStyle, isOnesystecConfigured } from "./onesystec.service.js";
 
@@ -24,15 +24,15 @@ const toStored = (body, from, to) => ({
   minKm: body?.rules?.minDistanceKm ?? null,
 });
 
-// Calcula (y guarda) el estilo de manejo del vehiculo SOLO durante la jornada declarada de un servicio.
+// Calcula (y guarda) el estilo de manejo del vehiculo SOLO durante el tramo de un servicio (su jornada declarada o, sin ella, de la salida a la llegada).
 // Lanza si el GPS no responde o no conoce el vehiculo: el servicio queda pendiente y se reintenta mas tarde.
 export const computeEstiloForRecord = async (recordId) => {
   if (!isOnesystecConfigured()) throw new AppError("La conexion con el GPS no esta configurada", 503);
   const record = await findRecordById(recordId);
-  if (!record?.horaInicioReal || !record.horaFinReal || !record.vehicle?.targa) return null;
+  const window = record ? estiloWindow(record) : null;
+  if (!window || !record.vehicle?.targa) return null;
 
-  const from = record.horaInicioReal.getTime();
-  const to = record.horaFinReal.getTime();
+  const { from, to } = window;
   // Jornada imposible (fin antes del inicio o mas de 31 dias): se marca sin datos para no insistir.
   if (to <= from || to - from > 31 * DAY_MS) {
     const stored = { desde: null, hasta: null, km: 0, calidad: "no_data", incidentes: null };
@@ -99,7 +99,7 @@ export const getMyDrivingStyle = async (actor) => {
   for (const s of services) {
     if (s.estiloCalculadoAt && s.estiloManejo) {
       ready.push(s.estiloManejo);
-    } else if (s.horaFinReal && s.horaFinReal.getTime() <= Date.now() - SETTLE_MS) {
+    } else if ((estiloWindow(s)?.to ?? Infinity) <= Date.now() - SETTLE_MS) {
       pendientes += 1;
       if (pendientes <= MAX_ENQUEUE_PER_CALL) refreshEstiloInBackground(s.id);
     }

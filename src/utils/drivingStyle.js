@@ -5,6 +5,20 @@
 // otros choferes no mezcla su manejo.
 export const CATEGORIAS_ESTILO = ["harshBraking", "harshAcceleration", "harshCornering", "speeding"];
 
+// Tramo (ms) en el que el chofer manejo un servicio, para pedirle a OneSystec su estilo de manejo SOLO en ese rato (el vehiculo lo usan otros).
+// Con jornada declarada es la jornada; sin ella (desde octubre de 2026 se paga por km y no se declaran horas) va de la salida del servicio
+// (fechaRetiro) hasta que el GPS lo vio llegar a la ultima parada o, si eso no esta, la duracion del circuito (ida y vuelta). Un viaje
+// compactado se mide una sola vez, con el circuito completo en su servicio principal. null = no hay como saber el tramo.
+export const estiloWindow = (r) => {
+  if (r.horaInicioReal && r.horaFinReal) return { from: r.horaInicioReal.getTime(), to: r.horaFinReal.getTime() };
+  if ((r.compactadoOrden ?? 1) > 1 || !r.fechaRetiro) return null;
+  const from = r.fechaRetiro.getTime();
+  const minutes = r.circuitoMin > 0 ? r.circuitoMin : r.rutaDuracionMin > 0 ? r.rutaDuracionMin * 2 : 0;
+  const llegada = !r.compactadoId && r.llegadaGpsAt && r.llegadaGpsAt.getTime() > from ? r.llegadaGpsAt.getTime() : null;
+  const to = llegada ?? (minutes > 0 ? from + minutes * 60000 : null);
+  return to && to > from ? { from, to } : null;
+};
+
 const DEFAULT_PUNTOS = 5;
 const DEFAULT_MIN_KM = 20;
 
