@@ -15,7 +15,7 @@ const CACHE_TTL_MS = 30 * 1000;
 const PRIMER_MES = PAY_TARIFFS.find((t) => t.pagoPorKm)?.desde ?? "2026-10";
 
 let byDriver = new Map(); // driverId -> [{ mes, kmh }] ordenado por mes
-let sinFueraHorario = new Set(); // choferes a quienes NO se les cuentan aparte las horas fuera del horario laboral y la reperibilita
+let conFueraHorario = new Set(); // choferes a quienes SI se les cuentan aparte las horas fuera del horario laboral y la reperibilita
 let loadedAt = 0;
 let loading = null;
 
@@ -27,14 +27,14 @@ const load = async () => {
     map.get(row.driverId).push({ mes: row.mes, kmh: row.kmh });
   }
   byDriver = map;
-  // Casilla "horas fuera de horario" del perfil (User.pagaFueraHorario): solo se guardan los que la tienen apagada.
-  const sin = await prisma.user.findMany({ where: { pagaFueraHorario: false }, select: { id: true } });
-  sinFueraHorario = new Set(sin.map((u) => u.id));
+  // Casilla "horas fuera de horario" del perfil (User.pagaFueraHorario): solo se guardan los que la tienen marcada.
+  const con = await prisma.user.findMany({ where: { pagaFueraHorario: true }, select: { id: true } });
+  conFueraHorario = new Set(con.map((u) => u.id));
   loadedAt = Date.now();
 };
 
 // true = las horas fuera del horario laboral (noche, fin de semana, festivo) y la reperibilita se cuentan aparte del basico de este chofer.
-export const pagaFueraHorarioFor = (driverId) => !sinFueraHorario.has(driverId);
+export const pagaFueraHorarioFor = (driverId) => conFueraHorario.has(driverId);
 
 // Despues de cambiar la casilla de un chofer: el pago se recalcula con el valor nuevo y los resumenes en cache se descartan.
 export const refreshPagoSettings = async () => {
