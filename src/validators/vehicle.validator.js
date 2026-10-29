@@ -103,8 +103,13 @@ export const updateAreaCEntrySchema = z.object({
 export const registerKmSchema = z
   .object({
     kmUltimoMantenimiento: z.coerce.number().nonnegative().optional(),
+    // Dia del ultimo tagliando (AAAA-MM-DD): desde el dia siguiente el GPS cuenta los km.
+    fechaUltimoMantenimiento: z.preprocess(
+      (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+      z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Fecha invalida").optional()
+    ),
     kmActual: z.coerce.number().nonnegative().optional(),
   })
-  .refine((data) => data.kmUltimoMantenimiento !== undefined || data.kmActual !== undefined, {
+  .refine((data) => data.kmUltimoMantenimiento !== undefined || data.kmActual !== undefined || data.fechaUltimoMantenimiento !== undefined, {
     message: "Cargar al menos un valor de KM",
   });

@@ -247,6 +247,16 @@ model Vehiculo {
   // se compara contra el intervalo fijo de 20000km para avisar cuando se acerca o vence el service.
   kmUltimoMantenimiento Float?
   kmActual              Float?
+  // KM por GPS: lo unico que se carga a mano es el odometro del ultimo tagliando y su fecha. Desde el dia siguiente los km se suman solos con el
+  // recorrido del GPS (ver vehicleKm.service.js) y kmActual = kmLecturaBase + km del GPS de los dias despues de fechaLecturaBase. La lectura base es
+  // el tagliando o, si se corrige a mano el odometro, esa lectura con su dia.
+  fechaUltimoMantenimiento DateTime? @db.Date
+  kmLecturaBase            Float?
+  fechaLecturaBase         DateTime? @db.Date
+  // Ultima vez que se sumaron los km del GPS y como salio: OK, SIN_GPS (el vehiculo no esta en OneSystec) o ERROR (no respondio, se reintenta).
+  kmGpsActualizadoAt       DateTime?
+  kmGpsEstado              String?
+  kmGpsDias                VehiculoKmDia[]
   // Permiso ZTL de Milano (electrico, discapacidad, etc.) - si esta en false (default)
   // y el GPS del vehiculo (Velocity Fleet) lo detecta dentro del poligono de Area C, se
   // dispara una alerta (ver computeAreaCAlerts en el front) para evitar una multa.
@@ -375,6 +385,21 @@ model ParadaVehiculo {
   @@map("paradas_vehiculo")
 }
 
+// Km recorridos por cada vehiculo en cada dia (hora de Roma), segun el GPS (OneSystec). Un dia "cerrado" ya termino y no se vuelve a pedir; el de hoy se
+// actualiza cada tanto. Sirve a todos los tagliandos: cada uno suma los dias que le corresponden.
+model VehiculoKmDia {
+  id            String   @id @default(uuid())
+  vehiculoId    String
+  vehiculo      Vehiculo @relation(fields: [vehiculoId], references: [id], onDelete: Cascade)
+  dia           DateTime @db.Date
+  km            Float
+  cerrado       Boolean  @default(false)
+  actualizadoAt DateTime @updatedAt
+
+  @@unique([vehiculoId, dia])
+  @@map("vehiculo_km_dias")
+}
+
 // Historial de cada carga de KM en la seccion Mecanica: conserva el registro completo
 // aunque los campos "actuales" del Vehiculo se sobreescriban con la lectura siguiente.
 model MantenimientoVehiculo {
@@ -383,6 +408,8 @@ model MantenimientoVehiculo {
   vehiculo              Vehiculo @relation(fields: [vehiculoId], references: [id], onDelete: Cascade)
   kmUltimoMantenimiento Float
   kmActual              Float
+  // Dia del tagliando (cuando se carga con fecha): desde el dia siguiente cuentan los km del GPS.
+  fechaMantenimiento    DateTime? @db.Date
   usuarioId             String
   usuario               User     @relation(fields: [usuarioId], references: [id])
   createdAt             DateTime @default(now())

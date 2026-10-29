@@ -17,6 +17,7 @@ import {
   listUnpaidAreaCEntriesForActor,
   listVehicleLivePositionsForActor,
   listVehiclesForActor,
+  refreshVehicleKmForActor,
   registerKmForActor,
   listCurrentServicesForActor,
   setMapaVisibilityForActor,
@@ -162,6 +163,11 @@ export const remove = asyncHandler(async (req, res) => {
 export const registerKm = asyncHandler(async (req, res) => {
   const vehicle = await registerKmForActor(req.params.id, req.body, req.user.id);
   res.status(200).json({ success: true, data: { vehicle } });
+});
+
+export const refreshKmGps = asyncHandler(async (req, res) => {
+  const result = await refreshVehicleKmForActor(req.params.id);
+  res.status(200).json({ success: true, data: result });
 });
 
 export const listMantenimientos = asyncHandler(async (req, res) => {

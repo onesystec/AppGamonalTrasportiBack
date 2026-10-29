@@ -4,7 +4,7 @@ import { prisma } from "./config/prisma.js";
 import { healCrossedAssignments } from "./services/assignmentRematch.service.js";
 import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
-import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startMemorandumReminders, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
+import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startKmGpsSync, startMemorandumReminders, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
 
 // Velocidades de pago por chofer en memoria desde el arranque (si falla, se vuelve a intentar en cada consulta de pagos).
 void ensureKmhPago();
@@ -18,6 +18,7 @@ startRetentionScheduler();
 startFaltantesReminder();
 startSeguimientoMonitor();
 startAutoEnCamino();
+startKmGpsSync();
 startAreaCAvisos();
 startMemorandumReminders();
 // Peajes y cargas de combustible que quedaron asignados al servicio de otra targa (ver findCandidateServices): se corrigen una vez al arrancar.

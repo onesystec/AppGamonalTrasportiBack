@@ -88,6 +88,15 @@ export const getVehiclePositions = async (onesystecVehicleId, fromMs, toMs) => {
     .sort((a, b) => a.at - b.at);
 };
 
+// Km que recorrio un vehiculo (por su patente) en un tramo, segun el GPS de OneSystec: la distancia que calcula su estilo de manejo. null si la patente no
+// esta en OneSystec; lanza si el GPS no responde.
+export const getVehicleDistanceKm = async (plate, fromMs, toMs) => {
+  const id = await findOnesystecVehicleIdByPlate(plate);
+  if (!id) return null;
+  const body = await getVehicleDrivingStyle(id, fromMs, toMs);
+  return typeof body?.distanceKm === "number" && Number.isFinite(body.distanceKm) ? body.distanceKm : 0;
+};
+
 // Comprobacion barata de que la cuenta del GPS esta viva: pide la lista de vehiculos. Distingue una
 // cuenta rechazada o suspendida (401/402/403, o sin vehiculos: por ejemplo por falta de pago) de una
 // caida pasajera (error del servidor, sin conexion). Nunca lanza.

@@ -7,6 +7,7 @@ import { runSeguimientoAlerts } from "./seguimiento.service.js";
 import { loadPendingAreaCEntries, processAreaCReminders } from "./areaCAvisos.service.js";
 import { loadPendingMemorandums, processMemorandumReminders } from "./memorandumAvisos.service.js";
 import { runAreaCMonitor } from "./vehicle.service.js";
+import { syncAllVehiclesKm } from "./vehicleKm.service.js";
 import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
@@ -120,6 +121,26 @@ export const startAutoEnCamino = () => {
   if (pausa) console.log(`[estado] "En camino" automatico en pausa de ${env.AUTO_EN_CAMINO_PAUSA} (hora de Roma) para que la base pueda dormir`);
   void tick({ ignorarPausa: true });
   setInterval(() => void tick(), 60 * 1000).unref();
+};
+
+// Km por GPS de los vehiculos con tagliando cargado (ver vehicleKm.service.js): cada hora pone al dia el total de cada uno (los dias ya cerrados no se
+// vuelven a pedir, asi que casi siempre es una sola consulta por vehiculo, la de hoy). Con la misma pausa de noche que "En camino" para que la base
+// pueda dormir. Solo en produccion.
+export const startKmGpsSync = () => {
+  if (env.NODE_ENV !== "production") return;
+  const pausa = parsePausa(env.AUTO_EN_CAMINO_PAUSA);
+  const tick = async () => {
+    if (enPausa(pausa)) return;
+    try {
+      const result = await syncAllVehiclesKm();
+      const pendientes = result.filter((r) => r.pendientes > 0).length;
+      if (result.length > 0) console.log(`[km-gps] ${result.length} vehiculo(s) al dia${pendientes ? `, ${pendientes} con dias pendientes` : ""}`);
+    } catch (err) {
+      console.error("[km-gps] fallo la vuelta:", err.message);
+    }
+  };
+  setTimeout(() => void tick(), 3 * 60 * 1000).unref();
+  setInterval(() => void tick(), 60 * 60 * 1000).unref();
 };
 
 // Area C sin autorizacion (ver areaCAvisos.service.js). Dos tareas:

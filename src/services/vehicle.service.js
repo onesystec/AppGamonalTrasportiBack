@@ -50,7 +50,8 @@ import { geocodeAddress } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { getVehicleLivePositions } from "./velocityFleet.service.js";
-import { getOnesystecLivePositions, listOnesystecVehicles, isOnesystecConfigured } from "./onesystec.service.js";
+import { findOnesystecVehicleIdByPlate, getOnesystecLivePositions, listOnesystecVehicles, isOnesystecConfigured } from "./onesystec.service.js";
+import { syncVehicleKm } from "./vehicleKm.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { pointInPolygon } from "../utils/pointInPolygon.js";
 import { AppError } from "../utils/AppError.js";
@@ -97,6 +98,12 @@ const toResponse = async (vehicle) => ({
   rTecnica: vehicle.rTecnica,
   kmUltimoMantenimiento: vehicle.kmUltimoMantenimiento,
   kmActual: vehicle.kmActual,
+  // KM por GPS: dia del ultimo tagliando, lectura desde la que cuenta el GPS (el tagliando o un odometro corregido) y como va el conteo.
+  fechaUltimoMantenimiento: vehicle.fechaUltimoMantenimiento ? vehicle.fechaUltimoMantenimiento.toISOString().slice(0, 10) : null,
+  kmLecturaBase: vehicle.kmLecturaBase,
+  fechaLecturaBase: vehicle.fechaLecturaBase ? vehicle.fechaLecturaBase.toISOString().slice(0, 10) : null,
+  kmGpsEstado: vehicle.kmGpsEstado,
+  kmGpsActualizadoAt: vehicle.kmGpsActualizadoAt,
   autorizadoAreaC: vehicle.autorizadoAreaC,
   mostrarEnMapa: vehicle.mostrarEnMapa,
   empresa: vehicle.empresa,
@@ -197,34 +204,86 @@ export const updateVehicleForActor = async (id, data, files) => {
   return toResponse(updated);
 };
 
-// El chequeo de Mecanica es un endpoint aparte del PATCH generico: cada guardado
-// deja constancia en el historial ademas de actualizar los valores "actuales" del
-// vehiculo, para no perder el rastro de lecturas anteriores.
+// El chequeo de Mecanica es un endpoint aparte del PATCH generico: cada guardado deja constancia en el historial ademas de actualizar los valores
+// "actuales" del vehiculo, para no perder el rastro de lecturas anteriores.
+// Con GPS (el vehiculo esta en OneSystec) lo unico que se carga es el odometro del ultimo tagliando y su fecha: desde el dia siguiente los km se suman
+// solos (ver vehicleKm.service.js). Tambien se puede corregir el odometro actual (kmActual solo): el GPS cuenta desde esa lectura y ese dia.
+// Sin GPS, o sin fecha, sigue como antes: los dos km a mano.
+const todayDate = () => new Date(`${romeDay()}T00:00:00.000Z`);
+
 export const registerKmForActor = async (id, data, actorId) => {
   const vehicle = await findVehicleById(id);
   if (!vehicle) {
     throw new AppError("Vehiculo no encontrado", 404);
   }
 
-  const kmUltimoMantenimiento = data.kmUltimoMantenimiento ?? vehicle.kmUltimoMantenimiento;
-  const kmActual = data.kmActual ?? vehicle.kmActual;
+  const fecha = data.fechaUltimoMantenimiento;
+  if (fecha && fecha > romeDay()) throw new AppError("La fecha del tagliando no puede ser futura", 400, { fechaUltimoMantenimiento: ["No puede ser futura"] });
+  const nuevoTagliando = data.kmUltimoMantenimiento !== undefined || fecha !== undefined;
 
-  if (kmUltimoMantenimiento == null || kmActual == null) {
+  const kmUltimoMantenimiento = data.kmUltimoMantenimiento ?? vehicle.kmUltimoMantenimiento;
+  if (nuevoTagliando && kmUltimoMantenimiento == null) throw new AppError("Cargar los KM del ultimo tagliando", 400, { kmUltimoMantenimiento: ["Pon los KM del ultimo tagliando"] });
+
+  const patch = {};
+  if (nuevoTagliando) {
+    patch.kmUltimoMantenimiento = kmUltimoMantenimiento;
+    if (fecha) {
+      // El GPS cuenta desde el dia siguiente al tagliando: hasta que lo sume, los km actuales son los del tagliando.
+      Object.assign(patch, {
+        fechaUltimoMantenimiento: new Date(`${fecha}T00:00:00.000Z`),
+        kmLecturaBase: kmUltimoMantenimiento,
+        fechaLecturaBase: new Date(`${fecha}T00:00:00.000Z`),
+        kmActual: data.kmActual ?? kmUltimoMantenimiento,
+        kmGpsEstado: null,
+        kmGpsActualizadoAt: null,
+      });
+    } else {
+      const conGps = isOnesystecConfigured() && Boolean(await findOnesystecVehicleIdByPlate(vehicle.targa).catch(() => null));
+      if (conGps) throw new AppError("Indica la fecha del ultimo tagliando: desde ese dia el GPS cuenta los km", 400, { fechaUltimoMantenimiento: ["Pon la fecha del tagliando"] });
+      patch.kmActual = data.kmActual ?? vehicle.kmActual;
+    }
+  } else if (data.kmActual !== undefined) {
+    patch.kmActual = data.kmActual;
+    // Odometro corregido a mano: el GPS cuenta desde esta lectura y desde hoy (si ya llevaba la cuenta).
+    if (vehicle.fechaLecturaBase) Object.assign(patch, { kmLecturaBase: data.kmActual, fechaLecturaBase: todayDate(), kmGpsEstado: null, kmGpsActualizadoAt: null });
+  }
+
+  const kmActual = patch.kmActual ?? vehicle.kmActual;
+  if ((patch.kmUltimoMantenimiento ?? vehicle.kmUltimoMantenimiento) == null || kmActual == null) {
     throw new AppError("Cargar KM Ultimo Mantenimiento y KM Actual", 400);
   }
 
   const [updated] = await Promise.all([
-    updateVehicleById(id, { kmUltimoMantenimiento, kmActual }),
-    createMantenimiento({ vehiculoId: id, kmUltimoMantenimiento, kmActual, usuarioId: actorId }),
+    updateVehicleById(id, patch),
+    createMantenimiento({
+      vehiculoId: id,
+      kmUltimoMantenimiento: patch.kmUltimoMantenimiento ?? vehicle.kmUltimoMantenimiento,
+      kmActual,
+      fechaMantenimiento: fecha ? new Date(`${fecha}T00:00:00.000Z`) : null,
+      usuarioId: actorId,
+    }),
   ]);
-
+  invalidateVehiclesCache();
+  // Los km del GPS desde el tagliando se piden aparte, sin hacer esperar al guardado (la pantalla pide el avance enseguida).
+  if (patch.fechaLecturaBase) void syncVehicleKm(id).catch((err) => console.error("[km-gps] no se pudo contar:", err.message));
   return toResponse(updated);
+};
+
+// Cuenta ahora los km del GPS de un vehiculo (la pantalla de Mecanica lo pide al abrirlo y cada pocos segundos mientras falten dias): los que ya
+// estaban se reutilizan y solo se piden los dias que faltan, hasta un limite por vez.
+export const refreshVehicleKmForActor = async (id) => {
+  const vehicle = await findVehicleById(id);
+  if (!vehicle) throw new AppError("Vehiculo no encontrado", 404);
+  const gps = await syncVehicleKm(id, { maxCalls: 25, forceToday: true });
+  const updated = await findVehicleById(id);
+  return { vehicle: await toResponse(updated), gps: { estado: gps.estado, pendientes: gps.pendientes, kmGps: gps.kmGps } };
 };
 
 const toMantenimientoResponse = (registro) => ({
   id: registro.id,
   kmUltimoMantenimiento: registro.kmUltimoMantenimiento,
   kmActual: registro.kmActual,
+  fechaMantenimiento: registro.fechaMantenimiento ? registro.fechaMantenimiento.toISOString().slice(0, 10) : null,
   usuario: registro.usuario ? `${registro.usuario.nombre} ${registro.usuario.apellido}` : null,
   createdAt: registro.createdAt,
 });

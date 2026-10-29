@@ -17,6 +17,7 @@ import {
   listMySpeedingEvents,
   listSpeedingEvents,
   listUnpaidAreaCEntries,
+  refreshKmGps,
   registerKm,
   resendAreaCEntryNotice,
   remove,
@@ -142,6 +143,8 @@ router.post(
   validate(registerKmSchema),
   registerKm
 );
+// Cuenta ahora los km del GPS desde el ultimo tagliando (pide solo los dias que faltan).
+router.post("/:id/km-gps", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), refreshKmGps);
 router.delete(
   "/:id/mantenimiento/:mantenimientoId",
   authorize("OWNER", "ADMIN"),
