@@ -5,6 +5,9 @@ import { romeDay } from "../utils/romeTime.js";
 const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO"];
 const QUIEN_PAGA_VALUES = ["CHOFER_PAGO", "A_DESCONTAR"];
 const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto"];
+const TITULAR_VALUES = ["SRL", "INDIVIDUAL"];
+// Titular del verbale: S.R.L. o ditta individuale.
+const titular = z.enum(TITULAR_VALUES, { errorMap: () => ({ message: "Titular invalido (SRL o INDIVIDUAL)" }) });
 
 // Los formularios llegan como multipart: todo viene como string, y un campo opcional sin
 // completar puede venir vacio.
@@ -66,6 +69,7 @@ export const createMultaSchema = z.object({
   quienPaga,
   // Area de servicio a la que se imputa (ver User.areasPermitidas). Un Responsable debe indicarla.
   area: z.preprocess(emptyToUndefined, z.enum(AREA_KEYS).optional()),
+  titular: z.preprocess(emptyToUndefined, titular.optional()),
   comentarios: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
 });
 
@@ -85,6 +89,7 @@ export const updateMultaSchema = z.object({
   costo: costo.optional(),
   quienPaga: quienPaga.optional(),
   area: z.preprocess(emptyToNull, z.enum(AREA_KEYS).nullable().optional()),
+  titular: z.preprocess(emptyToNull, titular.nullable().optional()),
   comentarios: z.preprocess(emptyToNull, z.string().trim().max(1000).nullable().optional()),
   pagado: boolString.optional(),
   descontado: boolString.optional(),
@@ -103,6 +108,8 @@ const listFilters = {
   quienPaga: z.preprocess(emptyToUndefined, z.enum(QUIEN_PAGA_VALUES).optional()),
   // "true": solo las que hay que descontar y todavia no se descontaron.
   descuentoPendiente: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
+  // SRL / INDIVIDUAL, o SIN = las que no tienen titular indicado.
+  titular: z.preprocess(emptyToUndefined, z.enum([...TITULAR_VALUES, "SIN"]).optional()),
 };
 
 export const listMultasQuerySchema = z.object({
