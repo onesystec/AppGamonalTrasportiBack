@@ -881,6 +881,12 @@ enum QuienPagaMulta {
   A_DESCONTAR
 }
 
+// Titular del verbale: Gamonal Trasporti S.R.L. o la ditta individuale.
+enum TitularMulta {
+  SRL
+  INDIVIDUAL
+}
+
 // Multa de transito (verbale) de un vehiculo de la flota, a nombre de un chofer responsable.
 // Se carga desde la oficina (OWNER/ADMIN); el chofer solo ve las suyas. Igual que
 // MancatoPagamento, el estado (Pendiente / Pagado / Vencido) no se guarda: se deriva de
@@ -918,6 +924,8 @@ model Multa {
   // Area de servicio a la que se imputa (misma clave que User.areasPermitidas). Sin area, solo la
   // ven los Admin.
   area                 String?
+  // A nombre de quien llego el verbale: la S.R.L. o la ditta individuale (null = sin indicar).
+  titular              TitularMulta?
   pagado               Boolean        @default(false)
   pagadoAt             DateTime?
   createdAt            DateTime       @default(now())
