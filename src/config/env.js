@@ -103,6 +103,9 @@ const envSchema = z.object({
   // la funcion queda apagada (el resto de la app anda igual). La clave va SOLO aca, nunca en el codigo.
   ONESYSTEC_BASE_URL: z.string().url().optional(),
   ONESYSTEC_API_KEY: z.string().min(10).optional(),
+  // Clave con la que OneSystec LEE de aqui quien uso cada vehiculo (ver routes/integracionOnesystec.routes.js). Es la ruta
+  // inversa de la de arriba. Solo lectura, y sin esta variable la ruta responde 503. Minimo 32 caracteres aleatorios.
+  ONESYSTEC_INTEGRATION_KEY: z.string().min(32).optional(),
   // Estimacion por ruta (sin GPS): tiempo que se supone en cada parada (minutos), recargo por trafico sobre el
   // tiempo de OSRM (que no lo incluye) y descanso que se supone cada X minutos de conduccion.
   ESTIMATE_STOP_MIN: z.coerce.number().default(10),

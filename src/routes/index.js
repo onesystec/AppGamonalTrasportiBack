@@ -12,6 +12,7 @@ import documentRoutes from "./document.routes.js";
 import fileRoutes from "./file.routes.js";
 import finanzasRoutes from "./finanzas.routes.js";
 import gpsRoutes from "./gps.routes.js";
+import integracionOnesystecRoutes from "./integracionOnesystec.routes.js";
 import horasRoutes from "./horas.routes.js";
 import permisoRoutes from "./permiso.routes.js";
 import paradaRoutes from "./parada.routes.js";
@@ -69,5 +70,6 @@ router.use("/trabajos-adicionales", trabajoAdicionalRoutes);
 router.use("/otros-gastos", otroGastoRoutes);
 router.use("/disponibilidad", disponibilidadRoutes);
 router.use("/telegram", telegramRoutes);
+router.use("/integraciones/onesystec", integracionOnesystecRoutes);
 
 export default router;
