@@ -48,10 +48,27 @@ const WORKED_DAYS_SELECT = {
   compactadoOrden: true,
 };
 
-export const findWorkedRecordsInRange = (driverId, gte, lt) =>
+// detail: ademas, lo que se muestra de cada servicio al abrir un dia del calendario (solo oficina).
+const DETAIL_SELECT = {
+  id: true,
+  codigo: true,
+  estado: true,
+  destinazione: true,
+  ciudad: true,
+  aplicativo: true,
+  spedizzione: true,
+  kilometros: true,
+  kilometrosReales: true,
+  rutaDistanciaKm: true,
+  client: { select: { nombre: true } },
+  vehicle: { select: { targa: true, modelo: true } },
+};
+
+export const findWorkedRecordsInRange = (driverId, gte, lt, { detail = false } = {}) =>
   prisma.record.findMany({
     where: { driverId, fechaServicio: { gte, lt }, ...WORKED_WHERE },
-    select: WORKED_DAYS_SELECT,
+    select: detail ? { ...WORKED_DAYS_SELECT, ...DETAIL_SELECT } : WORKED_DAYS_SELECT,
+    orderBy: { fechaServicio: "asc" },
   });
 
 // Primer y ultimo servicio (no anulado) del chofer.

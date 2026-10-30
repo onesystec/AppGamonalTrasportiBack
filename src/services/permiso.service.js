@@ -20,6 +20,7 @@ import {
   updatePermisoById,
 } from "../models/permiso.model.js";
 import { AppError } from "../utils/AppError.js";
+import { kmRecorrido } from "../utils/kmFacturables.js";
 import { romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
@@ -455,6 +456,34 @@ const servicesCount = (records) => {
   return { servicesByDay, workedDays };
 };
 
+// Servicios de cada dia para la oficina (codigo, cliente, km...). Un servicio aparece en todos los dias que
+// ocupa; en los que no son el de salida va marcado "enCurso" (viaje largo o vuelta).
+const serviceDetailsByDay = (records) => {
+  const byDay = new Map();
+  for (const r of records) {
+    const startDay = romeDay(r.fechaServicio);
+    for (const day of serviceDays(r)) {
+      const list = byDay.get(day) ?? [];
+      list.push({
+        id: r.id,
+        codigo: r.codigo,
+        estado: r.estado,
+        cliente: r.client?.nombre ?? null,
+        destino: r.ciudad ? `${r.destinazione ?? ""}${r.destinazione ? ", " : ""}${r.ciudad}` : (r.destinazione ?? null),
+        aplicativo: r.aplicativo ?? null,
+        spedizzione: r.spedizzione ?? null,
+        km: Math.round(kmRecorrido(r) * 10) / 10,
+        vehiculo: r.vehicle ? `${r.vehicle.targa}${r.vehicle.modelo ? ` - ${r.vehicle.modelo}` : ""}` : null,
+        salida: r.fechaRetiro ?? r.fechaServicio,
+        eta: r.eta,
+        enCurso: day !== startDay,
+      });
+      byDay.set(day, list);
+    }
+  }
+  return byDay;
+};
+
 const startDayOf = (createdAt, firstRecordDate) =>
   // Antes de que el chofer empezara (alta o primer servicio) no se marca falta.
   [romeDay(createdAt), firstRecordDate ? romeDay(firstRecordDate) : null].filter(Boolean).sort()[0];
@@ -475,7 +504,9 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
   const { maxPorDia: tope } = await getPermisosConfig();
 
   const [records, permisos, recordRange, load] = await Promise.all([
-    findWorkedRecordsInRange(driver.id, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findWorkedRecordsInRange(driver.id, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00"), {
+      detail: privileged,
+    }),
     findPermisosInMonth(driver.id, weeks.from, weeks.to),
     findWorkedRecordRange(driver.id),
     tope ? loadByDay(first, last) : Promise.resolve(new Map()),
@@ -492,6 +523,8 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
     tope,
   });
 
+  const details = privileged ? serviceDetailsByDay(records) : new Map();
+
   return {
     month,
     today,
@@ -500,7 +533,9 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
     ultimoServicio: recordRange.last ? romeDay(recordRange.last) : null,
     summary,
     // El chofer solo necesita saber si un dia esta completo, no cuantos companeros faltan.
-    days: privileged ? days : days.map(({ ocupados, ...day }) => day),
+    days: privileged
+      ? days.map((day) => ({ ...day, serviciosDetalle: details.get(day.fecha) ?? [] }))
+      : days.map(({ ocupados, ...day }) => day),
   };
 };
 
