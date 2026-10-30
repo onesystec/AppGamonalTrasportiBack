@@ -331,9 +331,9 @@ const emptySummary = () => ({
 // por dia). Verde: trabajo. Rojo: falto sin justificacion. Naranja: justificado y aprobado.
 // Plan: 6 dias de trabajo por semana (lunes a domingo; el lunes se reinicia la cuenta) y 1 de descanso.
 // Un dia laborable sin servicio es falta salvo que la oficina lo justifique o lo marque libre. El
-// descanso semanal solo puede ser un fin de semana: el primer sabado/domingo pasado sin servicio es el
-// descanso (gris) y otro mas esa semana es falta (rojo), salvo que la oficina ya haya marcado un
-// descanso esa semana. Si el chofer trabaja los dos dias del fin de semana, todo en verde.
+// descanso semanal es el domingo (gris) y el sabado se trabaja: un sabado sin servicio es falta (rojo),
+// salvo que el domingo si se haya trabajado (entonces el sabado es el descanso, porque ya cumplio los
+// 6 dias). Si la oficina ya marco un descanso esa semana, un fin de semana libre es falta.
 // "load" (opcional): cuantos permisos con cupo aprobados hay por dia, para marcar los dias completos.
 const isWeekend = (day) => [0, 6].includes(dayToDate(day).getUTCDay());
 
@@ -381,12 +381,14 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
 
   for (let i = 0; i < rows.length; i += 7) {
     const week = rows.slice(i, i + 7);
-    let descansoUsado = week.some((r) => r.estado === "DESCANSO");
-    for (const r of week) {
-      if (r.estado !== "LIBRE_FIN_DE_SEMANA") continue;
-      r.estado = descansoUsado ? "NO_TRABAJADO" : "DESCANSO";
-      descansoUsado = true;
+    if (week.some((r) => r.estado === "DESCANSO")) {
+      for (const r of week) if (r.estado === "LIBRE_FIN_DE_SEMANA") r.estado = "NO_TRABAJADO";
+      continue;
     }
+    // El sabado se trabaja y el domingo se descansa; el sabado solo es descanso si el domingo se trabajo.
+    const [sab, dom] = [week[5], week[6]];
+    if (dom.estado === "LIBRE_FIN_DE_SEMANA") dom.estado = "DESCANSO";
+    if (sab.estado === "LIBRE_FIN_DE_SEMANA") sab.estado = dom.servicios > 0 ? "DESCANSO" : "NO_TRABAJADO";
   }
 
   const days = [];
