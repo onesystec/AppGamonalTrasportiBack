@@ -329,19 +329,30 @@ const emptySummary = () => ({
 
 // Estado de cada dia de un mes para un chofer, a partir de sus servicios y permisos (nada se guarda
 // por dia). Verde: trabajo. Rojo: falto sin justificacion. Naranja: justificado y aprobado.
-// Los fines de semana sin servicio son el descanso por defecto (violeta, no es falta); un dia laborable
-// sin servicio es falta salvo que la oficina lo justifique o lo marque libre. Si el chofer trabaja
-// sabado o domingo, ese dia sale en verde como siempre.
+// Plan: 6 dias de trabajo por semana (lunes a domingo; el lunes se reinicia la cuenta) y 1 de descanso.
+// Un dia laborable sin servicio es falta salvo que la oficina lo justifique o lo marque libre. El
+// descanso semanal solo puede ser un fin de semana: el primer sabado/domingo pasado sin servicio es el
+// descanso (gris) y otro mas esa semana es falta (rojo), salvo que la oficina ya haya marcado un
+// descanso esa semana. Si el chofer trabaja los dos dias del fin de semana, todo en verde.
 // "load" (opcional): cuantos permisos con cupo aprobados hay por dia, para marcar los dias completos.
 const isWeekend = (day) => [0, 6].includes(dayToDate(day).getUTCDay());
+
+// Semanas lunes-domingo que cubren el mes: el descanso se reparte por semana completa, asi que los
+// servicios y permisos se consultan desde el lunes de la primera semana hasta el domingo de la ultima.
+const weekMonday = (day) => addDays(day, -((dayToDate(day).getUTCDay() + 6) % 7));
+const weeksWindow = (first, last) => ({
+  from: weekMonday(first),
+  to: addDays(weekMonday(last), 6),
+  toExclusive: addDays(weekMonday(last), 7),
+});
 
 const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load, tope }) => {
   const permisoOn = (day, estado) =>
     permisos.find((p) => p.estado === estado && dateToDay(p.fechaDesde) <= day && dateToDay(p.fechaHasta) >= day);
 
-  const days = [];
-  const summary = emptySummary();
-  for (const day of daysBetween(first, last)) {
+  const rows = [];
+  const { from, to } = weeksWindow(first, last);
+  for (const day of daysBetween(from, to)) {
     const servicios = servicesByDay.get(day) ?? 0;
     const approved = permisoOn(day, "APROBADO");
     const pending = permisoOn(day, "PENDIENTE");
@@ -363,8 +374,25 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
     } else if (servicios > 0) estado = "TRABAJADO";
     else if (approved) estado = approved.tipo === "DESCANSO" ? "DESCANSO" : "JUSTIFICADO";
     else if (pending) estado = "PERMISO_PENDIENTE";
-    else estado = day === today ? "HOY" : isWeekend(day) ? "DESCANSO" : "NO_TRABAJADO";
+    else estado = day === today ? "HOY" : isWeekend(day) ? "LIBRE_FIN_DE_SEMANA" : "NO_TRABAJADO";
 
+    rows.push({ day, servicios, approved, permiso, estado });
+  }
+
+  for (let i = 0; i < rows.length; i += 7) {
+    const week = rows.slice(i, i + 7);
+    let descansoUsado = week.some((r) => r.estado === "DESCANSO");
+    for (const r of week) {
+      if (r.estado !== "LIBRE_FIN_DE_SEMANA") continue;
+      r.estado = descansoUsado ? "NO_TRABAJADO" : "DESCANSO";
+      descansoUsado = true;
+    }
+  }
+
+  const days = [];
+  const summary = emptySummary();
+  for (const { day, servicios, approved, permiso, estado } of rows) {
+    if (day < first || day > last) continue;
     if (estado === "TRABAJADO") summary.trabajados++;
     else if (estado === "NO_TRABAJADO") summary.noTrabajados++;
     else if (estado === "JUSTIFICADO") summary.justificados++;
@@ -409,13 +437,14 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
   const driver = await findChoferById(targetId);
   if (!driver) throw new AppError("Chofer no encontrado", 404);
 
-  const { first, nextFirst, last } = monthBounds(month);
+  const { first, last } = monthBounds(month);
+  const weeks = weeksWindow(first, last);
   const today = romeDay();
   const { maxPorDia: tope } = await getPermisosConfig();
 
   const [records, permisos, recordRange, load] = await Promise.all([
-    findWorkedRecordsInRange(driver.id, romeLocalToDate(first, "00:00"), romeLocalToDate(nextFirst, "00:00")),
-    findPermisosInMonth(driver.id, first, last),
+    findWorkedRecordsInRange(driver.id, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findPermisosInMonth(driver.id, weeks.from, weeks.to),
     findWorkedRecordRange(driver.id),
     tope ? loadByDay(first, last) : Promise.resolve(new Map()),
   ]);
@@ -448,11 +477,12 @@ export const getAttendanceByDriver = async (driverIds, month) => {
   const result = new Map();
   if (!driverIds.length) return result;
 
-  const { first, nextFirst, last } = monthBounds(month);
+  const { first, last } = monthBounds(month);
+  const weeks = weeksWindow(first, last);
   const today = romeDay();
   const [records, permisos, start] = await Promise.all([
-    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(first, "00:00"), romeLocalToDate(nextFirst, "00:00")),
-    findPermisosForDrivers(driverIds, dayToDate(first), dayToDate(last)),
+    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findPermisosForDrivers(driverIds, dayToDate(weeks.from), dayToDate(weeks.to)),
     findDriversStart(driverIds),
   ]);
 
