@@ -133,6 +133,25 @@ export const findWorkedRecordsForDrivers = (driverIds, gte, lt) =>
     select: { driverId: true, ...WORKED_DAYS_SELECT },
   });
 
+// Trabajos adicionales aprobados (fuera de los servicios) que tocan el rango: tambien son dias trabajados.
+export const findApprovedTrabajosAdicionales = (driverIds, gte, lt) =>
+  prisma.trabajoAdicional.findMany({
+    where: { driverId: { in: driverIds }, estado: "APROBADO", inicio: { lt }, fin: { gte } },
+    select: {
+      id: true,
+      driverId: true,
+      areaTipo: true,
+      zona: true,
+      areaOtros: true,
+      descripcion: true,
+      inicio: true,
+      fin: true,
+      horasDia: true,
+      horasNoche: true,
+    },
+    orderBy: { inicio: "asc" },
+  });
+
 export const findDriversStart = async (driverIds) => {
   const [users, firsts] = await Promise.all([
     prisma.user.findMany({ where: { id: { in: driverIds } }, select: { id: true, createdAt: true } }),

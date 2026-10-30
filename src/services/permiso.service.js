@@ -4,6 +4,7 @@ import {
   deletePermisoById,
   findApprovedPermisosInRange,
   findApprovedQuotaPermisos,
+  findApprovedTrabajosAdicionales,
   findChoferById,
   findDriversStart,
   findWorkedRecordRange,
@@ -484,6 +485,41 @@ const serviceDetailsByDay = (records) => {
   return byDay;
 };
 
+// Trabajos adicionales aprobados: cada dia que ocupan (de inicio a fin, hora de Roma) cuenta como trabajado.
+const extraDays = (t) => {
+  const days = [];
+  for (let day = romeDay(t.inicio), i = 0; day <= romeDay(t.fin) && i < MAX_SERVICE_DAYS; day = addDays(day, 1), i++) days.push(day);
+  return days;
+};
+
+const extrasByDay = (extras) => {
+  const byDay = new Map();
+  for (const t of extras) {
+    for (const day of extraDays(t)) {
+      const list = byDay.get(day) ?? [];
+      list.push({
+        id: t.id,
+        areaTipo: t.areaTipo,
+        zona: t.zona,
+        areaOtros: t.areaOtros,
+        descripcion: t.descripcion,
+        inicio: t.inicio,
+        fin: t.fin,
+        horas: Math.round(((t.horasDia ?? 0) + (t.horasNoche ?? 0)) * 10) / 10,
+      });
+      byDay.set(day, list);
+    }
+  }
+  return byDay;
+};
+
+// Servicios + trabajos adicionales aprobados de un chofer: lo que se muestra y los dias con trabajo.
+const workSummary = (records, extras) => {
+  const counts = servicesCount(records);
+  for (const t of extras) for (const day of extraDays(t)) counts.workedDays.add(day);
+  return counts;
+};
+
 const startDayOf = (createdAt, firstRecordDate) =>
   // Antes de que el chofer empezara (alta o primer servicio) no se marca falta.
   [romeDay(createdAt), firstRecordDate ? romeDay(firstRecordDate) : null].filter(Boolean).sort()[0];
@@ -503,13 +539,18 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
   const today = romeDay();
   const { maxPorDia: tope } = await getPermisosConfig();
 
-  const [records, permisos, recordRange, load] = await Promise.all([
+  const [records, permisos, recordRange, load, extras] = await Promise.all([
     findWorkedRecordsInRange(driver.id, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00"), {
       detail: privileged,
     }),
     findPermisosInMonth(driver.id, weeks.from, weeks.to),
     findWorkedRecordRange(driver.id),
     tope ? loadByDay(first, last) : Promise.resolve(new Map()),
+    findApprovedTrabajosAdicionales(
+      [driver.id],
+      romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"),
+      romeLocalToDate(weeks.toExclusive, "00:00")
+    ),
   ]);
 
   const { days, summary } = buildDays({
@@ -517,13 +558,14 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
     last,
     today,
     startDay: startDayOf(driver.createdAt, recordRange.first),
-    ...servicesCount(records),
+    ...workSummary(records, extras),
     permisos,
     load,
     tope,
   });
 
   const details = privileged ? serviceDetailsByDay(records) : new Map();
+  const adicionales = extrasByDay(extras);
 
   return {
     month,
@@ -534,8 +576,12 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
     summary,
     // El chofer solo necesita saber si un dia esta completo, no cuantos companeros faltan.
     days: privileged
-      ? days.map((day) => ({ ...day, serviciosDetalle: details.get(day.fecha) ?? [] }))
-      : days.map(({ ocupados, ...day }) => day),
+      ? days.map((day) => ({
+          ...day,
+          adicionales: adicionales.get(day.fecha) ?? [],
+          serviciosDetalle: details.get(day.fecha) ?? [],
+        }))
+      : days.map(({ ocupados, ...day }) => ({ ...day, adicionales: (adicionales.get(day.fecha) ?? []).length })),
   };
 };
 
@@ -547,10 +593,15 @@ export const getAttendanceByDriver = async (driverIds, month) => {
   const { first, last } = monthBounds(month);
   const weeks = weeksWindow(first, last);
   const today = romeDay();
-  const [records, permisos, start] = await Promise.all([
+  const [records, permisos, start, extras] = await Promise.all([
     findWorkedRecordsForDrivers(driverIds, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
     findPermisosForDrivers(driverIds, dayToDate(weeks.from), dayToDate(weeks.to)),
     findDriversStart(driverIds),
+    findApprovedTrabajosAdicionales(
+      driverIds,
+      romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"),
+      romeLocalToDate(weeks.toExclusive, "00:00")
+    ),
   ]);
 
   const createdAt = new Map(start.users.map((u) => [u.id, u.createdAt]));
@@ -562,7 +613,10 @@ export const getAttendanceByDriver = async (driverIds, month) => {
       last,
       today,
       startDay: startDayOf(createdAt.get(id) ?? new Date(), firstRecord.get(id)),
-      ...servicesCount(records.filter((r) => r.driverId === id)),
+      ...workSummary(
+        records.filter((r) => r.driverId === id),
+        extras.filter((t) => t.driverId === id)
+      ),
       permisos: permisos.filter((p) => p.driverId === id),
     });
     result.set(id, summary);
