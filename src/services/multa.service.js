@@ -68,6 +68,7 @@ const buildWhere = (actor, filters, today) => {
   if (filters.to) and.push({ fechaRecepcion: { lte: dayToDate(filters.to) } });
   if (filters.quienPaga) and.push({ quienPaga: filters.quienPaga });
   if (filters.descuentoPendiente === "true") and.push({ quienPaga: "A_DESCONTAR", descontado: false });
+  if (filters.titular) and.push({ titular: filters.titular === "SIN" ? null : filters.titular });
   if (filters.q) {
     const q = filters.q;
     and.push({
@@ -138,6 +139,7 @@ const toResponse = async (m, today) => {
     costo: Number(m.costo),
     quienPaga: m.quienPaga,
     area: m.area,
+    titular: m.titular ?? null,
     descontado: m.descontado,
     descontadoAt: m.descontadoAt,
     comentarios: m.comentarios,
@@ -241,6 +243,7 @@ export const createMultaForActor = async (actor, data, files) => {
       costo: data.costo,
       quienPaga: data.quienPaga,
       area,
+      titular: data.titular ?? null,
       comentarios: data.comentarios ?? null,
       multaKey,
       comprobanteKey,
@@ -358,7 +361,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   }
 
   const payload = {};
-  for (const key of ["numeroVerbale", "targa", "costo", "comentarios", "quienPaga"]) {
+  for (const key of ["numeroVerbale", "targa", "costo", "comentarios", "quienPaga", "titular"]) {
     if (data[key] !== undefined) payload[key] = data[key];
   }
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
