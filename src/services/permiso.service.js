@@ -327,16 +327,27 @@ const emptySummary = () => ({
   programados: 0,
 });
 
+// Semanas lunes-domingo que cubren el mes: el descanso semanal se reparte por semana completa, asi que
+// los servicios y permisos se consultan desde el lunes de la primera semana hasta el domingo de la ultima.
+const weekMonday = (day) => addDays(day, -((dayToDate(day).getUTCDay() + 6) % 7));
+const weeksWindow = (first, last) => ({
+  from: weekMonday(first),
+  to: addDays(weekMonday(last), 6),
+  toExclusive: addDays(weekMonday(last), 7),
+});
+
 // Estado de cada dia de un mes para un chofer, a partir de sus servicios y permisos (nada se guarda
 // por dia). Verde: trabajo. Rojo: falto sin justificacion. Naranja: justificado y aprobado.
+// El plan es 6 dias de trabajo y 1 de descanso por semana (lunes-domingo): el primer dia pasado sin
+// servicio de cada semana cuenta como descanso semanal (no es falta), salvo que la oficina ya haya
+// marcado un descanso esa semana. Un chofer que trabaja los 7 dias lo ve todo en verde.
 // "load" (opcional): cuantos permisos con cupo aprobados hay por dia, para marcar los dias completos.
 const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load, tope }) => {
   const permisoOn = (day, estado) =>
     permisos.find((p) => p.estado === estado && dateToDay(p.fechaDesde) <= day && dateToDay(p.fechaHasta) >= day);
 
-  const days = [];
-  const summary = emptySummary();
-  for (const day of daysBetween(first, last)) {
+  const rows = [];
+  for (const day of daysBetween(weeksWindow(first, last).from, weeksWindow(first, last).to)) {
     const servicios = servicesByDay.get(day) ?? 0;
     const approved = permisoOn(day, "APROBADO");
     const pending = permisoOn(day, "PENDIENTE");
@@ -360,6 +371,20 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
     else if (pending) estado = "PERMISO_PENDIENTE";
     else estado = day === today ? "HOY" : "NO_TRABAJADO";
 
+    rows.push({ day, servicios, approved, permiso, estado });
+  }
+
+  for (let i = 0; i < rows.length; i += 7) {
+    const week = rows.slice(i, i + 7);
+    if (week.some((r) => r.estado === "DESCANSO")) continue;
+    const libre = week.find((r) => r.estado === "NO_TRABAJADO");
+    if (libre) libre.estado = "DESCANSO";
+  }
+
+  const days = [];
+  const summary = emptySummary();
+  for (const { day, servicios, approved, permiso, estado } of rows) {
+    if (day < first || day > last) continue;
     if (estado === "TRABAJADO") summary.trabajados++;
     else if (estado === "NO_TRABAJADO") summary.noTrabajados++;
     else if (estado === "JUSTIFICADO") summary.justificados++;
@@ -404,13 +429,14 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
   const driver = await findChoferById(targetId);
   if (!driver) throw new AppError("Chofer no encontrado", 404);
 
-  const { first, nextFirst, last } = monthBounds(month);
+  const { first, last } = monthBounds(month);
+  const weeks = weeksWindow(first, last);
   const today = romeDay();
   const { maxPorDia: tope } = await getPermisosConfig();
 
   const [records, permisos, recordRange, load] = await Promise.all([
-    findWorkedRecordsInRange(driver.id, romeLocalToDate(first, "00:00"), romeLocalToDate(nextFirst, "00:00")),
-    findPermisosInMonth(driver.id, first, last),
+    findWorkedRecordsInRange(driver.id, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findPermisosInMonth(driver.id, weeks.from, weeks.to),
     findWorkedRecordRange(driver.id),
     tope ? loadByDay(first, last) : Promise.resolve(new Map()),
   ]);
@@ -443,11 +469,12 @@ export const getAttendanceByDriver = async (driverIds, month) => {
   const result = new Map();
   if (!driverIds.length) return result;
 
-  const { first, nextFirst, last } = monthBounds(month);
+  const { first, last } = monthBounds(month);
+  const weeks = weeksWindow(first, last);
   const today = romeDay();
   const [records, permisos, start] = await Promise.all([
-    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(first, "00:00"), romeLocalToDate(nextFirst, "00:00")),
-    findPermisosForDrivers(driverIds, dayToDate(first), dayToDate(last)),
+    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findPermisosForDrivers(driverIds, dayToDate(weeks.from), dayToDate(weeks.to)),
     findDriversStart(driverIds),
   ]);
 
