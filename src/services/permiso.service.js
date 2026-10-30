@@ -346,7 +346,7 @@ const weeksWindow = (first, last) => ({
   toExclusive: addDays(weekMonday(last), 7),
 });
 
-const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load, tope }) => {
+const buildDays = ({ first, last, today, startDay, servicesByDay, workedDays, permisos, load, tope }) => {
   const permisoOn = (day, estado) =>
     permisos.find((p) => p.estado === estado && dateToDay(p.fechaDesde) <= day && dateToDay(p.fechaHasta) >= day);
 
@@ -354,6 +354,8 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
   const { from, to } = weeksWindow(first, last);
   for (const day of daysBetween(from, to)) {
     const servicios = servicesByDay.get(day) ?? 0;
+    // Dia con trabajo: sale un servicio ese dia o uno anterior sigue en curso (viaje largo, vuelta).
+    const trabajo = servicios > 0 || Boolean(workedDays?.has(day));
     const approved = permisoOn(day, "APROBADO");
     const pending = permisoOn(day, "PENDIENTE");
     const permiso = approved ?? pending ?? null;
@@ -362,7 +364,7 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
     if (day < startDay) estado = "SIN_DATOS";
     else if (day > today) {
       estado =
-        servicios > 0
+        trabajo
           ? "PROGRAMADO"
           : approved
             ? approved.tipo === "DESCANSO"
@@ -371,12 +373,12 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
             : pending
               ? "PERMISO_PENDIENTE"
               : "FUTURO";
-    } else if (servicios > 0) estado = "TRABAJADO";
+    } else if (trabajo) estado = "TRABAJADO";
     else if (approved) estado = approved.tipo === "DESCANSO" ? "DESCANSO" : "JUSTIFICADO";
     else if (pending) estado = "PERMISO_PENDIENTE";
     else estado = day === today ? "HOY" : isWeekend(day) ? "LIBRE_FIN_DE_SEMANA" : "NO_TRABAJADO";
 
-    rows.push({ day, servicios, approved, permiso, estado });
+    rows.push({ day, servicios, trabajo, approved, permiso, estado });
   }
 
   for (let i = 0; i < rows.length; i += 7) {
@@ -388,7 +390,7 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
     // El sabado se trabaja y el domingo se descansa; el sabado solo es descanso si el domingo se trabajo.
     const [sab, dom] = [week[5], week[6]];
     if (dom.estado === "LIBRE_FIN_DE_SEMANA") dom.estado = "DESCANSO";
-    if (sab.estado === "LIBRE_FIN_DE_SEMANA") sab.estado = dom.servicios > 0 ? "DESCANSO" : "NO_TRABAJADO";
+    if (sab.estado === "LIBRE_FIN_DE_SEMANA") sab.estado = dom.trabajo ? "DESCANSO" : "NO_TRABAJADO";
   }
 
   const days = [];
@@ -416,13 +418,41 @@ const buildDays = ({ first, last, today, startDay, servicesByDay, permisos, load
   return { days, summary };
 };
 
+const MIN_MS = 60000;
+const MAX_SERVICE_DAYS = 4;
+
+// Dias en los que un servicio mantiene al chofer trabajando: desde que sale hasta que termina, que
+// incluye la vuelta (jornada declarada, llegada del GPS, ETA o el circuito de ida y vuelta, lo que
+// llegue mas tarde). Un servicio de varios dias o que termina de volver al dia siguiente cuenta todos.
+const serviceDays = (r) => {
+  const start = Math.min(r.fechaServicio.getTime(), (r.fechaRetiro ?? r.fechaServicio).getTime());
+  const circuit =
+    (r.compactadoOrden ?? 1) > 1
+      ? 0
+      : (r.circuitoMin > 0 ? r.circuitoMin : r.rutaDuracionMin > 0 ? r.rutaDuracionMin * 2 : 0) * MIN_MS;
+  const end = Math.max(
+    r.eta?.getTime() ?? 0,
+    r.horaFinReal?.getTime() ?? 0,
+    r.llegadaGpsAt?.getTime() ?? 0,
+    circuit ? start + circuit : 0,
+    start
+  );
+  const from = romeDay(new Date(start));
+  const days = [];
+  for (let day = from, i = 0; day <= romeDay(new Date(end)) && i < MAX_SERVICE_DAYS; day = addDays(day, 1), i++) days.push(day);
+  return days;
+};
+
+// servicesByDay: servicios que salen cada dia (lo que se muestra); workedDays: todos los dias con trabajo.
 const servicesCount = (records) => {
-  const byDay = new Map();
+  const servicesByDay = new Map();
+  const workedDays = new Set();
   for (const record of records) {
     const day = romeDay(record.fechaServicio);
-    byDay.set(day, (byDay.get(day) ?? 0) + 1);
+    servicesByDay.set(day, (servicesByDay.get(day) ?? 0) + 1);
+    for (const worked of serviceDays(record)) workedDays.add(worked);
   }
-  return byDay;
+  return { servicesByDay, workedDays };
 };
 
 const startDayOf = (createdAt, firstRecordDate) =>
@@ -445,7 +475,7 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
   const { maxPorDia: tope } = await getPermisosConfig();
 
   const [records, permisos, recordRange, load] = await Promise.all([
-    findWorkedRecordsInRange(driver.id, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findWorkedRecordsInRange(driver.id, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
     findPermisosInMonth(driver.id, weeks.from, weeks.to),
     findWorkedRecordRange(driver.id),
     tope ? loadByDay(first, last) : Promise.resolve(new Map()),
@@ -456,7 +486,7 @@ export const getCalendarForActor = async (actor, { month, driverId }) => {
     last,
     today,
     startDay: startDayOf(driver.createdAt, recordRange.first),
-    servicesByDay: servicesCount(records),
+    ...servicesCount(records),
     permisos,
     load,
     tope,
@@ -483,7 +513,7 @@ export const getAttendanceByDriver = async (driverIds, month) => {
   const weeks = weeksWindow(first, last);
   const today = romeDay();
   const [records, permisos, start] = await Promise.all([
-    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(weeks.from, "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
+    findWorkedRecordsForDrivers(driverIds, romeLocalToDate(addDays(weeks.from, -MAX_SERVICE_DAYS), "00:00"), romeLocalToDate(weeks.toExclusive, "00:00")),
     findPermisosForDrivers(driverIds, dayToDate(weeks.from), dayToDate(weeks.to)),
     findDriversStart(driverIds),
   ]);
@@ -497,7 +527,7 @@ export const getAttendanceByDriver = async (driverIds, month) => {
       last,
       today,
       startDay: startDayOf(createdAt.get(id) ?? new Date(), firstRecord.get(id)),
-      servicesByDay: servicesCount(records.filter((r) => r.driverId === id)),
+      ...servicesCount(records.filter((r) => r.driverId === id)),
       permisos: permisos.filter((p) => p.driverId === id),
     });
     result.set(id, summary);

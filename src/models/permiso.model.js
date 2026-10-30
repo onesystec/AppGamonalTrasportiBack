@@ -35,10 +35,23 @@ export const findChoferById = (id) =>
   });
 
 // Servicios que cuentan como "dia trabajado": todos menos los anulados o reprogramados.
+// Con lo necesario para saber hasta que dia llego cada servicio (viajes largos, vuelta al deposito).
+const WORKED_DAYS_SELECT = {
+  fechaServicio: true,
+  fechaRetiro: true,
+  eta: true,
+  horaFinReal: true,
+  llegadaGpsAt: true,
+  circuitoMin: true,
+  rutaDuracionMin: true,
+  compactadoId: true,
+  compactadoOrden: true,
+};
+
 export const findWorkedRecordsInRange = (driverId, gte, lt) =>
   prisma.record.findMany({
     where: { driverId, fechaServicio: { gte, lt }, ...WORKED_WHERE },
-    select: { fechaServicio: true },
+    select: WORKED_DAYS_SELECT,
   });
 
 // Primer y ultimo servicio (no anulado) del chofer.
@@ -100,7 +113,7 @@ export const findPermisosForDrivers = (driverIds, desde, hasta) =>
 export const findWorkedRecordsForDrivers = (driverIds, gte, lt) =>
   prisma.record.findMany({
     where: { driverId: { in: driverIds }, fechaServicio: { gte, lt }, ...WORKED_WHERE },
-    select: { driverId: true, fechaServicio: true },
+    select: { driverId: true, ...WORKED_DAYS_SELECT },
   });
 
 export const findDriversStart = async (driverIds) => {
