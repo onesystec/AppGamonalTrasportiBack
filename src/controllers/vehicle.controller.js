@@ -1,3 +1,4 @@
+import { findMeetingPointForActor, findMeetingSuggestionsForActor, getMeetingRoutesForActor } from "../services/puntoEncuentro.service.js";
 import { getPushDiagnostics } from "../services/pushNotification.service.js";
 import { getVelocityFleetUsageStats } from "../services/velocityFleet.service.js";
 import {
@@ -77,6 +78,19 @@ export const getPushStatus = asyncHandler(async (req, res) => {
 export const getEtaToDestination = asyncHandler(async (req, res) => {
   const eta = await getEtaToDestinationForActor(req.body);
   res.status(200).json({ success: true, data: { eta } });
+});
+
+// Punto de encuentro entre dos vehiculos/direcciones (Mapa, pestana "Punto de encuentro").
+export const getMeetingPoint = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await findMeetingPointForActor(req.body) });
+});
+
+export const getMeetingSuggestions = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await findMeetingSuggestionsForActor(req.body) });
+});
+
+export const getMeetingRoutes = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await getMeetingRoutesForActor(req.body) });
 });
 
 // Seccion "Area C" del Mapa (pestanias Pagado/No pagado, ver checkAreaCEntries en

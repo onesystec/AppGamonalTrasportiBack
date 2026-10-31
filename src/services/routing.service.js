@@ -192,3 +192,65 @@ export const snapPointsToRoad = async (points) => {
   const snappedChunks = await Promise.all(chunks.map(snapChunk));
   return snappedChunks.flat();
 };
+
+// Ruta de OSRM entre dos puntos con el tiempo y los km acumulados en cada punto del trazado (cumMin[i], cumKm[i] para
+// geometria.coordinates[i]): sirve para saber en que punto de la ruta se cumple "X minutos manejando". Sin trafico. null si OSRM no responde.
+export const routeWithTimeline = async (a, b) => {
+  try {
+    const url = new URL(`/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}`, env.OSRM_BASE_URL);
+    url.searchParams.set("overview", "full");
+    url.searchParams.set("geometries", "geojson");
+    url.searchParams.set("annotations", "duration,distance");
+    const response = await fetch(url, { signal: AbortSignal.timeout(OSRM_TIMEOUT_MS) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.code !== "Ok" || !data.routes?.length) return null;
+
+    const [route] = data.routes;
+    const coords = route.geometry.coordinates;
+    const durations = route.legs.flatMap((leg) => leg.annotation?.duration ?? []);
+    const distances = route.legs.flatMap((leg) => leg.annotation?.distance ?? []);
+    // OSRM da un tramo por cada par de puntos del trazado completo; si por algun motivo no coinciden, se reparte el total segun la longitud.
+    const exact = durations.length === coords.length - 1 && distances.length === coords.length - 1;
+    const segMeters = exact
+      ? distances
+      : coords.slice(1).map(([lng, lat], i) => {
+          const [pLng, pLat] = coords[i];
+          return Math.hypot((lat - pLat) * 111320, (lng - pLng) * 111320 * Math.cos((lat * Math.PI) / 180));
+        });
+    const totalSeg = segMeters.reduce((sum, m) => sum + m, 0) || 1;
+    const segSeconds = exact ? durations : segMeters.map((m) => (m / totalSeg) * route.duration);
+
+    const cumMin = [0];
+    const cumKm = [0];
+    segSeconds.forEach((s, i) => {
+      cumMin.push(cumMin[i] + s / 60);
+      cumKm.push(cumKm[i] + segMeters[i] / 1000);
+    });
+    return { distanciaKm: route.distance / 1000, duracionMin: route.duration / 60, geometria: route.geometry, cumMin, cumKm };
+  } catch {
+    return null;
+  }
+};
+
+// Matriz de OSRM: tiempo (min) y distancia (km) desde cada origen hasta cada destino, en una sola consulta.
+// { duraciones[i][j], distancias[i][j] } (null donde no hay camino) o null si OSRM no responde.
+export const osrmTable = async (sources, destinations) => {
+  try {
+    const all = [...sources, ...destinations];
+    const url = new URL(`/table/v1/driving/${all.map((p) => `${p.lng},${p.lat}`).join(";")}`, env.OSRM_BASE_URL);
+    url.searchParams.set("sources", sources.map((_, i) => i).join(";"));
+    url.searchParams.set("destinations", destinations.map((_, i) => sources.length + i).join(";"));
+    url.searchParams.set("annotations", "duration,distance");
+    const response = await fetch(url, { signal: AbortSignal.timeout(OSRM_TIMEOUT_MS) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.code !== "Ok" || !data.durations || !data.distances) return null;
+    return {
+      duraciones: data.durations.map((row) => row.map((s) => (s == null ? null : s / 60))),
+      distancias: data.distances.map((row) => row.map((m) => (m == null ? null : m / 1000))),
+    };
+  } catch {
+    return null;
+  }
+};

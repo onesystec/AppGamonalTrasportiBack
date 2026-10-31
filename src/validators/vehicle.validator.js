@@ -92,6 +92,28 @@ export const etaToDestinationSchema = z.object({
   destino: z.string().trim().min(1, "El destino es obligatorio"),
 });
 
+// Punto de encuentro (Mapa): cada extremo es la posicion de un vehiculo (lat/lng, la que el front ya tiene) o una direccion escrita.
+const puntoSchema = z.union([
+  z.object({
+    lat: z.coerce.number().min(-90).max(90),
+    lng: z.coerce.number().min(-180).max(180),
+    label: z.string().trim().max(200).optional(),
+  }),
+  z.object({ direccion: z.string().trim().min(2, "La dirección es obligatoria").max(300) }),
+]);
+
+export const meetingPointSchema = z.object({ a: puntoSchema, b: puntoSchema });
+
+const coordsSchema = z.object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180) });
+
+export const meetingSuggestionsSchema = z.object({ a: coordsSchema, b: coordsSchema });
+
+export const meetingRoutesSchema = z.object({
+  a: z.object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180) }),
+  b: z.object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180) }),
+  punto: z.object({ lat: z.coerce.number().min(-90).max(90), lng: z.coerce.number().min(-180).max(180) }),
+});
+
 // Seccion "Area C" del Mapa - pagado siempre obligatorio (no ".optional()"): el
 // checkbox del formulario del front siempre manda un valor concreto en cada submit, y
 // del lado del service data.pagado decide tambien si se pisa paidAt - un

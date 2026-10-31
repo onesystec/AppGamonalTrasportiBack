@@ -6,6 +6,9 @@ import {
   create,
   getById,
   getEtaToDestination,
+  getMeetingPoint,
+  getMeetingRoutes,
+  getMeetingSuggestions,
   getPushStatus,
   getSpeedingSummary,
   getVelocityFleetUsage,
@@ -38,6 +41,9 @@ import {
   idParamSchema,
   mantenimientoIdParamSchema,
   mapaVisibilidadSchema,
+  meetingPointSchema,
+  meetingRoutesSchema,
+  meetingSuggestionsSchema,
   registerKmSchema,
   speedingEventsQuerySchema,
   updateAreaCEntrySchema,
@@ -76,6 +82,10 @@ router.post(
   validate(etaToDestinationSchema),
   getEtaToDestination
 );
+// Punto de encuentro de dos vehiculos (Mapa): donde llegan al mismo tiempo, con sitios sugeridos para parar. OWNER/ADMIN.
+router.post("/punto-encuentro", authorize("OWNER", "ADMIN"), validate(meetingPointSchema), getMeetingPoint);
+router.post("/punto-encuentro/sugerencias", authorize("OWNER", "ADMIN"), validate(meetingSuggestionsSchema), getMeetingSuggestions);
+router.post("/punto-encuentro/rutas", authorize("OWNER", "ADMIN"), validate(meetingRoutesSchema), getMeetingRoutes);
 // Seccion "Area C" del Mapa (pestanias Pagado/No pagado) + alertas sin pagar
 // (campanita) + marcar pagada (con comprobante opcional) + limpieza (medida de
 // optimizacion de costos, ver AREA_C_ENTRY_RETENTION_DAYS en env.js - solo OWNER, es
