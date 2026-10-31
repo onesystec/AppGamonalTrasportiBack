@@ -18,12 +18,14 @@ const VENTANA_MIN = 45;
 const RADIO_RUTA_M = 1000;
 const RADIO_RUTA_AMPLIO_M = 3000;
 const MIN_CANDIDATOS_RADIO = 3;
-// Sitios que se miden contra OSRM (de cada grupo) y sugerencias que se devuelven de cada grupo: primero los de autopista o confirmados
-// gratuitos, al final los parkings sin datos de precio y las areas de servicio anonimas.
-const CANDIDATOS_SEGUROS = 24;
-const CANDIDATOS_SIN_DATOS = 12;
-const MAX_SUGERENCIAS = 6;
-const MAX_SIN_DATOS = 3;
+// Prioridad de los sitios (de mas a menos seguro) y cuantos se miden contra OSRM y se devuelven de cada grupo:
+//  0 - confirmado (area con Autogrill, Chef Express, Sarni...) y area de servicio de autopista con nombre
+//  1 - area de descanso (publica, pero sin servicios)
+//  2 - parking que OpenStreetMap dice gratuito
+//  3 - sin datos: parking sin dato de precio y area de servicio anonima
+const GRUPO = { confirmado: 0, autopista: 0, descanso: 1, gratis: 2, sin_datos: 3 };
+const CANDIDATOS_POR_GRUPO = [20, 8, 5, 8];
+const MAX_POR_GRUPO = [6, 2, 2, 3];
 // Un sitio con mas diferencia que esta entre lo que tarda uno y otro ya no es un "encuentro"; se deja solo el mejor si ninguno llega.
 const MAX_DIFF_MIN = 30;
 const MISMO_LUGAR_M = 1000;
@@ -99,10 +101,21 @@ const findPlaces = (ruta, from, to) => {
     .filter((p) => p.la >= minLat - margin && p.la <= maxLat + margin && p.lo >= minLng - margin && p.lo <= maxLng + margin)
     .map((p) => {
       const tipo = p.t;
-      // autopista: area de descanso o area de servicio con nombre (o marca); gratis: parking que OpenStreetMap dice gratuito; sin_datos: parking
-      // sin dato de precio y area de servicio anonima (un punto sin nombre ni nada mas: puede ser una gasolinera privada, no se puede dar por publica).
-      const calidad = tipo === "rest_area" || (tipo === "services" && p.n) ? "autopista" : p.q === "g" ? "gratis" : "sin_datos";
-      return { lat: p.la, lng: p.lo, tipo, calidad, nombre: p.n ?? TIPOS[tipo].label };
+      // confirmado: area con una concesionaria de autopista al lado (Autogrill...); autopista: area de servicio con nombre; descanso: area de
+      // descanso; gratis: parking que OpenStreetMap dice gratuito; sin_datos: parking sin dato de precio y area de servicio anonima (un punto
+      // sin nombre ni nada mas: puede ser una gasolinera privada, no se puede dar por publica).
+      const calidad = p.m
+        ? "confirmado"
+        : tipo === "rest_area"
+          ? "descanso"
+          : tipo === "services"
+            ? p.n
+              ? "autopista"
+              : "sin_datos"
+            : p.q === "g"
+              ? "gratis"
+              : "sin_datos";
+      return { lat: p.la, lng: p.lo, tipo, calidad, marca: p.m ?? null, nombre: p.n ?? p.m ?? TIPOS[tipo].label };
     });
 };
 
@@ -153,10 +166,7 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
   });
   const elegir = (radio) => {
     const cercanos = medidos.filter((p) => p.meters <= radio && p.estimado <= VENTANA_MIN * 2).sort((p, q) => p.estimado - q.estimado);
-    return [
-      ...cercanos.filter((p) => p.calidad !== "sin_datos").slice(0, CANDIDATOS_SEGUROS),
-      ...cercanos.filter((p) => p.calidad === "sin_datos").slice(0, CANDIDATOS_SIN_DATOS),
-    ];
+    return CANDIDATOS_POR_GRUPO.flatMap((max, grupo) => cercanos.filter((p) => GRUPO[p.calidad] === grupo).slice(0, max));
   };
   let candidatos = elegir(RADIO_RUTA_M);
   if (candidatos.length < MIN_CANDIDATOS_RADIO) candidatos = elegir(RADIO_RUTA_AMPLIO_M);
@@ -180,6 +190,7 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
         tipo: p.tipo,
         tipoLabel: TIPOS[p.tipo].label,
         calidad: p.calidad,
+        marca: p.marca,
         kmRuta: round(p.meters / 1000),
         lat: p.lat,
         lng: p.lng,
@@ -195,11 +206,8 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
     .sort((p, q) => p.score - q.score);
   const equilibradas = sugerencias.filter((p) => p.diffMin <= MAX_DIFF_MIN);
   const validas = equilibradas.length ? equilibradas : sugerencias.slice(0, 1);
-  // Primero los seguros (autopista o gratuitos confirmados) y, al final, los parkings sin datos; cada grupo ordenado por su mejor tiempo.
-  const ordenadas = [
-    ...validas.filter((p) => p.calidad !== "sin_datos").slice(0, MAX_SUGERENCIAS),
-    ...validas.filter((p) => p.calidad === "sin_datos").slice(0, MAX_SIN_DATOS),
-  ].map(({ score, ...rest }) => rest);
+  // Por prioridad de grupo; dentro de cada grupo, por su mejor tiempo.
+  const ordenadas = MAX_POR_GRUPO.flatMap((max, grupo) => validas.filter((p) => GRUPO[p.calidad] === grupo).slice(0, max)).map(({ score, ...rest }) => rest);
   return { sugerencias: ordenadas, aviso: null };
 };
 

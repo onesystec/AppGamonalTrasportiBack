@@ -3,7 +3,10 @@
 // Es lo que usa el "punto de encuentro" del Mapa: asi no depende de ningun servicio externo al buscar.
 //
 //   node scripts/importar-areas-parada-osm.mjs                   -> descarga de OpenStreetMap (Overpass, por cuadriculas) y regenera el archivo
-//   node scripts/importar-areas-parada-osm.mjs --crudo ruta.json -> regenera el archivo desde una descarga ya hecha (lista de elementos de Overpass)
+//   node scripts/importar-areas-parada-osm.mjs --crudo ruta.json [--cadenas otra.json]
+//                                                                -> regenera el archivo desde descargas ya hechas (listas de elementos de Overpass)
+// Ademas descarga los restaurantes de las concesionarias de autopista (Autogrill, Chef Express, Sarni, MyChef, Ristop): un area con una de ellas
+// a menos de 500 m queda marcada con "m" (la marca), que es lo que confirma que es un area de servicio de autopista de verdad.
 // Quedan fuera los sitios que OpenStreetMap marca como no publicos o de pago, y los tramos de calle. Datos de voluntarios: con repetirlo una vez al ano alcanza. Datos (c) colaboradores de OpenStreetMap, licencia ODbL.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -13,6 +16,9 @@ const FILE = resolve(dirname(fileURLToPath(import.meta.url)), "../data/areas-par
 const SERVERS = ["https://overpass.openstreetmap.fr/api/interpreter", "https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 // Consultas simples (etiqueta exacta): las que usan expresiones regulares tardan demasiado y los servidores publicos las cortan.
 const FILTERS = ['["highway"="services"]', '["highway"="rest_area"]', '["amenity"="parking"]["hgv"="yes"]', '["amenity"="parking"]["hgv"="designated"]'];
+// Concesionarias de areas de servicio de autopista. Se buscan por marca, operador o nombre exactos.
+const CADENAS = ["Autogrill", "Chef Express", "Sarni", "MyChef", "Ristop"];
+const CADENA_CERCA_M = 500;
 const STEP = 1.5;
 const BOUNDS = { south: 36, north: 47.2, west: 6.4, east: 18.8 };
 const CONCURRENCY = 4;
@@ -76,6 +82,20 @@ const download = async () => {
   return [...found.values()];
 };
 
+const downloadCadenas = async () => {
+  const found = new Map();
+  for (const chain of CADENAS)
+    for (const key of ["brand", "operator", "name"])
+      for (const el of await query(BOUNDS.south, BOUNDS.west, BOUNDS.north, BOUNDS.east, `["${key}"="${chain}"]`)) found.set(`${el.type}${el.id}`, el);
+  return [...found.values()];
+};
+
+// A que concesionaria pertenece un restaurante (marca, operador o nombre), o null.
+const cadenaDe = (tags = {}) => {
+  const texto = [tags.brand, tags.operator, tags.name].filter(Boolean).map((v) => v.toLowerCase());
+  return CADENAS.find((c) => texto.some((t) => t === c.toLowerCase() || t.startsWith(`${c.toLowerCase()} `))) ?? null;
+};
+
 // La cuadricula tambien coge el norte de Africa (Argelia, Tunez): al sur de 38,5 N y al oeste de 12 E solo hay mar y Africa.
 const enZona = (la, lo) => !(la < 38.5 && lo < 12);
 
@@ -93,7 +113,7 @@ const aceptado = (tags = {}) => {
   return !(capacidad < CAPACIDAD_MINIMA);
 };
 
-const normalize = (elements) => {
+const normalize = (elements, cadenas) => {
   const places = elements
     .map((el) => {
       const la = el.lat ?? el.center?.lat;
@@ -105,17 +125,42 @@ const normalize = (elements) => {
     })
     .filter(Boolean)
     .sort((p, q) => PRIORIDAD[p.t] - PRIORIDAD[q.t] || Number(Boolean(q.n)) - Number(Boolean(p.n)));
+  const restaurantes = cadenas
+    .map((el) => {
+      const la = el.lat ?? el.center?.lat;
+      const lo = el.lon ?? el.center?.lon;
+      const m = cadenaDe(el.tags);
+      if (la == null || lo == null || !m || !enZona(la, lo)) return null;
+      return { m, la: Number(la.toFixed(5)), lo: Number(lo.toFixed(5)), tags: el.tags };
+    })
+    .filter(Boolean);
+  const cerca = (p) => restaurantes.find((r) => Math.abs(r.la - p.la) < 0.01 && meters(r, p) <= CADENA_CERCA_M);
+
+  // Un Autogrill (o similar) sin ningun area mapeada a su lado tambien es un area de servicio de autopista: se agrega solo si es un restaurante
+  // llamado como la cadena (no un bar, un cafe ni uno de estacion o aeropuerto con otro nombre).
+  const sueltos = restaurantes
+    .filter((r) => ["restaurant", "fast_food"].includes(r.tags.amenity) && r.tags.name?.toLowerCase().startsWith(r.m.toLowerCase()))
+    .filter((r) => !places.some((p) => Math.abs(r.la - p.la) < 0.01 && meters(r, p) <= CADENA_CERCA_M))
+    .map((r) => ({ t: "services", n: r.tags.name.trim(), la: r.la, lo: r.lo }));
+
   const unique = [];
-  for (const p of places) if (!unique.some((u) => Math.abs(u.la - p.la) < 0.01 && meters(u, p) < DUPLICADO_M)) unique.push(p);
-  return unique;
+  for (const p of [...places, ...sueltos]) if (!unique.some((u) => Math.abs(u.la - p.la) < 0.01 && meters(u, p) < DUPLICADO_M)) unique.push(p);
+  // "m" = la concesionaria que confirma el area (solo areas de servicio y de descanso, no parkings).
+  return unique.map((p) => {
+    const r = p.t === "parking" ? null : cerca(p);
+    return r ? { ...p, m: r.m } : p;
+  });
 };
 
 const crudoIndex = process.argv.indexOf("--crudo");
+const cadenasIndex = process.argv.indexOf("--cadenas");
 const elements = crudoIndex >= 0 ? JSON.parse(readFileSync(process.argv[crudoIndex + 1], "utf8")) : await download();
-const places = normalize(elements);
+const cadenas = cadenasIndex >= 0 ? JSON.parse(readFileSync(process.argv[cadenasIndex + 1], "utf8")) : await downloadCadenas();
+const places = normalize(elements, cadenas);
 writeFileSync(FILE, `${JSON.stringify(places)}\n`);
 const count = (t) => places.filter((p) => p.t === t).length;
 const gratis = places.filter((p) => p.q === "g").length;
+const confirmadas = places.filter((p) => p.m).length;
 console.log(
-  `${places.length} sitios (${count("services")} areas de servicio, ${count("rest_area")} de descanso, ${count("parking")} parkings de camiones: ${gratis} gratuitos segun OpenStreetMap) -> ${FILE}`
+  `${places.length} sitios (${count("services")} areas de servicio, ${count("rest_area")} de descanso, ${count("parking")} parkings de camiones: ${gratis} gratuitos segun OpenStreetMap; ${confirmadas} con concesionaria confirmada) -> ${FILE}`
 );
