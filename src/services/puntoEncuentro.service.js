@@ -19,7 +19,7 @@ const RADIO_RUTA_M = 1000;
 const RADIO_RUTA_AMPLIO_M = 3000;
 const MIN_CANDIDATOS_RADIO = 3;
 // Sitios que se miden contra OSRM (de cada grupo) y sugerencias que se devuelven de cada grupo: primero los de autopista o confirmados
-// gratuitos, al final los parkings sin datos de precio.
+// gratuitos, al final los parkings sin datos de precio y las areas de servicio anonimas.
 const CANDIDATOS_SEGUROS = 24;
 const CANDIDATOS_SIN_DATOS = 12;
 const MAX_SUGERENCIAS = 6;
@@ -99,8 +99,9 @@ const findPlaces = (ruta, from, to) => {
     .filter((p) => p.la >= minLat - margin && p.la <= maxLat + margin && p.lo >= minLng - margin && p.lo <= maxLng + margin)
     .map((p) => {
       const tipo = p.t;
-      // autopista: area de servicio o de descanso; gratis: parking que OpenStreetMap dice gratuito; sin_datos: parking sin dato de precio.
-      const calidad = tipo !== "parking" ? "autopista" : p.q === "g" ? "gratis" : "sin_datos";
+      // autopista: area de descanso o area de servicio con nombre (o marca); gratis: parking que OpenStreetMap dice gratuito; sin_datos: parking
+      // sin dato de precio y area de servicio anonima (un punto sin nombre ni nada mas: puede ser una gasolinera privada, no se puede dar por publica).
+      const calidad = tipo === "rest_area" || (tipo === "services" && p.n) ? "autopista" : p.q === "g" ? "gratis" : "sin_datos";
       return { lat: p.la, lng: p.lo, tipo, calidad, nombre: p.n ?? TIPOS[tipo].label };
     });
 };
