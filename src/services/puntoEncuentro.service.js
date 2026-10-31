@@ -13,10 +13,19 @@ import { calculateRoute, osrmTable, routeWithTimeline } from "./routing.service.
 
 // Cuanto se busca a cada lado del punto ideal (minutos de manejo desde el ideal) y a que distancia de la ruta (metros).
 const VENTANA_MIN = 45;
-const RADIO_RUTA_M = 3000;
-// Sitios que se miden contra OSRM.
-const MAX_CANDIDATOS = 30;
+// A que distancia de la ruta se aceptan sitios: lo normal es hasta 1 km (descarta lo que esta metido en una ciudad, lejos de la autopista); si asi
+// quedan muy pocos (tramo rural) se amplia.
+const RADIO_RUTA_M = 1000;
+const RADIO_RUTA_AMPLIO_M = 3000;
+const MIN_CANDIDATOS_RADIO = 3;
+// Sitios que se miden contra OSRM (de cada grupo) y sugerencias que se devuelven de cada grupo: primero los de autopista o confirmados
+// gratuitos, al final los parkings sin datos de precio.
+const CANDIDATOS_SEGUROS = 24;
+const CANDIDATOS_SIN_DATOS = 12;
 const MAX_SUGERENCIAS = 6;
+const MAX_SIN_DATOS = 3;
+// Un sitio con mas diferencia que esta entre lo que tarda uno y otro ya no es un "encuentro"; se deja solo el mejor si ninguno llega.
+const MAX_DIFF_MIN = 30;
 const MISMO_LUGAR_M = 1000;
 
 const TIPOS = {
@@ -25,7 +34,7 @@ const TIPOS = {
   parking: { label: "Parking de camiones" },
 };
 
-// Archivo fijo: [{ t: "services" | "rest_area" | "parking", n: nombre | null, la, lo }].
+// Archivo fijo: [{ t: "services" | "rest_area" | "parking", n: nombre | null, la, lo, q?: "g" }] (q = parking gratuito segun OpenStreetMap).
 let areasCache = null;
 const loadAreas = () => {
   areasCache ??= JSON.parse(readFileSync(new URL("../../data/areas-parada-italia.json", import.meta.url), "utf8"));
@@ -90,7 +99,9 @@ const findPlaces = (ruta, from, to) => {
     .filter((p) => p.la >= minLat - margin && p.la <= maxLat + margin && p.lo >= minLng - margin && p.lo <= maxLng + margin)
     .map((p) => {
       const tipo = p.t;
-      return { lat: p.la, lng: p.lo, tipo, nombre: p.n ?? TIPOS[tipo].label };
+      // autopista: area de servicio o de descanso; gratis: parking que OpenStreetMap dice gratuito; sin_datos: parking sin dato de precio.
+      const calidad = tipo !== "parking" ? "autopista" : p.q === "g" ? "gratis" : "sin_datos";
+      return { lat: p.la, lng: p.lo, tipo, calidad, nombre: p.n ?? TIPOS[tipo].label };
     });
 };
 
@@ -135,14 +146,19 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
   const places = findPlaces(ruta, from, to);
 
   // Primera seleccion sin llamar a nadie: se estima el tiempo de cada sitio con el punto de la ruta mas cercano.
-  const candidatos = places
-    .map((p) => {
-      const { index, meters } = nearestIndex(ruta.geometria.coordinates, from, to, p);
-      return { ...p, meters, estimado: Math.abs(2 * ruta.cumMin[index] - total) + (meters / 1000) * 1.5 };
-    })
-    .filter((p) => p.meters <= RADIO_RUTA_M && p.estimado <= VENTANA_MIN * 2)
-    .sort((p, q) => p.estimado - q.estimado)
-    .slice(0, MAX_CANDIDATOS);
+  const medidos = places.map((p) => {
+    const { index, meters } = nearestIndex(ruta.geometria.coordinates, from, to, p);
+    return { ...p, meters, estimado: Math.abs(2 * ruta.cumMin[index] - total) + (meters / 1000) * 1.5 };
+  });
+  const elegir = (radio) => {
+    const cercanos = medidos.filter((p) => p.meters <= radio && p.estimado <= VENTANA_MIN * 2).sort((p, q) => p.estimado - q.estimado);
+    return [
+      ...cercanos.filter((p) => p.calidad !== "sin_datos").slice(0, CANDIDATOS_SEGUROS),
+      ...cercanos.filter((p) => p.calidad === "sin_datos").slice(0, CANDIDATOS_SIN_DATOS),
+    ];
+  };
+  let candidatos = elegir(RADIO_RUTA_M);
+  if (candidatos.length < MIN_CANDIDATOS_RADIO) candidatos = elegir(RADIO_RUTA_AMPLIO_M);
   if (candidatos.length === 0) {
     return { sugerencias: [], aviso: "No se encontraron áreas de servicio, de descanso ni parkings de camiones cerca del punto de encuentro. Se muestra solo el punto exacto de la ruta." };
   }
@@ -162,6 +178,8 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
         nombre: p.nombre,
         tipo: p.tipo,
         tipoLabel: TIPOS[p.tipo].label,
+        calidad: p.calidad,
+        kmRuta: round(p.meters / 1000),
         lat: p.lat,
         lng: p.lng,
         minA: round(minA),
@@ -173,10 +191,15 @@ export const findMeetingSuggestionsForActor = async ({ a, b }) => {
       };
     })
     .filter(Boolean)
-    .sort((p, q) => p.score - q.score)
-    .slice(0, MAX_SUGERENCIAS)
-    .map(({ score, ...rest }) => rest);
-  return { sugerencias, aviso: null };
+    .sort((p, q) => p.score - q.score);
+  const equilibradas = sugerencias.filter((p) => p.diffMin <= MAX_DIFF_MIN);
+  const validas = equilibradas.length ? equilibradas : sugerencias.slice(0, 1);
+  // Primero los seguros (autopista o gratuitos confirmados) y, al final, los parkings sin datos; cada grupo ordenado por su mejor tiempo.
+  const ordenadas = [
+    ...validas.filter((p) => p.calidad !== "sin_datos").slice(0, MAX_SUGERENCIAS),
+    ...validas.filter((p) => p.calidad === "sin_datos").slice(0, MAX_SIN_DATOS),
+  ].map(({ score, ...rest }) => rest);
+  return { sugerencias: ordenadas, aviso: null };
 };
 
 // Las dos rutas hasta el punto elegido (para dibujarlas en el mapa).

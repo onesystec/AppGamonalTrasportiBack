@@ -4,7 +4,7 @@
 //
 //   node scripts/importar-areas-parada-osm.mjs                   -> descarga de OpenStreetMap (Overpass, por cuadriculas) y regenera el archivo
 //   node scripts/importar-areas-parada-osm.mjs --crudo ruta.json -> regenera el archivo desde una descarga ya hecha (lista de elementos de Overpass)
-// Datos de voluntarios: con repetirlo una vez al ano alcanza. Datos (c) colaboradores de OpenStreetMap, licencia ODbL.
+// Quedan fuera los sitios que OpenStreetMap marca como no publicos o de pago, y los tramos de calle. Datos de voluntarios: con repetirlo una vez al ano alcanza. Datos (c) colaboradores de OpenStreetMap, licencia ODbL.
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,11 @@ const CONCURRENCY = 4;
 // Dos sitios a menos de esto son el mismo (la gasolinera de un area de servicio es el area de servicio): queda el mas importante.
 const DUPLICADO_M = 400;
 const PRIORIDAD = { services: 0, rest_area: 1, parking: 2 };
+// No son sitios publicos: acceso privado, solo clientes, con permiso, prohibido o solo para reparto/destino.
+const ACCESO_NO_PUBLICO = new Set(["no", "private", "customers", "permit", "delivery", "destination", "members", "residents"]);
+// Tramos de calle donde se puede dejar el vehiculo, no parkings; y capacidad (si la dice) con la que no cabe un camion.
+const PARKING_DE_CALLE = new Set(["street_side", "lane", "on_kerb", "half_on_kerb", "shoulder"]);
+const CAPACIDAD_MINIMA = 8;
 
 const toRad = (d) => (d * Math.PI) / 180;
 const meters = (a, b) => {
@@ -76,14 +81,27 @@ const enZona = (la, lo) => !(la < 38.5 && lo < 12);
 
 const tipoDe = (tags = {}) => (tags.highway === "services" ? "services" : tags.highway === "rest_area" ? "rest_area" : "parking");
 
+// Se descarta lo que OpenStreetMap dice que no es publico, de pago o demasiado pequeno. Los parkings guardan "q": "g" si OpenStreetMap dice que
+// son gratuitos (fee=no) y nada si no dice nada del precio (el front los marca "sin datos"). Las areas de servicio y de descanso son de autopista:
+// publicas por definicion, sin dato de precio.
+const aceptado = (tags = {}) => {
+  if (ACCESO_NO_PUBLICO.has(tags.access)) return false;
+  if (tags.fee === "yes") return false;
+  if (tipoDe(tags) !== "parking") return true;
+  if (PARKING_DE_CALLE.has(tags.parking)) return false;
+  const capacidad = Number.parseInt(tags["capacity:hgv"] ?? tags.capacity, 10);
+  return !(capacidad < CAPACIDAD_MINIMA);
+};
+
 const normalize = (elements) => {
   const places = elements
     .map((el) => {
       const la = el.lat ?? el.center?.lat;
       const lo = el.lon ?? el.center?.lon;
-      if (la == null || lo == null || !enZona(la, lo)) return null;
+      if (la == null || lo == null || !enZona(la, lo) || !aceptado(el.tags)) return null;
       const name = (el.tags?.name ?? el.tags?.brand ?? el.tags?.operator ?? "").trim();
-      return { t: tipoDe(el.tags), n: name || null, la: Number(la.toFixed(5)), lo: Number(lo.toFixed(5)) };
+      const t = tipoDe(el.tags);
+      return { t, n: name || null, la: Number(la.toFixed(5)), lo: Number(lo.toFixed(5)), ...(t === "parking" && el.tags.fee === "no" ? { q: "g" } : {}) };
     })
     .filter(Boolean)
     .sort((p, q) => PRIORIDAD[p.t] - PRIORIDAD[q.t] || Number(Boolean(q.n)) - Number(Boolean(p.n)));
@@ -97,4 +115,7 @@ const elements = crudoIndex >= 0 ? JSON.parse(readFileSync(process.argv[crudoInd
 const places = normalize(elements);
 writeFileSync(FILE, `${JSON.stringify(places)}\n`);
 const count = (t) => places.filter((p) => p.t === t).length;
-console.log(`${places.length} sitios (${count("services")} areas de servicio, ${count("rest_area")} de descanso, ${count("parking")} parkings de camiones) -> ${FILE}`);
+const gratis = places.filter((p) => p.q === "g").length;
+console.log(
+  `${places.length} sitios (${count("services")} areas de servicio, ${count("rest_area")} de descanso, ${count("parking")} parkings de camiones: ${gratis} gratuitos segun OpenStreetMap) -> ${FILE}`
+);
