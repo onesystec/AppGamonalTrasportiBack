@@ -46,6 +46,7 @@ import { buildLocalDateRange } from "../utils/dateRange.js";
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 import { deleteSolicitudesOfRecord } from "./solicitud.service.js";
 import { codigoDesdeShipment } from "./codigoDhl.service.js";
+import { registrarCambiosOficina } from "./cambiosCliente.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -1024,6 +1025,9 @@ export const updateRecordForActor = async (actor, id, data) => {
       if (continuacionId) await ensureCircuitSafe(continuacionId, { force: true });
     })();
   }
+
+  // Lo que cambia la oficina y el cliente puede ver queda en el historial del servicio.
+  if (isPrivileged(actor)) void registrarCambiosOficina({ before: record, after: updated, actor });
 
   await attachFaltantes([updated]);
   return toResponse(updated, actor);

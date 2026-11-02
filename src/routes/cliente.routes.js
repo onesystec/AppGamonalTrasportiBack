@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { cambios, disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
 import { createCliente, detalleCliente, leerTextoDelCliente, listCliente, registrarDesdeTextoDelCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
@@ -26,6 +26,7 @@ router.patch("/celda", validate(editarCeldaSchema), editarCelda);
 router.get("/hoja-anchos", hojaAnchos);
 router.put("/hoja-anchos/:hoja", validate(hojaAnchosParamsSchema, "params"), validate(hojaAnchosBodySchema), guardarHojaAnchos);
 router.get("/servicios/:id/fotos", validate(clienteServicioIdSchema, "params"), fotos);
+router.get("/servicios/:id/cambios", validate(clienteServicioIdSchema, "params"), cambios);
 
 // Registro limitado: el cliente pide servicios a la oficina (modulo REGISTRO). Solo ve y toca sus solicitudes (y las de su empresa).
 router.get("/solicitudes", validate(clienteSolicitudesQuerySchema, "query"), listCliente);

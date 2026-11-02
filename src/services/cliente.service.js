@@ -239,6 +239,20 @@ export const listServiciosCliente = async (user, { month } = {}) => {
   };
 };
 
+// Cambios de un servicio de la empresa (de la oficina y de la propia empresa), del mas reciente al mas viejo. Incluye lo que se edito mientras era una solicitud.
+export const getCambiosCliente = async (user, recordId) => {
+  requireModulo(user, "REGISTRO", "HISTORIAL");
+  const record = await prisma.record.findFirst({ where: { AND: [{ id: recordId }, clienteScopeWhere(user)] }, select: { id: true, solicitud: { select: { id: true } } } });
+  if (!record) throw new AppError("Servizio non trovato", 404);
+  const filas = await prisma.cambioServicio.findMany({
+    where: { OR: [{ recordId: record.id }, ...(record.solicitud ? [{ solicitudId: record.solicitud.id }] : [])] },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    select: { id: true, campo: true, anterior: true, nuevo: true, editorNombre: true, createdAt: true },
+  });
+  return { cambios: filas.map((f) => ({ id: f.id, campo: f.campo, anterior: f.anterior, nuevo: f.nuevo, editor: f.editorNombre, fecha: f.createdAt.toISOString() })) };
+};
+
 // Fotos de entrega y bolla de un servicio de la empresa (URL firmada, valida un rato).
 export const getFotosCliente = async (user, recordId) => {
   const record = await prisma.record.findFirst({

@@ -1,4 +1,4 @@
-import { getClienteMe, getDisponibilidadCliente, getEnVivoCliente, getFotosCliente, getRutaCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
+import { getCambiosCliente, getClienteMe, getDisponibilidadCliente, getEnVivoCliente, getFotosCliente, getRutaCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
 import { editarCeldaCliente } from "../services/cambioCelda.service.js";
 import { getHojaAnchos, setHojaAnchos } from "../services/hojaAnchos.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -56,4 +56,8 @@ export const fotos = asyncHandler(async (req, res) => {
 export const ruta = asyncHandler(async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.status(200).json({ success: true, data: await getRutaCliente(req.user, req.params.id) });
+});
+
+export const cambios = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await getCambiosCliente(req.user, req.params.id) });
 });
