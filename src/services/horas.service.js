@@ -208,7 +208,7 @@ export const closeServiceForActor = async (actor, id, body) => {
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
   // El pago usa los km del circuito: se asegura que este servicio lo tenga calculado.
   const circuito = await ensureCircuitSafe(updated.compactadoId ? ((await findGroupMembers(updated.compactadoId))[0]?.id ?? id) : id);
-  const paid = circuito?.km && !updated.compactadoId ? { ...updated, circuitoKm: circuito.km } : updated;
+  const paid = circuito?.km && !updated.compactadoId ? { ...updated, circuitoKm: circuito.km, circuitoKmBase: circuito.base?.km ?? circuito.km, circuitoMinBase: circuito.base?.min ?? null } : updated;
   return { estado: updated.estado, esperaMin: body.esperaMin, pago: computePayPreview(paid) };
 };
 

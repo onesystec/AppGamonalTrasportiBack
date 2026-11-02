@@ -108,6 +108,10 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   // Km/h con los que se pasan los km a horas de manejo: el que la oficina eligio para este chofer (85, 90 o 95), si no el de la tarifa.
   const kmBloque = (porKm ? kmhPagoFor(record.driverId, month) : null) ?? tariff.kmBloque;
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
+  // Km planificados: se pagan los que cargo el responsable/admin; el circuito que se usa es el estandar (con peajes), no el que cambia con lo que declare el chofer.
+  const kmPlanificado = porKm && Boolean(tariff.pagoKmPlanificado);
+  const circuitoKmPago = numberOr0(kmPlanificado ? (record.circuitoKmBase ?? record.circuitoKm) : record.circuitoKm);
+  const circuitoMinPago = numberOr0(kmPlanificado ? (record.circuitoMinBase ?? record.circuitoMin) : record.circuitoMin);
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
   // si no, se usan las guardadas al cargar la jornada.
@@ -156,20 +160,27 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
       // lugar de espera). Queda en 0, marcado para revisar, hasta que el circuito del viaje se calcule.
       km = 0;
       kmFuente = "VIAJE_SIN_CIRCUITO";
-    } else if (numberOr0(record.kilometrosReales) > 0) {
+    } else if (!kmPlanificado && numberOr0(record.kilometrosReales) > 0) {
       km = record.kilometrosReales;
       kmFuente = "REAL";
-    } else if (enTraspaso(record) && !(porKm && !record.reprogramadoAt && numberOr0(record.circuitoKm) > 0)) {
+    } else if (enTraspaso(record) && !(porKm && !record.reprogramadoAt && circuitoKmPago > 0)) {
       // Sin horas aprobadas ni sus km reales no se sabe cuanto manejo cada uno: no se paga por los km del
       // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
       km = 0;
       kmFuente = "TRASPASO_SIN_KM";
-    } else if (porKm && !record.reprogramadoAt && numberOr0(record.circuitoKm) > 0) {
+    } else if (kmPlanificado && !enTraspaso(record) && kmFacturables(record) > 0) {
+      // Pago por km planificados: los que cargo el responsable o admin (DHL y AB x2). Para la regla de los servicios cortos se usa el tiempo del
+      // circuito estandar; un servicio reprogramado paga solo lo que se hizo (sus km), sin tiempo de circuito.
+      km = kmFacturables(record);
+      kmFuente = "PLANIFICADO";
+      rutaMin = record.reprogramadoAt ? 0 : circuitoMinPago;
+    } else if (porKm && !record.reprogramadoAt && circuitoKmPago > 0) {
       // Pago por km: se paga el circuito completo del sistema (lugar de espera, retiro, entrega y vuelta). Un servicio
-      // reprogramado por la oficina no: solo se paga lo que se hizo hasta ahi (sus km, no el circuito entero).
-      km = record.circuitoKm;
+      // reprogramado por la oficina no: solo se paga lo que se hizo hasta ahi (sus km, no el circuito entero). Con km planificados
+      // esto solo pasa en traspasos (cada chofer hace un tramo) o si el servicio no trae km planificados.
+      km = circuitoKmPago;
       kmFuente = "CIRCUITO";
-      rutaMin = numberOr0(record.circuitoMin);
+      rutaMin = circuitoMinPago;
     } else if (kmFacturables(record) > 0) {
       // Km planificados: en DHL y AB Service los del cliente son de ida, se cuentan x2.
       km = kmFacturables(record);
@@ -265,12 +276,17 @@ export const buildViajeContext = (records) => {
     // Los km del viaje son la suma de lo que hizo cada servicio (el chofer anota el total y se reparte entre ellos).
     // Un viaje anterior al reparto lleva el total entero en el principal y nada en los demas.
     const sinReparto = !principal.kmReparto && members.every((m) => m.id === principal.id || m.kilometrosReales == null);
-    const conReales = members.some((m) => typeof m.kilometrosReales === "number");
+    // Con km planificados no cuentan los km que anote el chofer: se paga el circuito estandar del viaje.
+    const tarifaViaje = tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7));
+    const planificado = Boolean(tarifaViaje.pagoPorKm && tarifaViaje.pagoKmPlanificado);
+    const conReales = !planificado && members.some((m) => typeof m.kilometrosReales === "number");
+    const circuitoKmDe = (m) => numberOr0(planificado ? (m?.circuitoKmBase ?? m?.circuitoKm) : m?.circuitoKm);
+    const circuitoMinDe = (m) => numberOr0(planificado ? (m?.circuitoMinBase ?? m?.circuitoMin) : m?.circuitoMin);
     // Con pago por km, el circuito de todo el viaje (guardado en el principal) es lo que se paga si nadie anoto km reales.
     const porKmViaje = tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7)).pagoPorKm;
     // El circuito del viaje se guarda en el primer servicio del viaje (por orden); si el principal es otro, se lee de ahi.
     const holder = [...members].sort((a, b) => (a.compactadoOrden ?? 0) - (b.compactadoOrden ?? 0))[0];
-    const circuitoViaje = !conReales && porKmViaje ? numberOr0(principal.circuitoKm) || numberOr0(holder?.circuitoKm) : 0;
+    const circuitoViaje = !conReales && porKmViaje ? circuitoKmDe(principal) || circuitoKmDe(holder) : 0;
     const sinCircuito = porKmViaje && !conReales && circuitoViaje === 0;
     const km =
       circuitoViaje > 0
@@ -283,7 +299,7 @@ export const buildViajeContext = (records) => {
       principalCodigo: principal.codigo,
       principalHorasEstado: principal.horasEstado ?? null,
       km: sinCircuito ? 0 : km,
-      min: circuitoViaje > 0 ? numberOr0((numberOr0(principal.circuitoKm) ? principal : holder)?.circuitoMin) : 0,
+      min: circuitoViaje > 0 ? circuitoMinDe(circuitoKmDe(principal) ? principal : holder) : 0,
       sinCircuito,
       holderId: holder?.id ?? principal.id,
       servicios: members.length,

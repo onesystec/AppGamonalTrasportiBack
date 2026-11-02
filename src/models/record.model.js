@@ -133,6 +133,8 @@ const RECORD_SELECT_LIST = {
   comentarios: true,
   kilometrosReales: true,
   circuito: true,
+  circuitoKmBase: true,
+  circuitoMinBase: true,
   recorridoEstado: true,
   retiroPaqueteAt: true,
   kilometros: true,

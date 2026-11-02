@@ -86,6 +86,8 @@ const MEMBER_SELECT = {
   rutaDistanciaKm: true,
   kmReparto: true,
   circuito: true,
+  circuitoKmBase: true,
+  circuitoMinBase: true,
   // Traspaso entre choferes (continuacion = servicio recibido de otro chofer; original = el que entrego).
   servicioOrigenId: true,
   traspasoHora: true,

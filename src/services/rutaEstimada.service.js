@@ -243,7 +243,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   if (!points) {
     // Sin lugar del traspaso (o sin ubicarlo) no hay circuito: se borra el que hubiera de antes del traspaso (era el del servicio entero).
     if (traspaso && (record.circuito || record.circuitoKm != null)) {
-      await updateRecordById(record.id, { circuito: Prisma.DbNull, circuitoKm: null, circuitoMin: null });
+      await updateRecordById(record.id, { circuito: Prisma.DbNull, circuitoKm: null, circuitoMin: null, circuitoKmBase: null, circuitoMinBase: null });
     }
     return null;
   }
@@ -253,11 +253,13 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   // Los peajes declarados entran en la firma: si el chofer cambia lo que declaro, el circuito se vuelve a calcular.
   const firma = [points.base, ...points.retiros, ...points.paradas].map(pointKey).join("|") + `|peaje:${sinPeaje.ida ? 1 : 0}${sinPeaje.vuelta ? 1 : 0}` + points.pasos.map((p) => `|${p.clave}`).join("");
   // "idaRevisar" distingue el formato actual de los peajes (pagos) del anterior (casetas sueltas): los viejos se recalculan.
-  if (!force && holder.circuito?.firma === firma && holder.circuito.tramos && holder.circuito.peajes && "idaRevisar" in holder.circuito.peajes) {
+  if (!force && holder.circuito?.firma === firma && holder.circuito.tramos && holder.circuito.peajes && "idaRevisar" in holder.circuito.peajes && holder.circuitoKmBase != null) {
     return holder.circuito;
   }
 
   const legs = await routeLegs(points, sinPeaje);
+  // Base de pago: el mismo circuito por la ruta estandar (con peajes), sin mirar lo que declaro el chofer. Solo hace falta otro calculo si declaro "sin peaje".
+  const legsBase = sinPeaje.ida || sinPeaje.vuelta ? await routeLegs(points, {}) : legs;
   const circuito = {
     km: round1(legs.idaKm + legs.vueltaKm),
     idaKm: round1(legs.idaKm),
@@ -290,7 +292,17 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   };
   // El total es la suma de los tramos que se muestran (asi lo que se ve en pantalla siempre suma).
   circuito.km = round1(circuito.tramos.reduce((sum, t) => sum + t.km, 0));
-  await updateRecordById(holder.id, { circuito, circuitoKm: circuito.km, circuitoMin: circuito.idaMin + circuito.vueltaMin });
+  circuito.base = {
+    km: round1([...legsBase.tramosIda.map((t) => round1(t.km)), round1(legsBase.vueltaKm)].reduce((sum, km) => sum + km, 0)),
+    min: Math.round(legsBase.idaMin) + Math.round(legsBase.vueltaMin),
+  };
+  await updateRecordById(holder.id, {
+    circuito,
+    circuitoKm: circuito.km,
+    circuitoMin: circuito.idaMin + circuito.vueltaMin,
+    circuitoKmBase: circuito.base.km,
+    circuitoMinBase: circuito.base.min,
+  });
   return circuito;
 };
 

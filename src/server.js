@@ -2,6 +2,7 @@ import app from "./app.js";
 import { env } from "./config/env.js";
 import { prisma } from "./config/prisma.js";
 import { healCrossedAssignments } from "./services/assignmentRematch.service.js";
+import { recalcularCircuitosBase } from "./services/circuitoBase.service.js";
 import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
 import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startKmGpsSync, startMemorandumReminders, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
@@ -23,6 +24,9 @@ startAreaCAvisos();
 startMemorandumReminders();
 // Peajes y cargas de combustible que quedaron asignados al servicio de otra targa (ver findCandidateServices): se corrigen una vez al arrancar.
 if (env.NODE_ENV === "production") setTimeout(() => void healCrossedAssignments().catch((err) => console.error("[asignaciones] fallo la correccion:", err.message)), 20 * 1000).unref();
+
+// Circuito estandar (base de pago) de los servicios que se calcularon evitando peajes por la declaracion del chofer: se recalcula una vez al arrancar.
+if (env.NODE_ENV === "production") setTimeout(() => void recalcularCircuitosBase().catch((err) => console.error("[circuito-base] fallo el recalculo:", err.message)), 60 * 1000).unref();
 
 const shutdown = async (signal) => {
   console.log(`\n${signal} recibido, cerrando servidor...`);

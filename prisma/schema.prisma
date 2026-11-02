@@ -608,6 +608,10 @@ model Record {
   // Tiempo de ruta del circuito en minutos (ida + vuelta, sin recargo): en servicios cortos el pago sigue este tiempo y no los km
   // (ver tiempoRutaHastaKm en config/payRates.js). Se actualiza junto con circuitoKm.
   circuitoMin         Float?
+  // Lo mismo pero siempre por la ruta estandar (con peajes), sin mirar lo que declaro el chofer: es la base de pago. circuitoKm / circuitoMin
+  // dependen de la declaracion "sin peaje" (carreteras libres, mas largas) y solo sirven para comparar el recorrido con el GPS.
+  circuitoKmBase      Float?
+  circuitoMinBase     Float?
   // Retiro del paquete cuando se hace antes de salir a entregarlo (viernes retiro, lunes entrega): informativo. Las horas, el
   // dia del servicio y los peajes cuentan desde fechaRetiro, que es la salida a entregar.
   retiroPaqueteAt     DateTime?
