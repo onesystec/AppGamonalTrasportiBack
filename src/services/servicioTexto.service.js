@@ -71,7 +71,7 @@ const toInstant = ({ year, month, day, hour, minute, offset }, now) => {
 };
 
 const WEEKDAYS = { domenica: 0, lunedi: 1, martedi: 2, mercoledi: 3, giovedi: 4, venerdi: 5, sabato: 6 };
-const WEEKDAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const WEEKDAY_NAMES = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
 
 // Dia de una ETA que solo trae la hora: "PER LUNEDI" (el proximo lunes; si hoy es lunes, hoy), "DOMANI" (mañana) o, sin nada, hoy.
 const assumedDay = (flat, now) => {
@@ -87,10 +87,10 @@ const assumedDay = (flat, now) => {
     const todayWeekday = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
     const diff = (WEEKDAYS[weekday[1]] - todayWeekday + 7) % 7;
     const day = addDays(diff);
-    return { day, label: `el próximo ${WEEKDAY_NAMES[WEEKDAYS[weekday[1]]]} (${day.slice(8)}/${day.slice(5, 7)}), según el texto` };
+    return { day, label: `il prossimo ${WEEKDAY_NAMES[WEEKDAYS[weekday[1]]]} (${day.slice(8)}/${day.slice(5, 7)}), secondo il testo` };
   }
-  if (/\bdomani\b/.test(plain)) return { day: addDays(1), label: "mañana, porque el texto dice DOMANI" };
-  return { day: today, label: "el día de hoy" };
+  if (/\bdomani\b/.test(plain)) return { day: addDays(1), label: "domani, perché il testo dice DOMANI" };
+  return { day: today, label: "oggi" };
 };
 
 const findEta = (flat, now, avisos) => {
@@ -120,7 +120,7 @@ const findEta = (flat, now, avisos) => {
     } else {
       const assumed = assumedDay(flat, now);
       day = assumed.day;
-      avisos.push(`La ETA solo trae la hora: se supuso ${assumed.label}.`);
+      avisos.push(`L'ETA contiene solo l'ora: si è supposto ${assumed.label}.`);
     }
     return romeLocalToDate(day, `${pad(+m[1])}:${m[2] ?? "00"}`);
   }
@@ -148,7 +148,7 @@ const findTipo = (flat, avisos) => {
     const value = level[1].trim();
     if (/^asap\b/i.test(value)) return "ASAP";
     if (/^schedul/i.test(value)) return "SCHEDULED";
-    avisos.push(`Service Level "${value}": no es ASAP ni SCHEDULED, el tipo queda para completar.`);
+    avisos.push(`Service Level "${value}": non è né ASAP né SCHEDULED, il tipo resta da completare.`);
     return null;
   }
   const word = /\b(ASAP|SCHEDULAT[OA]|SCHEDULED?)\b/i.exec(flat);
@@ -193,6 +193,16 @@ const findCliente = (flat, lines) => {
   return findClienteMensaje(lines).cliente;
 };
 
+// Si el texto no dice el tipo (el portal casi nunca trae "Service Level") se deduce de lo lejos que queda la ETA: hasta ASAP_MAX_HORAS desde ahora
+// es ASAP (urgente) y mas alla, SCHEDULED (programado para otro momento). Con la ETA ya pasada (mas de una hora) no se puede saber. Es solo una
+// sugerencia: en la pantalla se puede cambiar.
+const ASAP_MAX_HORAS = 8;
+const deducirTipo = (eta, now) => {
+  const horas = (eta.getTime() - now.getTime()) / 3600000;
+  if (horas < -1) return { tipo: null, horas };
+  return { tipo: horas <= ASAP_MAX_HORAS ? "ASAP" : "SCHEDULED", horas };
+};
+
 // Cliente del texto -> el de tu lista (por nombre; sin diferencias de mayusculas, acentos ni espacios). null si no hay uno claro.
 export const matchClient = (name, clients) => {
   if (!name) return null;
@@ -222,13 +232,27 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
   const ciudad = findCity(flat, lines);
   const eta = findEta(flat, now, avisos);
 
-  if (!shipment) avisos.push("No se encontró el Shipment.");
-  if (!orderNumero) avisos.push("No se encontró el Order.");
-  if (!clienteTexto) avisos.push("No se encontró el cliente.");
-  else if (!client && clients.length) avisos.push(`El cliente "${clienteTexto}" no existe en tu lista: elige uno o créalo antes de aceptar.`);
-  if (!tipoPedido && !avisos.some((a) => a.startsWith("Service Level"))) avisos.push("No se encontró el tipo (ASAP o SCHEDULED).");
-  if (!ciudad) avisos.push("No se encontró la ciudad.");
-  if (!eta) avisos.push("No se encontró la ETA.");
+  // Tipo: el que dice el texto o, si no lo dice, el deducido de la ETA ("tipoOrigen": de donde sale).
+  let tipo = tipoPedido;
+  let tipoOrigen = tipoPedido ? "texto" : null;
+  if (!tipo && eta) {
+    const deducido = deducirTipo(eta, now);
+    if (deducido.tipo) {
+      tipo = deducido.tipo;
+      tipoOrigen = "eta";
+      avisos.push(`Il tipo non è nel testo: dedotto ${tipo} perché l'ETA è ${deducido.horas < 1 ? "tra meno di 1 h" : `tra ${Math.round(deducido.horas)} h`}. Cambialo se non è così.`);
+    } else {
+      avisos.push("Il tipo non è nel testo e l'ETA è già passata: non si può dedurre (ASAP o SCHEDULED).");
+    }
+  }
+
+  if (!shipment) avisos.push("Shipment non trovato.");
+  if (!orderNumero) avisos.push("Order non trovato.");
+  if (!clienteTexto) avisos.push("Cliente non trovato.");
+  else if (!client && clients.length) avisos.push(`Il cliente "${clienteTexto}" non esiste nella tua lista: scegline uno o crealo prima di accettare.`);
+  if (!tipo && !eta) avisos.push("Tipo (ASAP o SCHEDULED) non trovato.");
+  if (!ciudad) avisos.push("Città non trovata.");
+  if (!eta) avisos.push("ETA non trovata.");
 
   return {
     descripcion: lines,
@@ -236,7 +260,8 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
     orderNumero,
     cliente: client?.nombre ?? clienteTexto,
     clienteId: client?.id ?? null,
-    tipoPedido,
+    tipoPedido: tipo,
+    tipoOrigen,
     ciudad,
     eta,
     avisos,

@@ -193,7 +193,7 @@ export const linkSolicitudToRecord = async (actor, solicitudId, recordId) => {
 const assertServicioDelActor = (actor, servicio) => {
   const keys = actorAreaKeys(actor);
   if (keys !== null && !(SOLICITUD_SERVICIOS[servicio]?.areaKeys ?? []).some((k) => keys.includes(k))) {
-    throw new AppError("No tienes permisos sobre ese tipo de servicio", 403);
+    throw new AppError("Non hai i permessi per questo tipo di servizio", 403);
   }
 };
 

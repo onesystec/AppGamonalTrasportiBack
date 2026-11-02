@@ -73,20 +73,26 @@ export const rechazarSolicitudSchema = z.object({
   motivo: z.preprocess(emptyToNull, z.string().trim().max(500, "El motivo es demasiado largo").nullable()),
 });
 
-// Servicio desde un texto pegado (por ahora solo DHL Milano).
+// Servicio desde un texto pegado (por ahora solo DHL Milano). Todo este proceso va en italiano.
 const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO"];
-const servicioDesdeTexto = z.enum(SERVICIOS_DESDE_TEXTO, { errorMap: () => ({ message: "Ese tipo de servicio todavia no se carga desde un texto" }) });
+const servizioDaTesto = z.enum(SERVICIOS_DESDE_TEXTO, { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
+const testoObbligatorio = (label, max, femminile = false) =>
+  z
+    .string({ required_error: `${label} è ${femminile ? "obbligatoria" : "obbligatorio"}` })
+    .trim()
+    .min(1, `${label} è ${femminile ? "obbligatoria" : "obbligatorio"}`)
+    .max(max, `${label} è ${femminile ? "troppo lunga" : "troppo lungo"}`);
 
-export const leerTextoSchema = z.object({ servicio: servicioDesdeTexto, texto: text("El texto", 20000) });
+export const leerTextoSchema = z.object({ servicio: servizioDaTesto, texto: testoObbligatorio("Il testo", 20000) });
 
 export const crearDesdeTextoSchema = z.object({
-  servicio: servicioDesdeTexto,
-  cliente: text("El cliente", 150),
-  destinazione: text("La ciudad", 250),
-  fechaHora: fields.fechaHora,
+  servicio: servizioDaTesto,
+  cliente: testoObbligatorio("Il cliente", 150),
+  destinazione: testoObbligatorio("La città", 250, true),
+  fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La data e l'ora non sono valide" }) })),
   // El texto completo pegado.
-  descripcion: text("El texto", 20000),
+  descripcion: testoObbligatorio("Il testo", 20000),
   shipment: optionalText(60),
   orderNumero: optionalText(60),
-  tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo invalido (ASAP o SCHEDULED)" }) }).nullable()),
+  tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
 });
