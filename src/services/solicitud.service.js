@@ -57,6 +57,7 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   descripcion: s.descripcion,
   aplicativo: s.aplicativo,
   ...(s.record !== undefined && !office ? { asignado: asignadoDto(s.record, { verFotos }) } : {}),
+  choferIndicado: s.choferIndicado,
   shipment: s.shipment,
   orderNumero: s.orderNumero,
   tipoPedido: s.tipoPedido,

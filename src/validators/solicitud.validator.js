@@ -50,6 +50,8 @@ const fields = {
   varie2: optionalNumber("Varie 2"),
   descripcion: optionalText(4000),
   aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero invalido" }) }).nullable()),
+  // Chofer que indica el cliente (opcional, texto libre).
+  choferIndicado: optionalText(100),
   // DHL Milano: lo que se lee del texto del portal de DHL (Shipment, Order y tipo ASAP / SCHEDULED).
   shipment: optionalText(60),
   orderNumero: optionalText(60),

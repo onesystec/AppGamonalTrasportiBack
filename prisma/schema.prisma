@@ -1439,6 +1439,8 @@ model SolicitudServicio {
   shipment     String?
   orderNumero  String?
   tipoPedido   String?
+  // Chofer que el cliente indica (texto libre, opcional): la oficina decide el chofer real al aceptar la solicitud.
+  choferIndicado String?
 
   estado        SolicitudEstado @default(PENDIENTE)
   motivoRechazo String?
