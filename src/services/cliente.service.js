@@ -198,7 +198,7 @@ export const listServiciosCliente = async (user, { month } = {}) => {
       vehicle: { select: { targa: true } },
       driver: { select: { nombre: true, apellido: true } },
       stops: { orderBy: { orden: "asc" }, select: { direccion: true } },
-      files: { where: { tipoArchivo: { in: FOTO_TIPOS } }, select: { id: true } },
+      files: { where: { tipoArchivo: { in: FOTO_TIPOS } }, select: { id: true, tipoArchivo: true } },
     },
     orderBy: { fechaServicio: "desc" },
     take: 1500,
@@ -230,6 +230,9 @@ export const listServiciosCliente = async (user, { month } = {}) => {
         llegoAt: r.llegadaGpsAt ? r.llegadaGpsAt.toISOString() : null,
         puntualidadMin: r.llegadaGpsAt ? Math.round((r.llegadaGpsAt.getTime() - r.eta.getTime()) / 60000) : null,
         fotos: verFotos ? r.files.length : 0,
+        // La bolla es la foto del retiro; la foto de entrega, la de la consegna.
+        fotosRetiro: verFotos ? r.files.filter((f) => f.tipoArchivo === "BOLLA").length : 0,
+        fotosEntrega: verFotos ? r.files.filter((f) => f.tipoArchivo === "FOTO_ENTREGA").length : 0,
       })),
   };
 };
