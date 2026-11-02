@@ -857,9 +857,8 @@ export const getPagosChoferesForActor = async (actor, query) => {
 };
 
 // ---------------------------------------------------------------- ranking de km
-// Los km del ranking son LOS MISMOS que se pagan (payOf): los km reales que anoto el chofer o, si no, el circuito completo del sistema
-// (salida, retiro, entrega y vuelta), un viaje compactado una sola vez, y solo servicios pagables. Antes el ranking sumaba los km planificados
-// del cliente (DHL x2), que no se parecen a lo recorrido ni a lo pagado.
+// Los km del ranking son LOS MISMOS que se pagan (payOf): con la tarifa de km planificados, los que cargo el responsable o admin (DHL x2); en las demas,
+// los km reales que anoto el chofer o, si no, el circuito del sistema. Un viaje compactado cuenta una sola vez y solo servicios pagables.
 const KM_CATEGORIA = {
   "dhl-milano": "DHL",
   "dhl-roma": "DHL",
