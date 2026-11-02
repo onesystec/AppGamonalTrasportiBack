@@ -179,7 +179,8 @@ const editarSolicitud = async (user, s, cambios) => {
     tipoPedido: s.tipoPedido,
     cliente: s.cliente,
     ciudad: s.destinazione,
-    eta: s.fechaHora,
+    // Una ETA pendiente (el texto no la traia) cuenta como vacia: la fecha guardada es solo un relleno.
+    eta: s.etaPendiente ? null : s.fechaHora,
     km: s.km ?? s.kmTexto,
     aplicativo: s.aplicativo,
     ritiro: s.ritiro,
@@ -189,7 +190,7 @@ const editarSolicitud = async (user, s, cambios) => {
   const data = {};
   for (const c of aplicados) {
     if (c.campo === "ciudad") data.destinazione = c.nuevo;
-    else if (c.campo === "eta") data.fechaHora = c.nuevo;
+    else if (c.campo === "eta") Object.assign(data, { fechaHora: c.nuevo, etaPendiente: false });
     else if (c.campo === "km") Object.assign(data, { km: c.nuevo, ...c.extra });
     else if (c.campo === "cliente") data.cliente = c.nuevo ?? "";
     else data[c.campo] = c.nuevo;

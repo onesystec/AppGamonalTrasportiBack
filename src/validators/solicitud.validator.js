@@ -108,6 +108,13 @@ const servizioLeggibile = z.enum(["DHL_MILANO", "DHL_ROMA", "AB_SERVICE", "EXTRA
 
 export const leerTextoSchema = z.object({ servicio: servizioLeggibile, texto: testoObbligatorio("Il testo", 20000) });
 
+// Cliente (Piazza): registrar un servicio pegando solo el texto (se lee y se crea de una vez). confirmar: crearlo aunque ya haya uno con el mismo Shipment / Order.
+export const registrarDesdeTextoClienteSchema = z.object({
+  servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Scegli il tipo di servizio" }) }),
+  texto: testoObbligatorio("Il testo", 20000),
+  confirmar: z.boolean().optional(),
+});
+
 export const crearDesdeTextoSchema = z.object({
   servicio: servizioDaTesto,
   cliente: testoObbligatorio("Il cliente", 150),

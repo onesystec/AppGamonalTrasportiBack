@@ -7,6 +7,7 @@ import {
   leerTextoForActor,
   listSolicitudesCliente,
   listSolicitudesForActor,
+  registrarDesdeTextoCliente,
   rutaEstimadaForActor,
   rechazarSolicitudForActor,
   updateSolicitudCliente,
@@ -21,6 +22,11 @@ export const listCliente = asyncHandler(async (req, res) => {
 
 export const createCliente = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: await createSolicitudCliente(req.user, req.body) });
+});
+
+// Registrar pegando solo el texto: se lee y se crea la solicitud de una vez (el cliente completa lo que falte en su hoja).
+export const registrarDesdeTextoDelCliente = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await registrarDesdeTextoCliente(req.user, req.body) });
 });
 
 export const updateCliente = asyncHandler(async (req, res) => {

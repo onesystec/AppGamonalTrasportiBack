@@ -52,6 +52,7 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   cliente: s.cliente,
   destinazione: s.destinazione,
   fechaHora: s.fechaHora,
+  etaPendiente: s.etaPendiente,
   km: s.km,
   kmTexto: s.kmTexto,
   pagato: s.pagato,
@@ -333,6 +334,55 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
     eta: eta?.toISOString() ?? null,
     duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),
   };
+};
+
+// Registrar con un solo paso (portal de Piazza): el cliente pega todo el texto y se crea la solicitud con lo que se pudo leer. Lo que falte (cliente, ciudad, ETA,
+// codigos...) queda vacio y la hoja lo pinta en rojo para completarlo ahi mismo. Si ya hay una solicitud suya con el mismo Shipment / Order / codigo, avisa antes
+// de duplicarla (confirmar = true la crea igual). Sin ninguna señal de que sea un servicio, no crea nada.
+export const registrarDesdeTextoCliente = async (user, { servicio, texto, confirmar = false }) => {
+  requireRegistro(user);
+  if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
+  const { eta, ...parsed } = parseServicioTexto(texto, { servicio });
+  const legible = [parsed.shipment, parsed.orderNumero, parsed.ciudad, parsed.cliente, parsed.ritiro, eta].some(Boolean);
+  if (!legible) throw new AppError("Non sono riuscito a leggere nessun dato dal testo: controlla di aver incollato il messaggio completo del servizio", 422);
+
+  const numeros = [parsed.shipment && { shipment: parsed.shipment }, parsed.orderNumero && { orderNumero: parsed.orderNumero }].filter(Boolean);
+  const repetidas = numeros.length
+    ? await prisma.solicitudServicio.findMany({
+        where: { AND: [scopeWhere(user), { OR: numeros }] },
+        select: { id: true, cliente: true, fechaHora: true, estado: true, destinazione: true },
+        take: 3,
+      })
+    : [];
+  if (repetidas.length > 0 && !confirmar) {
+    return {
+      creada: false,
+      duplicados: repetidas.map((r) => ({ id: r.id, cliente: r.cliente, destinazione: r.destinazione, estado: r.estado, fecha: r.fechaHora })),
+      avisos: parsed.avisos,
+    };
+  }
+
+  const solicitud = await prisma.solicitudServicio.create({
+    data: {
+      servicio,
+      cliente: parsed.cliente ?? "",
+      destinazione: parsed.ciudad ?? "",
+      fechaHora: eta ?? new Date(),
+      etaPendiente: !eta,
+      km: parsed.km ?? null,
+      descripcion: parsed.descripcion.slice(0, 4000),
+      shipment: parsed.shipment,
+      orderNumero: parsed.orderNumero,
+      tipoPedido: parsed.tipoPedido,
+      aplicativo: parsed.aplicativo,
+      ritiro: parsed.ritiro,
+      creadoPorId: user.id,
+      empresaId: user.clienteId ?? null,
+    },
+    include: { creadoPor: CREADOR },
+  });
+  void notifyOffice(solicitud, user);
+  return { creada: true, solicitud: toDto(solicitud), avisos: parsed.avisos };
 };
 
 // Ruta estimada ritiro -> consegna de una solicitud de Extra Piazza: solo una pista para quien escribe el KM a mano (nunca se guarda sola).

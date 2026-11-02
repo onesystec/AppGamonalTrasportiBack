@@ -1445,6 +1445,8 @@ model SolicitudServicio {
   tipoPedido   String?
   // Chofer que el cliente indica (texto libre, opcional): la oficina decide el chofer real al aceptar la solicitud.
   choferIndicado String?
+  // true = la solicitud se registro pegando solo el texto y este no traia la ETA: fechaHora es un valor de relleno hasta que se escriba la real.
+  etaPendiente   Boolean @default(false)
   // Extra Piazza: donde se retira (la entrega es "destinazione"). El codigo del servicio (S20602391, 26WCIMXP...) va en shipment / orderNumero.
   ritiro         String?
 
