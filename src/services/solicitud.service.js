@@ -83,7 +83,7 @@ export const requireRegistro = (user) => {
 };
 
 // Las solicitudes propias y las de su empresa (otros usuarios de la misma empresa cliente).
-const scopeWhere = (user) => ({ OR: [{ creadoPorId: user.id }, ...(user.clienteId ? [{ empresaId: user.clienteId }] : [])] });
+export const scopeWhere = (user) => ({ OR: [{ creadoPorId: user.id }, ...(user.clienteId ? [{ empresaId: user.clienteId }] : [])] });
 
 const findOwned = async (user, id) => {
   const solicitud = await prisma.solicitudServicio.findFirst({ where: { id, ...scopeWhere(user) }, include: { creadoPor: CREADOR } });

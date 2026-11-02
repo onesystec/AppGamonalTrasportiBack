@@ -1,4 +1,5 @@
 import { getClienteMe, getDisponibilidadCliente, getEnVivoCliente, getFotosCliente, getRutaCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
+import { editarCeldaCliente } from "../services/cambioCelda.service.js";
 import { getHojaAnchos, setHojaAnchos } from "../services/hojaAnchos.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -30,6 +31,11 @@ export const servicios = asyncHandler(async (req, res) => {
 export const exportar = asyncHandler(async (req, res) => {
   requireModulo(req.user, "EXCEL");
   res.status(200).json({ success: true, data: await listServiciosCliente(req.user, req.query) });
+});
+
+// Editar una celda de la hoja tipo Excel (solicitud o servicio): queda en el historial y, si el servicio ya se entrego, avisa a la oficina.
+export const editarCelda = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await editarCeldaCliente(req.user, req.body) });
 });
 
 // Ancho de las columnas de las hojas tipo Excel: lo que fija una persona de la empresa lo ven todas.

@@ -1476,3 +1476,40 @@ model HojaAnchos {
   @@unique([alcance, hoja])
   @@map("hoja_anchos")
 }
+
+// Cada celda que un usuario cliente edita en su hoja tipo Excel (una solicitud o un servicio ya creado): quien, cuando, y el valor anterior y el nuevo.
+// campo = shipment | orderNumero | tipoPedido | cliente | ciudad | eta | km | aplicativo | ritiro. editorNombre es una copia del nombre de ese momento.
+model CambioServicio {
+  id           String   @id @default(uuid())
+  recordId     String?
+  solicitudId  String?
+  campo        String
+  anterior     String?
+  nuevo        String?
+  editorId     String
+  editorNombre String
+  createdAt    DateTime @default(now())
+
+  @@index([recordId, createdAt])
+  @@index([solicitudId])
+  @@map("cambios_servicio")
+}
+
+// Alerta a la oficina: un cliente edito un servicio ya entregado (CONSEGNATO). Los cambios de la misma persona en el mismo servicio durante 10 minutos
+// se juntan en una sola alerta (cambios = [{ campo, label, anterior, nuevo }]). leidoPor = ids de quienes de la oficina ya la vieron.
+model AlertaCambio {
+  id           String   @id @default(uuid())
+  recordId     String
+  areaKey      String
+  titulo       String
+  editorId     String
+  editorNombre String
+  cambios      Json
+  leidoPor     String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([recordId, editorId, updatedAt])
+  @@index([areaKey, updatedAt])
+  @@map("alertas_cambio")
+}
