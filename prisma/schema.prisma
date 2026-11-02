@@ -1461,3 +1461,18 @@ model SolicitudServicio {
   @@index([empresaId])
   @@map("solicitudes_servicio")
 }
+
+// Ancho (px) de las columnas de cada hoja tipo Excel del portal de clientes. alcance = la empresa cliente del usuario (User.clienteId) o "global";
+// hoja = dhl | roma | ab | extra; anchos = { A: 120, B: 80 ... } por id de columna. Lo que una persona de la empresa fija lo ven todas.
+model HojaAnchos {
+  id          String   @id @default(uuid())
+  alcance     String
+  hoja        String
+  anchos      Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([alcance, hoja])
+  @@map("hoja_anchos")
+}

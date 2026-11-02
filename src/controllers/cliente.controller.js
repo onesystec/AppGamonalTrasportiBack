@@ -1,4 +1,5 @@
 import { getClienteMe, getDisponibilidadCliente, getEnVivoCliente, getFotosCliente, getRutaCliente, getSeguimientoCliente, listServiciosCliente, requireModulo } from "../services/cliente.service.js";
+import { getHojaAnchos, setHojaAnchos } from "../services/hojaAnchos.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const me = asyncHandler(async (req, res) => {
@@ -29,6 +30,16 @@ export const servicios = asyncHandler(async (req, res) => {
 export const exportar = asyncHandler(async (req, res) => {
   requireModulo(req.user, "EXCEL");
   res.status(200).json({ success: true, data: await listServiciosCliente(req.user, req.query) });
+});
+
+// Ancho de las columnas de las hojas tipo Excel: lo que fija una persona de la empresa lo ven todas.
+export const hojaAnchos = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.status(200).json({ success: true, data: { anchos: await getHojaAnchos(req.user) } });
+});
+
+export const guardarHojaAnchos = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: { anchos: await setHojaAnchos(req.user, req.params.hoja, req.body.anchos) } });
 });
 
 export const fotos = asyncHandler(async (req, res) => {

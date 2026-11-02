@@ -1,10 +1,10 @@
 import { Router } from "express";
-import { disponibilidad, enVivo, exportar, fotos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { disponibilidad, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
 import { createCliente, detalleCliente, leerTextoDelCliente, listCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
-import { clienteMesQuerySchema, clienteServicioIdSchema } from "../validators/cliente.validator.js";
+import { clienteMesQuerySchema, clienteServicioIdSchema, hojaAnchosBodySchema, hojaAnchosParamsSchema } from "../validators/cliente.validator.js";
 import { disponibilidadQuerySchema } from "../validators/disponibilidad.validator.js";
 import { clienteSolicitudesQuerySchema, createSolicitudSchema, leerTextoSchema, solicitudIdSchema, updateSolicitudSchema } from "../validators/solicitud.validator.js";
 
@@ -20,6 +20,9 @@ router.get("/disponibilidad", validate(disponibilidadQuerySchema, "query"), disp
 router.get("/seguimiento/:id/ruta", validate(clienteServicioIdSchema, "params"), ruta);
 router.get("/servicios", validate(clienteMesQuerySchema, "query"), servicios);
 router.get("/exportar", validate(clienteMesQuerySchema, "query"), exportar);
+// Ancho de las columnas de las hojas tipo Excel (se guarda para todos los usuarios de la empresa).
+router.get("/hoja-anchos", hojaAnchos);
+router.put("/hoja-anchos/:hoja", validate(hojaAnchosParamsSchema, "params"), validate(hojaAnchosBodySchema), guardarHojaAnchos);
 router.get("/servicios/:id/fotos", validate(clienteServicioIdSchema, "params"), fotos);
 
 // Registro limitado: el cliente pide servicios a la oficina (modulo REGISTRO). Solo ve y toca sus solicitudes (y las de su empresa).
