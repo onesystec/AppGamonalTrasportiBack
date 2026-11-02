@@ -108,13 +108,15 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   // Km/h con los que se pasan los km a horas de manejo: el que la oficina eligio para este chofer (85, 90 o 95), si no el de la tarifa.
   const kmBloque = (porKm ? kmhPagoFor(record.driverId, month) : null) ?? tariff.kmBloque;
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
-  // Km planificados: se pagan los que cargo el responsable/admin; el circuito que se usa es el estandar (con peajes), no el que cambia con lo que declare el chofer.
+  // Km planificados: se pagan los que cargo el responsable/admin, y los km del circuito que haga falta (traspasos, viajes, sin planificados) son los del circuito
+  // estandar (con peajes). El TIEMPO de ruta de los servicios cortos, en cambio, es el del circuito segun lo que declaro el chofer: quien vuelve "sin peaje"
+  // tarda mas y se le paga ese tiempo.
   const kmPlanificado = porKm && Boolean(tariff.pagoKmPlanificado);
   // La espera solo suma con la aprobacion de un responsable, y la salida (dia/noche, reperibilidad) es la planificada por la oficina.
   const esperaAprobada = porKm && Boolean(tariff.esperaAprobada);
   const salidaPlanificada = porKm && Boolean(tariff.salidaPlanificada);
   const circuitoKmPago = numberOr0(kmPlanificado ? (record.circuitoKmBase ?? record.circuitoKm) : record.circuitoKm);
-  const circuitoMinPago = numberOr0(kmPlanificado ? (record.circuitoMinBase ?? record.circuitoMin) : record.circuitoMin);
+  const circuitoMinPago = numberOr0(record.circuitoMin);
 
   // Las horas de dia/noche salen del inicio y fin declarados con la banda de ESTA tarifa (si estan);
   // si no, se usan las guardadas al cargar la jornada.
@@ -288,7 +290,7 @@ export const buildViajeContext = (records) => {
     const planificado = Boolean(tarifaViaje.pagoPorKm && tarifaViaje.pagoKmPlanificado);
     const conReales = !planificado && members.some((m) => typeof m.kilometrosReales === "number");
     const circuitoKmDe = (m) => numberOr0(planificado ? (m?.circuitoKmBase ?? m?.circuitoKm) : m?.circuitoKm);
-    const circuitoMinDe = (m) => numberOr0(planificado ? (m?.circuitoMinBase ?? m?.circuitoMin) : m?.circuitoMin);
+    const circuitoMinDe = (m) => numberOr0(m?.circuitoMin);
     // Con pago por km, el circuito de todo el viaje (guardado en el principal) es lo que se paga si nadie anoto km reales.
     const porKmViaje = tariffForMonth(romeDay(principal.fechaServicio).slice(0, 7)).pagoPorKm;
     // El circuito del viaje se guarda en el primer servicio del viaje (por orden); si el principal es otro, se lee de ahi.

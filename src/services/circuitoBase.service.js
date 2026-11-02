@@ -1,7 +1,7 @@
 import { prisma } from "../config/prisma.js";
 import { ensureCircuitSafe } from "./rutaEstimada.service.js";
 
-// Circuito estandar (base de pago, siempre con peajes) de los servicios cuyo circuito se calculo evitando peajes porque el chofer declaro "sin peaje":
+// Circuito estandar (base de los km que se pagan en traspasos, viajes compactados y servicios sin km planificados; siempre con peajes) de los servicios cuyo circuito se calculo evitando peajes porque el chofer declaro "sin peaje":
 // la migracion copia el circuito donde no hubo declaracion y aqui se recalcula el resto, una sola vez al arrancar. Desde la tarifa con pago por km
 // (octubre de 2026). De a uno y con pausa: las rutas salen de servidores publicos. Lo que no se pueda calcular (paradas sin ubicar) se reintenta
 // en el proximo arranque; mientras tanto el pago usa el circuito que ya tenia.

@@ -23,8 +23,9 @@ import { festivosDelAnio } from "../utils/feriadosIt.js";
 //  - salidaPlanificada: el dia/noche y la reperibilidad se toman de la fecha y hora de retiro que carga la oficina (fechaRetiro), no de la hora de inicio o
 //    fin que declare el chofer.
 //  - pagoKmPlanificado: los km que se pagan son los PLANIFICADOS por el responsable o admin (km del servicio, con el criterio de utils/kmFacturables.js:
-//    DHL y AB x2), no los del circuito del sistema ni los reales que declare el chofer. El tiempo de ruta de los servicios cortos y los km de los
-//    viajes compactados y traspasos salen del circuito ESTANDAR (siempre con peajes): marcar "sin peaje" ya no cambia lo que se paga.
+//    DHL y AB x2), no los del circuito del sistema ni los reales que declare el chofer. Los km de los viajes compactados y traspasos salen del circuito
+//    ESTANDAR (siempre con peajes): marcar "sin peaje" no cambia lo que se paga por km. En cambio el tiempo de ruta de los servicios cortos (menos de
+//    tiempoRutaHastaKm) es el del circuito segun lo declarado: quien hace el tramo "sin peaje" tarda mas y se le paga ese tiempo.
 //  - jornadaDesdeInicioFin: las horas de dia/noche se recalculan del inicio y fin declarados con la
 //    banda de esta tarifa (en vez de usar lo guardado al cargar la jornada).
 export const PAY_TARIFFS = [
