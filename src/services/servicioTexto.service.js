@@ -70,6 +70,29 @@ const toInstant = ({ year, month, day, hour, minute, offset }, now) => {
   return new Date(Date.UTC(year, month - 1, day, hour, minute) - sign * (oh * 60 + (om || 0)) * 60000);
 };
 
+const WEEKDAYS = { domenica: 0, lunedi: 1, martedi: 2, mercoledi: 3, giovedi: 4, venerdi: 5, sabato: 6 };
+const WEEKDAY_NAMES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+// Dia de una ETA que solo trae la hora: "PER LUNEDI" (el proximo lunes; si hoy es lunes, hoy), "DOMANI" (mañana) o, sin nada, hoy.
+const assumedDay = (flat, now) => {
+  const today = romeDay(now);
+  const [y, mo, d] = today.split("-").map(Number);
+  const plain = flat.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const addDays = (n) => {
+    const date = new Date(Date.UTC(y, mo - 1, d + n));
+    return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`;
+  };
+  const weekday = /\bper\s+(lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\b/.exec(plain);
+  if (weekday) {
+    const todayWeekday = new Date(Date.UTC(y, mo - 1, d)).getUTCDay();
+    const diff = (WEEKDAYS[weekday[1]] - todayWeekday + 7) % 7;
+    const day = addDays(diff);
+    return { day, label: `el próximo ${WEEKDAY_NAMES[WEEKDAYS[weekday[1]]]} (${day.slice(8)}/${day.slice(5, 7)}), según el texto` };
+  }
+  if (/\bdomani\b/.test(plain)) return { day: addDays(1), label: "mañana, porque el texto dice DOMANI" };
+  return { day: today, label: "el día de hoy" };
+};
+
 const findEta = (flat, now, avisos) => {
   // Portal: "ETA 2026-Oct-31 00:44:30 (+01:00)" (tambien "2026-10-31 09:00" y "31/10/2026 09:00").
   let m = /\bETA\s*[:=]?\s*(\d{4})[-/\s]*([A-Za-z]{3})[A-Za-z]*[-/\s]*(\d{1,2})\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(?:\(?\s*([+-]\d{2}:?\d{2})\s*\)?)?/i.exec(flat);
@@ -85,9 +108,9 @@ const findEta = (flat, now, avisos) => {
   m = /\bETA\s*[:=]?\s*(\d{1,2})[/.](\d{1,2})[/.](\d{4})\s+(\d{1,2}):(\d{2})/i.exec(flat);
   if (m) return toInstant({ year: +m[3], month: +m[2], day: +m[1], hour: +m[4], minute: +m[5] }, now);
 
-  // Mensaje interno: "ETA ORE 13.40" (solo la hora; opcional "DEL 31/10"). La fecha se supone hoy y se avisa.
-  m = /\bETA\s*(?:ORE|H|:)?\s*(\d{1,2})\s*[.:h]\s*(\d{2})(?:\s+DEL\s+(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?)?/i.exec(flat);
-  if (m) {
+  // Mensaje interno: "ETA ORE 13.40", "ETA ORE 11", "ETA H.8", "ETA 19.45", "ETA 08:00" (solo la hora; opcional "DEL 31/10").
+  m = /\bETA\s*[:=]?\s*(?:ORE|H\.?)?\s*(\d{1,2})(?!\d)(?:\s*[.:h]\s*(\d{2}))?(?:\s+DEL\s+(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?)?/i.exec(flat);
+  if (m && +m[1] <= 23) {
     const today = romeDay(now);
     const [ty] = today.split("-").map(Number);
     let day = today;
@@ -95,9 +118,11 @@ const findEta = (flat, now, avisos) => {
       const year = m[5] ? (m[5].length === 2 ? 2000 + +m[5] : +m[5]) : ty;
       day = `${year}-${pad(+m[4])}-${pad(+m[3])}`;
     } else {
-      avisos.push("La ETA solo trae la hora: se supuso el día de hoy.");
+      const assumed = assumedDay(flat, now);
+      day = assumed.day;
+      avisos.push(`La ETA solo trae la hora: se supuso ${assumed.label}.`);
     }
-    return romeLocalToDate(day, `${pad(+m[1])}:${m[2]}`);
+    return romeLocalToDate(day, `${pad(+m[1])}:${m[2] ?? "00"}`);
   }
   return null;
 };
@@ -110,8 +135,11 @@ const findCity = (flat, lines) => {
   if (m && m[1].trim()) return cityName(m[1]);
   // Mensaje interno: la linea "PER BRESCIA".
   m = /(?:^|\n)\s*PER\s+([^\n]+)/i.exec(lines);
-  if (m && m[1].trim()) return cityName(m[1]);
-  return null;
+  if (m && m[1].trim() && !new RegExp(`^${TIPO_WORD}\\b|^(lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica)\\b`, "i").test(m[1].normalize("NFD").replace(/\p{M}/gu, "").trim())) {
+    return cityName(m[1]);
+  }
+  const sinPer = findClienteMensaje(lines).ciudad;
+  return sinPer ? cityName(sinPer) : null;
 };
 
 const findTipo = (flat, avisos) => {
@@ -123,29 +151,46 @@ const findTipo = (flat, avisos) => {
     avisos.push(`Service Level "${value}": no es ASAP ni SCHEDULED, el tipo queda para completar.`);
     return null;
   }
-  const word = /\b(ASAP|SCHEDULED?)\b/i.exec(flat);
+  const word = /\b(ASAP|SCHEDULAT[OA]|SCHEDULED?)\b/i.exec(flat);
   if (word) return /^asap$/i.test(word[1]) ? "ASAP" : "SCHEDULED";
   return null;
 };
 
-// Cliente: "Customer EMC2" (portal) o, en el mensaje interno, lo que va antes de ASAP/SCHEDULED en la primera linea con texto.
+const TIPO_WORD = "(?:ASAP|SCHEDULAT[OA]|SCHEDULED?)";
+// Lineas que son otro dato del mensaje (no el cliente ni la ciudad): "PER ...", ETA, KM, RITIRO, ORDER, SHIPMENT, "A CHI ASSEGNO?", "3 PARTI",
+// la zona ("MILANO", "MILANO 12", "ROMA") o cualquier linea que empiece con un numero.
+const ES_OTRO_DATO = /^(?:per\b|eta\b|km\b|ritiro\b|order\b|shipment\b|a chi\b|chi\b|che\b|team\b|ciao\b|buon|(?:milano|roma)(?:\s+\d{1,2})?$|\d)/i;
+
+// Lineas del mensaje interno sin las menciones ("@Romario GT") ni el formato (*negrita*).
+const messageLines = (lines) =>
+  lines
+    .split("\n")
+    .map((l) => l.replace(/[*_]/g, " ").replace(/\s+/g, " ").trim())
+    .filter((l) => l && !l.startsWith("@"));
+
+// Cliente y ciudad de un mensaje interno. Dos formas:
+//  - "HP ASAP CON APP" / "MEDTRONIC SCHEDULED CON APP": el cliente va antes de ASAP/SCHEDULED y la ciudad en "PER <lugar>".
+//  - "NUOVO SERVIZIO ASAP" / "NUOVO SERVIZIO SCHEDULATO PER LUNEDI": el cliente es la linea siguiente y la ciudad la que sigue al cliente
+//    (si esa linea es la zona "MILANO" o un dato, no hay ciudad).
+const findClienteMensaje = (lines) => {
+  const all = messageLines(lines).slice(0, 8);
+  for (let i = 0; i < all.length; i += 1) {
+    const m = new RegExp(`^(.+?)\\s+${TIPO_WORD}\\b`, "i").exec(all[i]);
+    if (!m) continue;
+    const candidate = m[1].trim();
+    if (!/^(nuovo|new)\b/i.test(candidate)) return { cliente: candidate, ciudad: null };
+    const cliente = all[i + 1] && !ES_OTRO_DATO.test(all[i + 1]) ? all[i + 1] : null;
+    const next = cliente ? all[i + 2] : null;
+    return { cliente, ciudad: next && !ES_OTRO_DATO.test(next) ? next : null };
+  }
+  return { cliente: null, ciudad: null };
+};
+
+// Cliente: "Customer EMC2" (portal) o el del mensaje interno.
 const findCliente = (flat, lines) => {
   const m = new RegExp(`\\bCustomer\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat);
   if (m && m[1].trim()) return m[1].trim();
-  // Las primeras lineas con texto (las que empiezan con "@" son las menciones a la oficina, no el pedido).
-  const head = lines
-    .split("\n")
-    .map((l) => l.replace(/[*_]/g, " ").replace(/\s+/g, " ").trim())
-    .filter((l) => l && !l.startsWith("@"))
-    .slice(0, 4);
-  for (const line of head) {
-    const m = /^(.+?)\s+(?:ASAP|SCHEDULED?)\b/i.exec(line);
-    if (!m) continue;
-    const candidate = m[1].trim();
-    // "NUOVO SERVIZIO ASAP" describe el pedido, no es un cliente.
-    return /^(nuovo|new)\b/i.test(candidate) ? null : candidate;
-  }
-  return null;
+  return findClienteMensaje(lines).cliente;
 };
 
 // Cliente del texto -> el de tu lista (por nombre; sin diferencias de mayusculas, acentos ni espacios). null si no hay uno claro.
