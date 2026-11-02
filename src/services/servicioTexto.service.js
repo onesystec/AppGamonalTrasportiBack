@@ -1,6 +1,6 @@
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 
-// Lector de textos de servicio (DHL Milano, DHL Roma y AB Service): un texto pegado -> los datos que se pueden sacar SOLO con reglas, sin IA y sin costo.
+// Lector de textos de servicio (DHL Milano, DHL Roma, AB Service y Extra Piazza): un texto pegado -> los datos que se pueden sacar SOLO con reglas, sin IA y sin costo.
 // Entiende dos formas de texto:
 //  - El del portal de DHL ("Shipment # 171712939 / Customer EMC2 / Ship To City VIZZOLA TICINO / ETA 2026-Oct-31 00:44:30 (+01:00) ..."),
 //    con las etiquetas a veces partidas en dos lineas y con caracteres invisibles dentro de las fechas y los codigos.
@@ -280,6 +280,187 @@ const ciudadDeLugar = (texto) => {
   return !/\d/.test(texto) && texto.split(/\s+/).length <= 3 ? cityName(texto) : null;
 };
 
+// --- Extra Piazza ---
+// No tienen un formato fijo, asi que se buscan las piezas por separado:
+//  - Codigo: "S20602391" (puede haber dos: "S20602375 / S20602381") o el del giro "26WCIMXP0134810", en las primeras lineas. Va a shipment / orderNumero.
+//  - Dia y hora: "DOMANI ORE 9", "Date: 30th Oct - ... ORE 00.30", "LAINATE ORE 7.30 / domani 28 oct", "PER DOMANI 24/10". La hora es la de "ORE"; el dia,
+//    una fecha escrita ("28 oct", "24/10"), "domani" (solo si va con la hora o al inicio de una linea: "Da consegnare domani" no cuenta) u hoy.
+//  - Lugares: "ritiro: ...", "Luogo di ritiro: ...", "Ritiro" + direccion en las lineas de abajo, "CONSEGNA / COMSEGNA ...", "e portarli ...", o la linea
+//    "Battaglino a Peschiera" que va antes de la consegna. En los giros de Lainate ("26WCIMXP...") el ritiro es el punto de salida y la entrega son las
+//    varias paradas de la lista ("Giro (4 tappe)").
+// No se lee ni el cliente, ni el tipo, ni el km (los pone una persona) ni el chofer.
+const CODIGO_EXTRA = /\b(?:S\d{7,9}|\d{2}[A-Z]{3,}[A-Z0-9]*\d{4,})\b/g;
+const ES_CODIGO = new RegExp(CODIGO_EXTRA.source);
+const MES_EXTRA =
+  "(?:gen(?:naio)?|feb(?:braio)?|mar(?:zo)?|apr(?:ile)?|mag(?:gio)?|may|giu(?:gno)?|jun(?:e)?|lug(?:lio)?|jul(?:y)?|ago(?:sto)?|aug(?:ust)?|set(?:tembre)?|sep(?:t(?:ember)?)?|ott(?:obre)?|oct(?:ober)?|nov(?:embre|ember)?|dic(?:embre)?|dec(?:ember)?)";
+const MES_NUM = { gen: 1, feb: 2, mar: 3, apr: 4, mag: 5, may: 5, giu: 6, jun: 6, lug: 7, jul: 7, ago: 8, aug: 8, set: 9, sep: 9, ott: 10, oct: 10, nov: 11, dic: 12, dec: 12 };
+const DIA_PALABRA = "(?:lunedi|martedi|mercoledi|giovedi|venerdi|sabato|domenica|domani|oggi)";
+const LINEA_DE_LISTA = /^\d{9}/;
+const CARGA = /^\d+\s*(?:x\s*)?(?:colli|collo|pallet|bancal\w*|casse?|box(?:es)?|valigie|kg|kgs)\b|\b(?:pallet|colli|kgs?|cms?)\b/i;
+const ES_ETIQUETA_EXTRA = /^(?:(?:luogo\s+di\s+)?ritiro|co[mn]segn[ae]|consegnare|da\s+consegnare|(?:e\s+)?portarli|date\s*:|eta\b|km\b)/i;
+const ES_RUIDO_EXTRA = /^(?:nuovo\s+servizio|(?:loading|delivery|unloading)\s+address\s*:?|door|con\s+\w+|com\s+\w+|cassonato|[A-Z]{2}\d{3}[A-Z]{2})$/i;
+
+const sinAcento = (t) => t.normalize("NFD").replace(/\p{M}/gu, "");
+
+const findCodigosExtra = (all) => {
+  const found = [];
+  for (const l of all.slice(0, 5)) for (const m of l.matchAll(CODIGO_EXTRA)) if (!found.includes(m[0])) found.push(m[0]);
+  return found;
+};
+
+// Fecha y hora de un Extra Piazza (ver arriba). Solo se mira el texto de antes de la lista de paradas, para no tomar las fechas de la tabla.
+const findEtaExtra = (lines, now, avisos) => {
+  const todos = lines.split("\n");
+  const corte = todos.findIndex((l) => LINEA_DE_LISTA.test(l.trim()));
+  const texto = (corte >= 0 ? todos.slice(0, corte) : todos).join("\n");
+  const hora = /\bORE\s*(\d{1,2})(?:\s*[.:]\s*(\d{2}))?(?!\d)/i.exec(texto);
+  if (!hora || +hora[1] > 23) return null;
+
+  const [ty, tm, td] = romeDay(now).split("-").map(Number);
+  const candidatos = [];
+  for (const m of texto.matchAll(/(?<!\d)(\d{1,2})\/(\d{1,2})(?!\d)/g)) {
+    if (+m[1] >= 1 && +m[1] <= 31 && +m[2] >= 1 && +m[2] <= 12) candidatos.push({ i: m.index, d: +m[1], mo: +m[2] });
+  }
+  for (const m of sinAcento(texto).matchAll(new RegExp(`(?<!\\d)(\\d{1,2})(?:st|nd|rd|th|°)?\\s+(?:di\\s+)?(${MES_EXTRA})\\b`, "gi"))) {
+    if (+m[1] >= 1 && +m[1] <= 31) candidatos.push({ i: m.index, d: +m[1], mo: MES_NUM[m[2].toLowerCase().slice(0, 3)] });
+  }
+  candidatos.sort((a, b) => a.i - b.i);
+
+  let day;
+  if (candidatos.length) {
+    const { d, mo } = candidatos[0];
+    let year = ty;
+    // Una fecha que ya paso hace mas de medio año es del año que viene (un mensaje de diciembre que habla de enero).
+    if (Date.UTC(year, mo - 1, d) < Date.UTC(ty, tm - 1, td) - 180 * 86400000) year += 1;
+    day = `${year}-${pad(mo)}-${pad(d)}`;
+  } else if (new RegExp(`(?:^|\\n)\\s*(?:per\\s+)?domani\\b|\\bdomani\\s+ore\\b`, "i").test(texto)) {
+    day = new Date(Date.UTC(ty, tm - 1, td + 1)).toISOString().slice(0, 10);
+  } else {
+    day = romeDay(now);
+    avisos.push("L'ETA contiene solo l'ora: si è supposto oggi.");
+  }
+  return romeLocalToDate(day, `${pad(+hora[1])}:${hora[2] ?? "00"}`);
+};
+
+// Valor de un lugar: sin la hora ("ORE 18"), las palabras de dia ("lunedi", "domani") ni el "per".
+const limpiarLugar = (v) =>
+  sinAcento(v ?? "") === ""
+    ? ""
+    : v
+        .replace(/\bORE\s*\d{1,2}(?:\s*[.:]\s*\d{2})?/gi, " ")
+        .replace(new RegExp(`\\b${DIA_PALABRA}\\b`, "gi"), " ")
+        .replace(/(?<!\d)\d{1,2}\/\d{1,2}(?!\d)/g, " ")
+        .replace(new RegExp(`(?<!\\d)\\d{1,2}(?:st|nd|rd|th)?\\s+${MES_EXTRA}\\b`, "gi"), " ")
+        .replace(/^\s*(?:per|presso)\b/i, " ")
+        .replace(/\s+/g, " ")
+        .replace(/^[\s:.\-–]+|[\s:\-–]+$/g, "");
+
+// El valor que sigue a una etiqueta; si esta vacio o es corto, las lineas de abajo que siguen siendo del lugar (direccion partida en varias lineas).
+const lugarDesdeEtiqueta = (all, i, valor, { max }) => {
+  const partes = [];
+  const primero = limpiarLugar(valor);
+  if (primero && !CARGA.test(primero)) partes.push(primero);
+  else if (primero) return null;
+  for (let j = i + 1; j < all.length && partes.length < max; j += 1) {
+    const l = all[j];
+    if (ES_ETIQUETA_EXTRA.test(l) || (ES_RUIDO_EXTRA.test(l) && !/^(?:loading|delivery|unloading)/i.test(l))) break;
+    if (/^(?:loading|delivery|unloading)\s+address\s*:?$/i.test(l)) continue;
+    if (LINEA_DE_LISTA.test(l) || (/^\d/.test(l) && !/^\d{5}\b/.test(l)) || /^ore\b/i.test(l) || CARGA.test(l) || l.split(" ").length > 8) break;
+    const limpia = limpiarLugar(l);
+    if (!limpia) break;
+    partes.push(limpia);
+    // Con un valor ya en la propia linea, solo se acepta una linea mas (el nombre de la ciudad).
+    if (primero) break;
+  }
+  return partes.length ? partes.join(", ") : null;
+};
+
+const findLugaresExtra = (all, giro) => {
+  let ritiro = null;
+  let consegna = null;
+  let iConsegna = -1;
+  for (let i = 0; i < all.length; i += 1) {
+    const l = all[i];
+    if (giro) break;
+    if (!ritiro) {
+      const m = /^(?:luogo\s+di\s+)?ritiro\b[\s:.\-–]*(.*)$/i.exec(l);
+      if (m) {
+        ritiro = lugarDesdeEtiqueta(all, i, m[1], { max: 4 });
+        continue;
+      }
+    }
+    if (!consegna) {
+      const m = /^(?:co[mn]segn[ae]|consegnare|da\s+consegnare|(?:e\s+)?portarli(?:\s+(?:a|al|in))?(?:\s+magazzino)?)\b[\s:.\-–]*(.*)$/i.exec(l);
+      if (m) {
+        consegna = lugarDesdeEtiqueta(all, i, m[1], { max: 2 });
+        iConsegna = i;
+      }
+    }
+  }
+  // "Battaglino a Peschiera": sin etiqueta de ritiro, la linea de lugar que va justo antes de la consegna.
+  if (!giro && !ritiro && iConsegna > 0) {
+    for (let j = iConsegna - 1; j >= 0; j -= 1) {
+      const l = all[j];
+      const limpia = limpiarLugar(l);
+      if (!limpia || ES_RUIDO_EXTRA.test(l) || ES_ETIQUETA_EXTRA.test(l) || ES_CODIGO.test(l) || CARGA.test(l) || /^\d/.test(l) || limpia.split(" ").length > 6) continue;
+      ritiro = limpia;
+      break;
+    }
+  }
+  return { ritiro, consegna };
+};
+
+// Giro (26WCIMXP...): el punto de salida es la primera linea con un lugar (sin la hora ni el dia), y las paradas son las lineas de la lista.
+const findSalidaGiro = (all) => {
+  for (const l of all) {
+    if (LINEA_DE_LISTA.test(l)) break;
+    if (ES_CODIGO.test(l) || ES_RUIDO_EXTRA.test(l)) continue;
+    const limpia = limpiarLugar(l);
+    if (limpia && /\p{L}{3}/u.test(limpia) && limpia.split(" ").length <= 8) return limpia;
+  }
+  return null;
+};
+
+const parseExtraPiazza = (lines, now) => {
+  const avisos = [];
+  const all = messageLines(lines);
+  const codigos = findCodigosExtra(all);
+  const giro = /^\d{2}[A-Z]{3,}/.test(codigos[0] ?? "");
+  let ritiro;
+  let consegna;
+  if (giro) {
+    ritiro = findSalidaGiro(all);
+    const tappe = all.filter((l) => LINEA_DE_LISTA.test(l)).length;
+    consegna = tappe ? `Giro (${tappe} tappe)` : null;
+  } else {
+    ({ ritiro, consegna } = findLugaresExtra(all, false));
+  }
+  const eta = findEtaExtra(lines, now, avisos);
+
+  if (!codigos.length) avisos.push("Codice non trovato.");
+  if (!ritiro) avisos.push('Luogo di ritiro non trovato (scrivilo come "Ritiro: via ... città").');
+  if (!consegna) avisos.push('Luogo di consegna non trovato (scrivilo come "Consegna: via ... città").');
+  if (!eta) avisos.push("ETA non trovata.");
+
+  const lugares = [ritiro && { rol: "ritiro", texto: ritiro }, consegna && !giro && { rol: "consegna", texto: consegna }].filter(Boolean);
+  return {
+    descripcion: lines,
+    shipment: codigos[0] ?? null,
+    orderNumero: codigos.length > 1 ? codigos.slice(1).join(" ") : null,
+    cliente: null,
+    clienteId: null,
+    tipoPedido: null,
+    tipoOrigen: null,
+    ciudad: consegna,
+    ritiro,
+    eta,
+    km: null,
+    aplicativo: null,
+    lugares,
+    avisos,
+  };
+};
+
 // Cliente del texto -> el de tu lista (por nombre; sin diferencias de mayusculas, acentos ni espacios). null si no hay uno claro.
 export const matchClient = (name, clients) => {
   if (!name) return null;
@@ -299,6 +480,7 @@ export const matchClient = (name, clients) => {
 export const parseServicioTexto = (text, { clients = [], now = new Date(), servicio = "DHL_MILANO" } = {}) => {
   const avisos = [];
   const lines = cleanText(text);
+  if (servicio === "EXTRA_PIAZZA") return parseExtraPiazza(lines, now);
   const flat = ` ${lines.replace(/\s+/g, " ")} `;
 
   const shipment = /\bShipment\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;

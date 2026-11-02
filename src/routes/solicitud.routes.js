@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { crearDesdeTexto, leerTexto, listOficina, rechazar } from "../controllers/solicitud.controller.js";
+import { crearDesdeTexto, leerTexto, listOficina, rechazar, rutaEstimada } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
@@ -20,6 +20,7 @@ router.get("/", validate(listSolicitudesQuerySchema, "query"), listOficina);
 // Servicio desde un texto pegado: el bot de reglas lo lee (sin guardar) y despues se crea la solicitud pendiente.
 router.post("/leer-texto", validate(leerTextoSchema), leerTexto);
 router.post("/desde-texto", validate(crearDesdeTextoSchema), crearDesdeTexto);
+router.get("/:id/ruta-estimada", validate(solicitudIdSchema, "params"), rutaEstimada);
 router.post("/:id/rechazar", validate(solicitudIdSchema, "params"), validate(rechazarSolicitudSchema), rechazar);
 
 export default router;

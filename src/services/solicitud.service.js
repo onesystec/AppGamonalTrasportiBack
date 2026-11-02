@@ -5,7 +5,8 @@ import { actorAreaKeys } from "../utils/areaAccess.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
-import { geocodePreview } from "./geocoding.service.js";
+import { geocodeAddress, geocodePreview } from "./geocoding.service.js";
+import { calculateRoute } from "./routing.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -59,6 +60,7 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   aplicativo: s.aplicativo,
   ...(s.record !== undefined && !office ? { asignado: asignadoDto(s.record, { verFotos }) } : {}),
   choferIndicado: s.choferIndicado,
+  ritiro: s.ritiro,
   shipment: s.shipment,
   orderNumero: s.orderNumero,
   tipoPedido: s.tipoPedido,
@@ -323,6 +325,20 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
     eta: eta?.toISOString() ?? null,
     duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),
   };
+};
+
+// Ruta estimada ritiro -> consegna de una solicitud de Extra Piazza: solo una pista para quien escribe el KM a mano (nunca se guarda sola).
+// Los giros ("Giro (4 tappe)") no tienen una sola entrega, asi que no se estiman.
+export const rutaEstimadaForActor = async (actor, id) => {
+  const s = await findForActor(actor, id);
+  if (s.servicio !== "EXTRA_PIAZZA" || !s.ritiro || !s.destinazione || /^giro\b/i.test(s.destinazione)) return { km: null };
+  try {
+    const [a, b] = await Promise.all([geocodeAddress(s.ritiro), geocodeAddress(s.destinazione)]);
+    const ruta = await calculateRoute([a, b]);
+    return { km: ruta ? Math.round(ruta.distanciaKm * 10) / 10 : null };
+  } catch {
+    return { km: null };
+  }
 };
 
 // Al borrar un servicio de la oficina, la solicitud del cliente que lo origino se borra tambien (si no, el cliente seguiria viendo una fila fantasma).

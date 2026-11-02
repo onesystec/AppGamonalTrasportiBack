@@ -1441,6 +1441,8 @@ model SolicitudServicio {
   tipoPedido   String?
   // Chofer que el cliente indica (texto libre, opcional): la oficina decide el chofer real al aceptar la solicitud.
   choferIndicado String?
+  // Extra Piazza: donde se retira (la entrega es "destinazione"). El codigo del servicio (S20602391, 26WCIMXP...) va en shipment / orderNumero.
+  ritiro         String?
 
   estado        SolicitudEstado @default(PENDIENTE)
   motivoRechazo String?

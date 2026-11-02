@@ -38,7 +38,8 @@ const boolean = z.preprocess((v) => (v === "true" || v === "on" ? true : v === "
 
 const fields = {
   servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Elige el tipo de servicio" }) }),
-  cliente: text("El cliente", 150),
+  // En Extra Piazza el cliente puede quedar vacio (lo pone la oficina al aceptar): se exige en los demas servicios (ver clienteObligatorio).
+  cliente: z.string({ required_error: "El cliente es obligatorio" }).trim().max(150, "El cliente es demasiado largo"),
   destinazione: text("La destinazione", 250),
   fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La fecha y hora son invalidas" }) })),
   km: z.union([z.string(), z.number(), z.null()]).optional(),
@@ -52,16 +53,29 @@ const fields = {
   aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero invalido" }) }).nullable()),
   // Chofer que indica el cliente (opcional, texto libre).
   choferIndicado: optionalText(100),
+  // Extra Piazza: lugar de retiro.
+  ritiro: optionalText(250),
   // DHL Milano: lo que se lee del texto del portal de DHL (Shipment, Order y tipo ASAP / SCHEDULED).
   shipment: optionalText(60),
   orderNumero: optionalText(60),
   tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
 };
 
-export const createSolicitudSchema = z.object({ ...fields, pagato50: boolean.default(false) }).transform((data) => applyKm(data, true));
+// El cliente es obligatorio salvo en Extra Piazza (si se sabe el servicio; en una edicion parcial sin servicio no se revisa).
+const clienteObligatorio = (data, ctx) => {
+  if (data.servicio && data.servicio !== "EXTRA_PIAZZA" && "cliente" in data && !data.cliente) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cliente"], message: "El cliente es obligatorio" });
+  }
+};
+
+export const createSolicitudSchema = z
+  .object({ ...fields, pagato50: boolean.default(false) })
+  .superRefine(clienteObligatorio)
+  .transform((data) => applyKm(data, true));
 export const updateSolicitudSchema = z
   .object(fields)
   .partial()
+  .superRefine(clienteObligatorio)
   .refine((v) => Object.keys(v).length > 0, { message: "No hay cambios" })
   .transform((data) => applyKm(data, "km" in data));
 
@@ -89,8 +103,8 @@ const testoObbligatorio = (label, max, femminile = false) =>
     .min(1, `${label} è ${femminile ? "obbligatoria" : "obbligatorio"}`)
     .max(max, `${label} è ${femminile ? "troppo lunga" : "troppo lungo"}`);
 
-// Leer un texto: DHL Milano, DHL Roma y AB Service. (Crear la solicitud pendiente desde la oficina: solo DHL Milano y DHL Roma.)
-const servizioLeggibile = z.enum(["DHL_MILANO", "DHL_ROMA", "AB_SERVICE"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
+// Leer un texto: DHL Milano, DHL Roma, AB Service y Extra Piazza. (Crear la solicitud pendiente desde la oficina: solo DHL Milano y DHL Roma.)
+const servizioLeggibile = z.enum(["DHL_MILANO", "DHL_ROMA", "AB_SERVICE", "EXTRA_PIAZZA"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
 
 export const leerTextoSchema = z.object({ servicio: servizioLeggibile, texto: testoObbligatorio("Il testo", 20000) });
 

@@ -7,6 +7,7 @@ import {
   leerTextoForActor,
   listSolicitudesCliente,
   listSolicitudesForActor,
+  rutaEstimadaForActor,
   rechazarSolicitudForActor,
   updateSolicitudCliente,
 } from "../services/solicitud.service.js";
@@ -35,6 +36,10 @@ export const removeCliente = asyncHandler(async (req, res) => {
 export const listOficina = asyncHandler(async (req, res) => {
   res.set("Cache-Control", "no-store");
   res.status(200).json({ success: true, data: { items: await listSolicitudesForActor(req.user, req.query) } });
+});
+
+export const rutaEstimada = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await rutaEstimadaForActor(req.user, req.params.id) });
 });
 
 export const rechazar = asyncHandler(async (req, res) => {
