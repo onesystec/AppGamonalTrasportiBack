@@ -72,3 +72,21 @@ export const listSolicitudesQuerySchema = z.object({
 export const rechazarSolicitudSchema = z.object({
   motivo: z.preprocess(emptyToNull, z.string().trim().max(500, "El motivo es demasiado largo").nullable()),
 });
+
+// Servicio desde un texto pegado (por ahora solo DHL Milano).
+const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO"];
+const servicioDesdeTexto = z.enum(SERVICIOS_DESDE_TEXTO, { errorMap: () => ({ message: "Ese tipo de servicio todavia no se carga desde un texto" }) });
+
+export const leerTextoSchema = z.object({ servicio: servicioDesdeTexto, texto: text("El texto", 20000) });
+
+export const crearDesdeTextoSchema = z.object({
+  servicio: servicioDesdeTexto,
+  cliente: text("El cliente", 150),
+  destinazione: text("La ciudad", 250),
+  fechaHora: fields.fechaHora,
+  // El texto completo pegado.
+  descripcion: text("El texto", 20000),
+  shipment: optionalText(60),
+  orderNumero: optionalText(60),
+  tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo invalido (ASAP o SCHEDULED)" }) }).nullable()),
+});

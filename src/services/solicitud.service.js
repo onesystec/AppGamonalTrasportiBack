@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { parseServicioTexto } from "./servicioTexto.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
 //  - El cliente carga la solicitud con pocos datos (cliente, destinazione, fecha y hora, km, pagado, varie) y ve su estado.
@@ -32,6 +33,9 @@ const toDto = (s, { office = false } = {}) => ({
   varie2: s.varie2,
   descripcion: s.descripcion,
   aplicativo: s.aplicativo,
+  shipment: s.shipment,
+  orderNumero: s.orderNumero,
+  tipoPedido: s.tipoPedido,
   estado: s.estado,
   motivoRechazo: s.motivoRechazo,
   createdAt: s.createdAt,
@@ -147,8 +151,8 @@ const findForActor = async (actor, id) => {
   return solicitud;
 };
 
-const notifyCreator = (solicitud, title, body) =>
-  sendPushToUserIds([solicitud.creadoPorId], { title, body, data: { type: "solicitud", solicitudId: solicitud.id } }).catch(() => {});
+const notifyCreator = (solicitud, title, body, actorId) =>
+  solicitud.creadoPorId === actorId ? undefined : sendPushToUserIds([solicitud.creadoPorId], { title, body, data: { type: "solicitud", solicitudId: solicitud.id } }).catch(() => {});
 
 export const rechazarSolicitudForActor = async (actor, id, { motivo }) => {
   const current = await findForActor(actor, id);
@@ -158,7 +162,7 @@ export const rechazarSolicitudForActor = async (actor, id, { motivo }) => {
     data: { estado: "RECHAZADA", motivoRechazo: motivo ?? null, revisadoPorId: actor.id, revisadoAt: new Date() },
     include: OFFICE_INCLUDE,
   });
-  void notifyCreator(solicitud, "Solicitud rechazada", `${solicitud.cliente} - ${solicitud.destinazione}${motivo ? `: ${motivo}` : ""}`);
+  void notifyCreator(solicitud, "Solicitud rechazada", `${solicitud.cliente} - ${solicitud.destinazione}${motivo ? `: ${motivo}` : ""}`, actor.id);
   return toDto(solicitud, { office: true });
 };
 
@@ -172,10 +176,69 @@ export const linkSolicitudToRecord = async (actor, solicitudId, recordId) => {
       where: { id: solicitudId, estado: "PENDIENTE" },
       data: { estado: "ACEPTADA", recordId, revisadoPorId: actor.id, revisadoAt: new Date(), motivoRechazo: null },
     });
-    if (count) void notifyCreator(current, "Solicitud aceptada", `${current.cliente} - ${current.destinazione} ya esta en el registro`);
+    if (count) void notifyCreator(current, "Solicitud aceptada", `${current.cliente} - ${current.destinazione} ya esta en el registro`, actor.id);
     return count > 0;
   } catch (err) {
     console.error("No se pudo enlazar la solicitud con el servicio:", err.message);
     return false;
   }
+};
+
+// --- Servicio desde un texto pegado (oficina) ---
+//  1. leerTextoForActor: el bot de reglas lee el texto y devuelve lo que entendio (Shipment, Order, cliente, tipo, ciudad, ETA) y los avisos. No guarda nada.
+//  2. crearDesdeTextoForActor: con eso (corregido por quien pega), crea una solicitud PENDIENTE con el texto completo como descripcion.
+//  3. La oficina la abre desde las pendientes, completa el resto del formulario y al crear el servicio queda aceptada (linkSolicitudToRecord).
+// Por ahora solo DHL Milano.
+
+const assertServicioDelActor = (actor, servicio) => {
+  const keys = actorAreaKeys(actor);
+  if (keys !== null && !(SOLICITUD_SERVICIOS[servicio]?.areaKeys ?? []).some((k) => keys.includes(k))) {
+    throw new AppError("No tienes permisos sobre ese tipo de servicio", 403);
+  }
+};
+
+// Servicios o solicitudes pendientes que ya tienen ese Shipment u Order: para no cargar dos veces el mismo pedido. Los servicios viejos (sin las
+// columnas nuevas) se reconocen porque el numero esta dentro de la descripcion.
+const findDuplicados = async ({ shipment, orderNumero }) => {
+  const numeros = [shipment, orderNumero].filter(Boolean);
+  if (!numeros.length) return [];
+  const [records, solicitudes] = await Promise.all([
+    prisma.record.findMany({
+      where: {
+        OR: [
+          ...(shipment ? [{ shipment }] : []),
+          ...(orderNumero ? [{ orderNumero }] : []),
+          ...numeros.map((n) => ({ descripcion: { contains: n } })),
+        ],
+      },
+      select: { id: true, codigo: true, estado: true, fechaServicio: true },
+      orderBy: { fechaServicio: "desc" },
+      take: 3,
+    }),
+    prisma.solicitudServicio.findMany({
+      where: { estado: "PENDIENTE", OR: [...(shipment ? [{ shipment }] : []), ...(orderNumero ? [{ orderNumero }] : [])] },
+      select: { id: true, cliente: true, fechaHora: true },
+      take: 3,
+    }),
+  ]);
+  return [
+    ...records.map((r) => ({ tipo: "SERVICIO", id: r.id, codigo: r.codigo, estado: r.estado, fecha: r.fechaServicio })),
+    ...solicitudes.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, fecha: r.fechaHora })),
+  ];
+};
+
+export const leerTextoForActor = async (actor, { servicio, texto }) => {
+  assertServicioDelActor(actor, servicio);
+  const clients = await prisma.client.findMany({ select: { id: true, nombre: true } });
+  const { eta, ...parsed } = parseServicioTexto(texto, { clients });
+  return { ...parsed, eta: eta?.toISOString() ?? null, duplicados: await findDuplicados(parsed) };
+};
+
+export const crearDesdeTextoForActor = async (actor, data) => {
+  assertServicioDelActor(actor, data.servicio);
+  const solicitud = await prisma.solicitudServicio.create({
+    data: { ...data, creadoPorId: actor.id, empresaId: null },
+    include: OFFICE_INCLUDE,
+  });
+  return toDto(solicitud, { office: true });
 };

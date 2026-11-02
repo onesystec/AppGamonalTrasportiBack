@@ -537,6 +537,11 @@ model Record {
   aplicativo       Aplicativo?
   spedizzione      Spedizzione?
   extrasPiazzaZona ExtrasPiazzaZona?
+  // DHL: numero de Shipment y de Order del pedido y su tipo (ASAP / SCHEDULED), tal como vienen en el texto del cliente. Sirven para buscar el
+  // servicio y para no cargar dos veces el mismo pedido. null en los servicios que no los tienen.
+  shipment         String?
+  orderNumero      String?
+  tipoPedido       String?
 
   // Clave del sistema origen (ej. fila de una hoja de calculo sincronizada), para
   // poder re-sincronizar sin crear duplicados. Null en servicios cargados a mano.
@@ -697,6 +702,8 @@ model Record {
   @@index([servicioOrigenId])
   @@index([compactadoId])
   @@index([reprogramadoDeId])
+  @@index([shipment])
+  @@index([orderNumero])
   @@map("records")
 }
 
@@ -1428,6 +1435,10 @@ model SolicitudServicio {
   descripcion  String?
   // Numero de Milano / Roma (aplicativo) para el "A CHI ASSEGNO?" del mensaje de WhatsApp de DHL. Opcional.
   aplicativo   Aplicativo?
+  // DHL: lo que se leyo del texto pegado (Shipment, Order y tipo ASAP / SCHEDULED); pasa al servicio al aceptar la solicitud.
+  shipment     String?
+  orderNumero  String?
+  tipoPedido   String?
 
   estado        SolicitudEstado @default(PENDIENTE)
   motivoRechazo String?

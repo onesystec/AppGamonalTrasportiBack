@@ -1,6 +1,8 @@
 import {
+  crearDesdeTextoForActor,
   createSolicitudCliente,
   deleteSolicitudCliente,
+  leerTextoForActor,
   listSolicitudesCliente,
   listSolicitudesForActor,
   rechazarSolicitudForActor,
@@ -35,4 +37,13 @@ export const listOficina = asyncHandler(async (req, res) => {
 
 export const rechazar = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: await rechazarSolicitudForActor(req.user, req.params.id, req.body) });
+});
+
+// Servicio desde un texto pegado: leer (no guarda) y crear la solicitud pendiente.
+export const leerTexto = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await leerTextoForActor(req.user, req.body) });
+});
+
+export const crearDesdeTexto = asyncHandler(async (req, res) => {
+  res.status(201).json({ success: true, data: await crearDesdeTextoForActor(req.user, req.body) });
 });

@@ -102,6 +102,9 @@ const RECORD_SELECT_LIST = {
   destinazione: true,
   ciudad: true,
   aplicativo: true,
+  shipment: true,
+  orderNumero: true,
+  tipoPedido: true,
   spedizzione: true,
   extrasPiazzaZona: true,
   origenExternoId: true,
@@ -352,6 +355,8 @@ const searchWhere = ({ q, driverId, spedizzioneFilter, filters = {} }) => ({
       ? {
           OR: [
             { codigo: { contains: q, mode: "insensitive" } },
+            { shipment: { contains: q } },
+            { orderNumero: { contains: q } },
             { destinazione: { contains: q, mode: "insensitive" } },
             { client: { nombre: { contains: q, mode: "insensitive" } } },
             { driver: { nombre: { contains: q, mode: "insensitive" } } },

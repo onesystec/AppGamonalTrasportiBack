@@ -91,6 +91,14 @@ const fechaRetiro = z.preprocess(
   z.coerce.date({ errorMap: () => ({ message: "fechaRetiro invalida" }) }).nullable().optional()
 );
 
+// DHL: Shipment / Order / tipo del pedido. Una cadena vacia del formulario es "sin dato" (null: en una edicion borra lo que habia).
+const emptyToNullValue = (v) => (typeof v === "string" && v.trim() === "" ? null : v);
+const pedidoFields = {
+  shipment: z.preprocess(emptyToNullValue, z.string().trim().max(60).nullable().optional()),
+  orderNumero: z.preprocess(emptyToNullValue, z.string().trim().max(60).nullable().optional()),
+  tipoPedido: z.preprocess(emptyToNullValue, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo invalido (ASAP o SCHEDULED)" }) }).nullable().optional()),
+};
+
 export const createRecordSchema = z.object({
   driverId: z.string().uuid("driverId invalido"),
   vehicleId: z.string().uuid("vehicleId invalido"),
@@ -110,6 +118,7 @@ export const createRecordSchema = z.object({
     .enum(EXTRAS_PIAZZA_ZONA_VALUES, { errorMap: () => ({ message: "Zona invalida" }) })
     .optional(),
   origenExternoId: z.string().trim().min(1).optional(),
+  ...pedidoFields,
   // Solicitud de un usuario cliente (Piazza) que este servicio completa: al crearlo, la solicitud queda aceptada y enlazada.
   solicitudId: z.string().uuid("solicitudId invalido").optional(),
   stops: stopsField,
@@ -135,6 +144,7 @@ export const updateRecordSchema = z.object({
   aplicativo: z.enum(APLICATIVO_VALUES).optional(),
   spedizzione: z.enum(SPEDIZZIONE_VALUES).optional(),
   extrasPiazzaZona: z.enum(EXTRAS_PIAZZA_ZONA_VALUES).optional(),
+  ...pedidoFields,
   stops: stopsField.optional(),
   salida: salidaField.nullable().optional(),
   pasaPorBrennero: z.boolean().optional(),
