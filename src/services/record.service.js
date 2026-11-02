@@ -45,6 +45,7 @@ import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 import { deleteSolicitudesOfRecord } from "./solicitud.service.js";
+import { codigoDesdeShipment } from "./codigoDhl.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -535,6 +536,12 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   const { stopsCreate, destinazione, rutaDistanciaKm, rutaDuracionMin, rutaGeometria, rutaCalculadaAt } =
     await buildStopsPipeline(direcciones, data.ciudad, salida ?? defaultSalidaFor(data), geocoded, pasosDe(data));
 
+  // DHL: el codigo es el Shipment (el historico importado conserva el suyo).
+  if (!skipActiveCheck) {
+    const codigo = await codigoDesdeShipment({ spedizzione: rest.spedizzione, shipment: rest.shipment, codigoActual: rest.codigo });
+    if (codigo) rest.codigo = codigo;
+  }
+
   const record = await createRecordModel({
     ...rest,
     ...(salida ? salidaColumns(salida) : {}),
@@ -856,6 +863,18 @@ export const updateRecordForActor = async (actor, id, data) => {
   }
 
   let payload = data;
+
+  // DHL: si cambia el Shipment, el codigo lo sigue (salvo que se escriba un codigo a mano en el mismo cambio).
+  if (isPrivileged(actor) && "shipment" in payload && !("codigo" in payload)) {
+    const codigo = await codigoDesdeShipment({
+      spedizzione: "spedizzione" in payload ? payload.spedizzione : record.spedizzione,
+      shipment: payload.shipment,
+      codigoActual: record.codigo,
+      shipmentActual: record.shipment,
+      id: record.id,
+    });
+    if (codigo) payload = { ...payload, codigo };
+  }
 
   if (isPrivileged(actor) && payload.vehiculoFinalId && payload.vehiculoFinalId === (payload.vehicleId ?? record.vehicleId)) {
     throw new AppError("El furgon con el que termino debe ser distinto al furgon del servicio", 400);

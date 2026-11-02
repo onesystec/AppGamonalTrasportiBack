@@ -6,6 +6,7 @@ import { clienteScopeWhere } from "./cliente.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { idsDeLaOficina } from "./oficinaAvisos.service.js";
 import { requireRegistro, scopeWhere } from "./solicitud.service.js";
+import { codigoDesdeShipment } from "./codigoDhl.service.js";
 
 // Edicion de celdas de la hoja tipo Excel del portal de clientes (los mensajes de error van en italiano, como esa pantalla).
 //  - Solicitud pendiente: el cliente puede cambiar todo lo que cargo.
@@ -212,6 +213,11 @@ const editarServicio = async (user, recordId, cambios, solicitudId = null) => {
   const aplicados = calcularCambios(cambios, actual, CAMPOS_SERVICIO, { zona: null, clienteObligatorio: false });
   if (aplicados.length === 0) return { cambiados: 0 };
   const data = Object.fromEntries(aplicados.map((c) => [c.campo, c.nuevo]));
+  // DHL: el codigo del servicio es su Shipment.
+  if ("shipment" in data) {
+    const codigo = await codigoDesdeShipment({ spedizzione: record.spedizzione, shipment: data.shipment, codigoActual: record.codigo, shipmentActual: record.shipment, id: record.id });
+    if (codigo) data.codigo = codigo;
+  }
   await prisma.$transaction([
     prisma.record.update({ where: { id: record.id }, data }),
     prisma.cambioServicio.createMany({ data: aplicados.map((c) => filaHistorial(c, user, { recordId: record.id, solicitudId })) }),
