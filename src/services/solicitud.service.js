@@ -357,7 +357,7 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
 // Registrar con un solo paso (portal de Piazza): el cliente pega todo el texto y se crea la solicitud con lo que se pudo leer. Lo que falte (cliente, ciudad, ETA,
 // codigos...) queda vacio y la hoja lo pinta en rojo para completarlo ahi mismo. Si ya hay una solicitud suya con el mismo Shipment / Order / codigo, avisa antes
 // de duplicarla (confirmar = true la crea igual). Sin ninguna señal de que sea un servicio, no crea nada.
-export const registrarDesdeTextoCliente = async (user, { servicio, zona, texto, confirmar = false }) => {
+export const registrarDesdeTextoCliente = async (user, { servicio, zona, fecha, texto, confirmar = false }) => {
   requireRegistro(user);
   if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
   const { eta, ...parsed } = parseServicioTexto(texto, { servicio });
@@ -386,7 +386,7 @@ export const registrarDesdeTextoCliente = async (user, { servicio, zona, texto, 
       zona: servicio === "EXTRA_PIAZZA" ? (zona ?? "MILANO") : null,
       cliente: parsed.cliente ?? "",
       destinazione: parsed.ciudad ?? "",
-      fechaHora: eta ?? new Date(),
+      fechaHora: eta ?? (fecha ? romeLocalToDate(fecha, "08:00") : new Date()),
       etaPendiente: !eta,
       km: parsed.km ?? null,
       descripcion: parsed.descripcion.slice(0, 4000),

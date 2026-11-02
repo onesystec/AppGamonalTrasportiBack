@@ -117,6 +117,8 @@ export const leerTextoSchema = z.object({ servicio: servizioLeggibile, zona: zon
 export const registrarDesdeTextoClienteSchema = z.object({
   servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Scegli il tipo di servizio" }) }),
   zona: zonaExtra,
+  // Dia pedido desde Disponibilita (AAAA-MM-DD): si el texto no trae la ETA, la solicitud queda en ese dia.
+  fecha: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data non valida").optional()),
   texto: testoObbligatorio("Il testo", 20000),
   confirmar: z.boolean().optional(),
 });
