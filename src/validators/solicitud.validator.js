@@ -89,7 +89,10 @@ const testoObbligatorio = (label, max, femminile = false) =>
     .min(1, `${label} è ${femminile ? "obbligatoria" : "obbligatorio"}`)
     .max(max, `${label} è ${femminile ? "troppo lunga" : "troppo lungo"}`);
 
-export const leerTextoSchema = z.object({ servicio: servizioDaTesto, texto: testoObbligatorio("Il testo", 20000) });
+// Leer un texto: DHL Milano y AB Service. (Crear la solicitud pendiente desde la oficina sigue siendo solo DHL Milano.)
+const servizioLeggibile = z.enum(["DHL_MILANO", "AB_SERVICE"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
+
+export const leerTextoSchema = z.object({ servicio: servizioLeggibile, texto: testoObbligatorio("Il testo", 20000) });
 
 export const crearDesdeTextoSchema = z.object({
   servicio: servizioDaTesto,

@@ -5,6 +5,7 @@ import { actorAreaKeys } from "../utils/areaAccess.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
+import { geocodePreview } from "./geocoding.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -271,11 +272,25 @@ const findDuplicados = async ({ shipment, orderNumero }) => {
   ];
 };
 
+// Localiza los lugares que nombra el mensaje (AB Service): Google con cache; "localizado" es la direccion que encontro o null si no la encuentra.
+const localizarLugares = (lugares = []) =>
+  Promise.all(
+    lugares.slice(0, 4).map(async (l) => {
+      // El deposito de AB Service ya esta localizado (coordenadas conocidas): no se consulta a Google.
+      if (l.fijo) return { ...l, localizado: l.texto };
+      try {
+        return { ...l, localizado: (await geocodePreview(l.texto)) ?? l.texto };
+      } catch {
+        return { ...l, localizado: null };
+      }
+    })
+  );
+
 export const leerTextoForActor = async (actor, { servicio, texto }) => {
   assertServicioDelActor(actor, servicio);
   const clients = await prisma.client.findMany({ select: { id: true, nombre: true } });
-  const { eta, ...parsed } = parseServicioTexto(texto, { clients });
-  return { ...parsed, eta: eta?.toISOString() ?? null, duplicados: await findDuplicados(parsed) };
+  const { eta, ...parsed } = parseServicioTexto(texto, { clients, servicio });
+  return { ...parsed, lugares: await localizarLugares(parsed.lugares), eta: eta?.toISOString() ?? null, duplicados: await findDuplicados(parsed) };
 };
 
 export const crearDesdeTextoForActor = async (actor, data) => {
@@ -292,7 +307,8 @@ export const crearDesdeTextoForActor = async (actor, data) => {
 export const leerTextoCliente = async (user, { servicio, texto }) => {
   requireRegistro(user);
   if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
-  const { eta, ...parsed } = parseServicioTexto(texto);
+  const { eta, ...parsed } = parseServicioTexto(texto, { servicio });
+  const lugares = await localizarLugares(parsed.lugares);
   const numeros = [parsed.shipment && { shipment: parsed.shipment }, parsed.orderNumero && { orderNumero: parsed.orderNumero }].filter(Boolean);
   const repetidas = numeros.length
     ? await prisma.solicitudServicio.findMany({
@@ -303,6 +319,7 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
     : [];
   return {
     ...parsed,
+    lugares,
     eta: eta?.toISOString() ?? null,
     duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),
   };

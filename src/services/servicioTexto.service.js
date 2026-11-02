@@ -19,7 +19,7 @@ export const cleanText = (text) =>
 
 // Etiquetas del portal: sirven para saber donde termina un valor de varias palabras (ej. el cliente).
 const LABELS =
-  "Shipment|From Warehouse|Warehouse|ETA|Mobile Phone|Ship To|Shipment lines|Part ID|Orders?|Service Type|Service Level|Reference|Customer|Bin Loc|Line Qty|Suggest LPN";
+  "Shipment|From Warehouse|Warehouse|ETA|Mobile Phone|Ship To|Shipment lines|Part ID|Orders?|Service Type|Service Level|Reference|Customer|Bin Loc|Line Qty|Suggest LPN|Volume|Weight|Contatto";
 const NEXT_LABEL = `(?=\\s(?:${LABELS})\\b|$)`;
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
@@ -103,7 +103,7 @@ const findEta = (flat, now, avisos) => {
       return toInstant({ year: +m[1], month, day: +m[3], hour: +m[4], minute: +m[5], offset }, now);
     }
   }
-  m = /\bETA\s*[:=]?\s*(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2}):(\d{2})/i.exec(flat);
+  m = /\bETA\s*[:=]?\s*(\d{4})-(\d{2})-(\d{2})[T\s]+(\d{1,2})[:.](\d{2})/i.exec(flat);
   if (m) return toInstant({ year: +m[1], month: +m[2], day: +m[3], hour: +m[4], minute: +m[5] }, now);
   m = /\bETA\s*[:=]?\s*(\d{1,2})[/.](\d{1,2})[/.](\d{4})\s+(\d{1,2}):(\d{2})/i.exec(flat);
   if (m) return toInstant({ year: +m[3], month: +m[2], day: +m[1], hour: +m[4], minute: +m[5] }, now);
@@ -129,7 +129,7 @@ const findEta = (flat, now, avisos) => {
 
 // Km del mensaje interno: "KM 124", "Km 35", "54 km", "141 KM". El texto del portal no los trae.
 const findKm = (lines) => {
-  const m = /(?:^|\n)\s*km\s*[:=]?\s*(\d{1,4}(?:[.,]\d+)?)\b/i.exec(lines) ?? /(?:^|\n)\s*(\d{1,4}(?:[.,]\d+)?)\s*km\b/i.exec(lines);
+  const m = /(?:^|\n)\s*km\.?\s*[:=]?\s*(\d{1,4}(?:[.,]\d+)?)\b/i.exec(lines) ?? /(?:^|\n)\s*(\d{1,4}(?:[.,]\d+)?)\s*km\b/i.exec(lines);
   return m ? Number(m[1].replace(",", ".")) : null;
 };
 
@@ -155,8 +155,8 @@ const findTipo = (flat, avisos) => {
     if (/^asap\b/i.test(value)) return "ASAP";
     if (/^schedul/i.test(value)) return "SCHEDULED";
     avisos.push(`Service Level "${value}": non è né ASAP né SCHEDULED, il tipo resta da completare.`);
-    return null;
   }
+  // Sin Service Level (o con uno que no es ASAP / SCHEDULED): la palabra suelta en el texto ("consegni asap", "servizio schedulato").
   const word = /\b(ASAP|SCHEDULAT[OA]|SCHEDULED?)\b/i.exec(flat);
   if (word) return /^asap$/i.test(word[1]) ? "ASAP" : "SCHEDULED";
   return null;
@@ -165,6 +165,7 @@ const findTipo = (flat, avisos) => {
 const TIPO_WORD = "(?:ASAP|SCHEDULAT[OA]|SCHEDULED?)";
 // Lineas que son otro dato del mensaje (no el cliente ni la ciudad): "PER ...", ETA, KM, RITIRO, ORDER, SHIPMENT, "A CHI ASSEGNO?", "3 PARTI",
 // la zona ("MILANO", "MILANO 12", "ROMA") o cualquier linea que empiece con un numero.
+const ES_OTRO_DATO_MENSAJE = /^(?:eta\b|km\b|order\b|shipment\b|a chi\b|chi\b|@)/i;
 const ES_OTRO_DATO = /^(?:per\b|eta\b|km\b|ritiro\b|order\b|shipment\b|a chi\b|chi\b|che\b|team\b|ciao\b|buon|(?:milano|roma)(?:\s+\d{1,2})?$|\d)/i;
 
 // Lineas del mensaje interno sin las menciones ("@Romario GT") ni el formato (*negrita*).
@@ -209,6 +210,60 @@ const deducirTipo = (eta, now) => {
   return { tipo: horas <= ASAP_MAX_HORAS ? "ASAP" : "SCHEDULED", horas };
 };
 
+// --- AB Service: lugares del mensaje ---
+// Un mensaje de AB Service nombra donde se retira y donde se entrega ("Ritiro: Via ... / Consegna: Via ... 20100 Milano"). Se leen las lineas con
+// etiqueta (la direccion puede seguir en las lineas de abajo) y despues el servidor las localiza (Google, con cache) para confirmar que existen.
+const ETIQUETA_RITIRO = /^(?:ritiro(?:\s+presso)?|ritirare|prelievo|pick\s*-?\s*up|partenza|origine|da)\s*[:\-–]\s*(.*)$/i;
+const ETIQUETA_CONSEGNA = /^(?:consegna(?:\s+presso)?|consegnare|delivery|destinazione|arrivo|a)\s*[:\-–]\s*(.*)$/i;
+const OTRA_ETIQUETA = /^(?:ritiro|ritirare|prelievo|pick|partenza|origine|da|consegna|consegnare|delivery|destinazione|arrivo|a|eta|km|totale|order|ordine|shipment|aut|note|a chi|chi)\s*[:\-–]/i;
+
+// El deposito de AB Service (Romanengo): de ahi salen todos sus servicios. Va ya localizado (sus coordenadas estan en constants/salidaPorDefecto.js).
+const LUGAR_AB = { rol: "ritiro", texto: "AB Service (magazzino di Romanengo)", fijo: true };
+
+// Texto del portal: la direccion de entrega son "Ship To Address", "Ship To Postal Code", "Ship To City" y la provincia (que el portal pone en "Ship To Country").
+const lugarDeEntregaPortal = (flat, ciudad) => {
+  const direccion = new RegExp(`\\bShip To Address\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]?.trim();
+  if (!direccion) return null;
+  const cap = /\bShip To Postal Code\s*[:=]?\s*(\d{4,5})/i.exec(flat)?.[1];
+  const provincia = /\bShip To Country(?:\s+Code)?\s*[:=]?\s*([A-Z]{2})\b/.exec(flat)?.[1];
+  const lugar = [direccion, [cap, ciudad].filter(Boolean).join(" "), provincia].filter(Boolean).join(", ");
+  return { rol: "consegna", texto: lugar };
+};
+
+const findLugares = (lines) => {
+  const all = messageLines(lines);
+  const lugares = [];
+  for (let i = 0; i < all.length; i += 1) {
+    const ritiro = ETIQUETA_RITIRO.exec(all[i]);
+    const consegna = ritiro ? null : ETIQUETA_CONSEGNA.exec(all[i]);
+    const m = ritiro ?? consegna;
+    if (!m) continue;
+    let texto = m[1].trim();
+    // La direccion sigue abajo: si la etiqueta esta sola, hasta 3 lineas; si ya trae calle, solo la linea del CAP ("20100 Milano").
+    let extra = 0;
+    for (let j = i + 1; j < all.length && extra < 3; j += 1) {
+      const next = all[j];
+      if (OTRA_ETIQUETA.test(next) || ES_OTRO_DATO_MENSAJE.test(next)) break;
+      if (texto && !/^\d{5}\b/.test(next)) break;
+      texto = `${texto} ${next}`.trim();
+      extra += 1;
+      i = j;
+    }
+    if (texto) lugares.push({ rol: ritiro ? "ritiro" : "consegna", texto });
+  }
+  return lugares;
+};
+
+// Ciudad de una direccion: la que sigue al CAP ("20100 Milano"), o el ultimo tramo despues de una coma.
+const ciudadDeLugar = (texto) => {
+  const conCap = /\b\d{5}\s+([^,\n(]+)/.exec(texto);
+  if (conCap) return cityName(conCap[1].trim());
+  const partes = texto.split(",").map((p) => p.trim());
+  const ultima = partes.at(-1);
+  if (partes.length > 1 && ultima && !/\d/.test(ultima)) return cityName(ultima);
+  return !/\d/.test(texto) && texto.split(/\s+/).length <= 3 ? cityName(texto) : null;
+};
+
 // Cliente del texto -> el de tu lista (por nombre; sin diferencias de mayusculas, acentos ni espacios). null si no hay uno claro.
 export const matchClient = (name, clients) => {
   if (!name) return null;
@@ -225,17 +280,25 @@ export const matchClient = (name, clients) => {
 };
 
 // text: el texto pegado. clients: [{ id, nombre }] (para reconocer al cliente). now: para completar la fecha cuando solo viene la hora.
-export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}) => {
+export const parseServicioTexto = (text, { clients = [], now = new Date(), servicio = "DHL_MILANO" } = {}) => {
   const avisos = [];
   const lines = cleanText(text);
   const flat = ` ${lines.replace(/\s+/g, " ")} `;
 
   const shipment = /\bShipment\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
   const orderNumero = /\bOrder\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
-  const clienteTexto = findCliente(flat, lines);
+  const esAb = servicio === "AB_SERVICE";
+  // AB Service es siempre del cliente AB: si el texto no dice otro, se da por AB.
+  const clienteTexto = findCliente(flat, lines) ?? (esAb ? "AB" : null);
   const client = matchClient(clienteTexto, clients);
   const tipoPedido = findTipo(flat, avisos);
-  const ciudad = findCity(flat, lines);
+  const ciudadTexto = findCity(flat, lines);
+  // AB Service: la recogida es el deposito de AB; la entrega, la direccion del texto (portal) o la linea "Consegna: ...".
+  const portal = esAb ? lugarDeEntregaPortal(flat, ciudadTexto) : null;
+  const etiquetados = esAb && !portal ? findLugares(lines) : [];
+  const lugares = esAb ? [LUGAR_AB, ...(portal ? [portal] : etiquetados.filter((l) => l.rol === "consegna"))] : [];
+  const entrega = lugares.find((l) => l.rol === "consegna");
+  const ciudad = ciudadTexto ?? (entrega ? ciudadDeLugar(entrega.texto) : null);
   const eta = findEta(flat, now, avisos);
   const km = findKm(lines);
 
@@ -260,6 +323,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
   if (!tipo && !eta) avisos.push("Tipo (ASAP o SCHEDULED) non trovato.");
   if (!ciudad) avisos.push("Città non trovata.");
   if (!eta) avisos.push("ETA non trovata.");
+  if (esAb && !entrega) avisos.push("Luogo di consegna non trovato (scrivilo come \"Consegna: via ... CAP città\").");
 
   return {
     descripcion: lines,
@@ -272,6 +336,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
     ciudad,
     eta,
     km,
+    lugares,
     avisos,
   };
 };
