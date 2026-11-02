@@ -27,6 +27,10 @@ const RECORD_ASIGNADO = {
   },
 };
 
+// Quien subio la solicitud (el usuario de la oficina o del cliente): nombre y cargo, para mostrar "Subido por".
+const CREADOR = { select: { id: true, nombre: true, apellido: true, cargo: true, responsableTipo: true } };
+const rolDe = (p) => (p.cargo === "ADMIN" ? (p.responsableTipo ? "Responsable" : "Admin") : p.cargo === "OWNER" ? "Owner" : p.cargo === "CLIENTE" ? "Cliente" : p.cargo);
+
 const personName = (p) => (p ? `${p.nombre} ${p.apellido}`.trim() : null);
 
 // Lo que se ve de un servicio ya creado a partir de la solicitud: el numero asignado (aplicativo), la targa y el nombre del chofer (nunca su telefono)
@@ -68,7 +72,8 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   motivoRechazo: s.motivoRechazo,
   createdAt: s.createdAt,
   recordId: s.recordId ?? null,
-  ...(office ? { creadoPor: personName(s.creadoPor), empresa: s.empresa?.nombre ?? null } : {}),
+  ...(s.creadoPor ? { creadoPor: personName(s.creadoPor), creadoPorRol: rolDe(s.creadoPor) } : {}),
+  ...(office ? { empresa: s.empresa?.nombre ?? null } : {}),
 });
 
 // --- Usuario cliente ---
@@ -81,7 +86,7 @@ export const requireRegistro = (user) => {
 const scopeWhere = (user) => ({ OR: [{ creadoPorId: user.id }, ...(user.clienteId ? [{ empresaId: user.clienteId }] : [])] });
 
 const findOwned = async (user, id) => {
-  const solicitud = await prisma.solicitudServicio.findFirst({ where: { id, ...scopeWhere(user) } });
+  const solicitud = await prisma.solicitudServicio.findFirst({ where: { id, ...scopeWhere(user) }, include: { creadoPor: CREADOR } });
   if (!solicitud) throw new AppError("Solicitud no encontrada", 404);
   return solicitud;
 };
@@ -101,7 +106,7 @@ export const listSolicitudesCliente = async (user, { month } = {}) => {
   const rows = await prisma.solicitudServicio.findMany({
     // Una solicitud aceptada cuyo servicio la oficina borro despues ya no existe para el cliente.
     where: { AND: [scopeWhere(user), when, { NOT: { estado: "ACEPTADA", recordId: null } }] },
-    include: { record: RECORD_ASIGNADO },
+    include: { record: RECORD_ASIGNADO, creadoPor: CREADOR },
     orderBy: { fechaHora: "desc" },
     take: 600,
   });
@@ -148,7 +153,10 @@ const notifyOffice = async (solicitud, user) => {
 
 export const createSolicitudCliente = async (user, data) => {
   requireRegistro(user);
-  const solicitud = await prisma.solicitudServicio.create({ data: { ...data, creadoPorId: user.id, empresaId: user.clienteId ?? null } });
+  const solicitud = await prisma.solicitudServicio.create({
+    data: { ...data, creadoPorId: user.id, empresaId: user.clienteId ?? null },
+    include: { creadoPor: CREADOR },
+  });
   void notifyOffice(solicitud, user);
   return toDto(solicitud);
 };
@@ -157,7 +165,7 @@ export const updateSolicitudCliente = async (user, id, data) => {
   requireRegistro(user);
   const current = await findOwned(user, id);
   if (current.estado !== "PENDIENTE") throw new AppError("Solo se pueden editar solicitudes pendientes", 409);
-  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data });
+  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data, include: { creadoPor: CREADOR } });
   return toDto(solicitud);
 };
 
@@ -180,7 +188,7 @@ const officeWhere = (actor) => {
   return { servicio: { in: tipos } };
 };
 
-const OFFICE_INCLUDE = { creadoPor: PERSON, empresa: { select: { nombre: true } } };
+const OFFICE_INCLUDE = { creadoPor: CREADOR, empresa: { select: { nombre: true } } };
 
 export const listSolicitudesForActor = async (actor, { estado = "PENDIENTE" } = {}) => {
   const rows = await prisma.solicitudServicio.findMany({
