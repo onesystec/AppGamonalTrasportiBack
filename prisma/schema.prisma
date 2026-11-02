@@ -1449,6 +1449,8 @@ model SolicitudServicio {
   etaPendiente   Boolean @default(false)
   // Extra Piazza: donde se retira (la entrega es "destinazione"). El codigo del servicio (S20602391, 26WCIMXP...) va en shipment / orderNumero.
   ritiro         String?
+  // Extra Piazza: Milano o Roma (sale de su lugar de espera). null = Milano (solicitudes anteriores y las del cliente). Pasa al servicio al aceptarla.
+  zona           ExtrasPiazzaZona?
 
   estado        SolicitudEstado @default(PENDIENTE)
   motivoRechazo String?

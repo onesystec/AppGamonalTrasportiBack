@@ -6,4 +6,7 @@ export const SOLICITUD_SERVICIOS = {
   AB_SERVICE: { label: "AB Service", spedizzione: "AB_SERVICE", zona: "MILANO", areaKeys: ["ab-service"] },
   EXTRA_PIAZZA: { label: "Extra Piazza", spedizzione: "EXTRA_PIAZZA", zona: null, areaKeys: ["piazza-milano", "piazza-roma"] },
 };
+// Areas de Responsable que ven una solicitud: Extra Piazza depende de la zona (sin zona = Milano); los demas tipos tienen las suyas fijas.
+export const areaKeysDeSolicitud = (servicio, zona) =>
+  servicio === "EXTRA_PIAZZA" ? [zona === "ROMA" ? "piazza-roma" : "piazza-milano"] : (SOLICITUD_SERVICIOS[servicio]?.areaKeys ?? []);
 export const SOLICITUD_SERVICIO_KEYS = Object.keys(SOLICITUD_SERVICIOS);

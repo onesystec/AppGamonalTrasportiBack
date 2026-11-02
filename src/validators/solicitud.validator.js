@@ -106,7 +106,10 @@ const testoObbligatorio = (label, max, femminile = false) =>
 // Leer un texto: DHL Milano, DHL Roma, AB Service y Extra Piazza. (Crear la solicitud pendiente desde la oficina: solo DHL Milano y DHL Roma.)
 const servizioLeggibile = z.enum(["DHL_MILANO", "DHL_ROMA", "AB_SERVICE", "EXTRA_PIAZZA"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
 
-export const leerTextoSchema = z.object({ servicio: servizioLeggibile, texto: testoObbligatorio("Il testo", 20000) });
+// Extra Piazza Milano o Roma (cada una sale de su lugar de espera); en los demas tipos se ignora.
+const zonaExtra = z.preprocess(emptyToNull, z.enum(["MILANO", "ROMA"], { errorMap: () => ({ message: "Zona non valida (Milano o Roma)" }) }).nullable().optional());
+
+export const leerTextoSchema = z.object({ servicio: servizioLeggibile, zona: zonaExtra, texto: testoObbligatorio("Il testo", 20000) });
 
 // Cliente (Piazza): registrar un servicio pegando solo el texto (se lee y se crea de una vez). confirmar: crearlo aunque ya haya uno con el mismo Shipment / Order.
 export const registrarDesdeTextoClienteSchema = z.object({
@@ -118,6 +121,7 @@ export const registrarDesdeTextoClienteSchema = z.object({
 export const crearDesdeTextoSchema = z
   .object({
   servicio: servizioDaTesto,
+  zona: zonaExtra,
   // El cliente es obligatorio salvo en Extra Piazza (lo pone la oficina al aceptar).
   cliente: z.string().trim().max(150, "Il cliente è troppo lungo").default(""),
   destinazione: testoObbligatorio("La città", 250, true),

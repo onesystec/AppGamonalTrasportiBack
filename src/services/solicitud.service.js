@@ -1,5 +1,5 @@
 import { prisma } from "../config/prisma.js";
-import { SOLICITUD_SERVICIOS } from "../constants/solicitudes.js";
+import { areaKeysDeSolicitud, SOLICITUD_SERVICIOS } from "../constants/solicitudes.js";
 import { AppError } from "../utils/AppError.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
@@ -48,7 +48,8 @@ const asignadoDto = (record, { verFotos = false } = {}) =>
 const toDto = (s, { office = false, verFotos = false } = {}) => ({
   id: s.id,
   servicio: s.servicio,
-  servicioLabel: SOLICITUD_SERVICIOS[s.servicio]?.label ?? s.servicio,
+  servicioLabel: s.servicio === "EXTRA_PIAZZA" && s.zona ? `Extra Piazza ${s.zona === "ROMA" ? "Roma" : "Milano"}` : (SOLICITUD_SERVICIOS[s.servicio]?.label ?? s.servicio),
+  zona: s.zona ?? null,
   cliente: s.cliente,
   destinazione: s.destinazione,
   fechaHora: s.fechaHora,
@@ -130,8 +131,8 @@ export const getDetalleSolicitudCliente = async (user, id) => {
   return { asignado, bollas };
 };
 
-const ownerAndResponsableIds = async (servicio) => {
-  const areaKeys = SOLICITUD_SERVICIOS[servicio]?.areaKeys ?? [];
+const ownerAndResponsableIds = async (servicio, zona) => {
+  const areaKeys = areaKeysDeSolicitud(servicio, zona);
   const users = await prisma.user.findMany({
     where: { estado: "ACTIVO", OR: [{ cargo: "OWNER" }, { cargo: "ADMIN", areasPermitidas: { hasSome: areaKeys } }] },
     select: { id: true },
@@ -141,7 +142,7 @@ const ownerAndResponsableIds = async (servicio) => {
 
 const notifyOffice = async (solicitud, user) => {
   try {
-    const ids = await ownerAndResponsableIds(solicitud.servicio);
+    const ids = await ownerAndResponsableIds(solicitud.servicio, solicitud.zona);
     await sendPushToUserIds(ids, {
       title: "Nueva solicitud de servicio",
       body: `${user.cliente?.nombre ?? `${user.nombre} ${user.apellido}`}: ${solicitud.cliente} - ${solicitud.destinazione}`,
@@ -183,10 +184,16 @@ export const deleteSolicitudCliente = async (user, id) => {
 const officeWhere = (actor) => {
   const keys = actorAreaKeys(actor);
   if (keys === null) return {};
-  const tipos = Object.entries(SOLICITUD_SERVICIOS)
-    .filter(([, def]) => def.areaKeys.some((k) => keys.includes(k)))
-    .map(([tipo]) => tipo);
-  return { servicio: { in: tipos } };
+  // Extra Piazza se reparte por zona: Milano (o sin zona) y Roma son areas distintas.
+  const condiciones = Object.entries(SOLICITUD_SERVICIOS).flatMap(([tipo, def]) => {
+    if (tipo !== "EXTRA_PIAZZA") return def.areaKeys.some((k) => keys.includes(k)) ? [{ servicio: tipo }] : [];
+    const milano = keys.includes("piazza-milano");
+    const roma = keys.includes("piazza-roma");
+    if (milano && roma) return [{ servicio: tipo }];
+    if (milano) return [{ servicio: tipo, OR: [{ zona: null }, { zona: "MILANO" }] }];
+    return roma ? [{ servicio: tipo, zona: "ROMA" }] : [];
+  });
+  return { OR: condiciones };
 };
 
 const OFFICE_INCLUDE = { creadoPor: CREADOR, empresa: { select: { nombre: true } } };
@@ -246,9 +253,9 @@ export const linkSolicitudToRecord = async (actor, solicitudId, recordId) => {
 //  3. La oficina la abre desde las pendientes, completa el resto del formulario y al crear el servicio queda aceptada (linkSolicitudToRecord).
 // Por ahora solo DHL Milano.
 
-const assertServicioDelActor = (actor, servicio) => {
+const assertServicioDelActor = (actor, servicio, zona) => {
   const keys = actorAreaKeys(actor);
-  if (keys !== null && !(SOLICITUD_SERVICIOS[servicio]?.areaKeys ?? []).some((k) => keys.includes(k))) {
+  if (keys !== null && !areaKeysDeSolicitud(servicio, zona).some((k) => keys.includes(k))) {
     throw new AppError("Non hai i permessi per questo tipo di servizio", 403);
   }
 };
@@ -297,17 +304,17 @@ const localizarLugares = (lugares = []) =>
     })
   );
 
-export const leerTextoForActor = async (actor, { servicio, texto }) => {
-  assertServicioDelActor(actor, servicio);
+export const leerTextoForActor = async (actor, { servicio, zona, texto }) => {
+  assertServicioDelActor(actor, servicio, zona);
   const clients = await prisma.client.findMany({ select: { id: true, nombre: true } });
   const { eta, ...parsed } = parseServicioTexto(texto, { clients, servicio });
   return { ...parsed, lugares: await localizarLugares(parsed.lugares), eta: eta?.toISOString() ?? null, duplicados: await findDuplicados(parsed) };
 };
 
 export const crearDesdeTextoForActor = async (actor, data) => {
-  assertServicioDelActor(actor, data.servicio);
+  assertServicioDelActor(actor, data.servicio, data.zona);
   const solicitud = await prisma.solicitudServicio.create({
-    data: { ...data, creadoPorId: actor.id, empresaId: null },
+    data: { ...data, zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: actor.id, empresaId: null },
     include: OFFICE_INCLUDE,
   });
   return toDto(solicitud, { office: true });
