@@ -4,6 +4,7 @@ import { AppError } from "../utils/AppError.js";
 import { actorAreaKeys } from "../utils/areaAccess.js";
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { getSignedUrlForKey } from "./storage.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -14,9 +15,31 @@ import { parseServicioTexto } from "./servicioTexto.service.js";
 
 const PERSON = { select: { id: true, nombre: true, apellido: true } };
 
+// El servicio enlazado a una solicitud, con lo que el cliente puede ver (aplicativo, targa, nombre del chofer y sus fotos de bolla).
+const RECORD_ASIGNADO = {
+  select: {
+    aplicativo: true,
+    vehicle: { select: { targa: true } },
+    driver: { select: { nombre: true, apellido: true } },
+    files: { where: { tipoArchivo: "BOLLA" }, orderBy: { createdAt: "asc" }, select: { id: true, archivoKey: true } },
+  },
+};
+
 const personName = (p) => (p ? `${p.nombre} ${p.apellido}`.trim() : null);
 
-const toDto = (s, { office = false } = {}) => ({
+// Lo que se ve de un servicio ya creado a partir de la solicitud: el numero asignado (aplicativo), la targa y el nombre del chofer (nunca su telefono)
+// y cuantas fotos de la bolla hay (solo si el usuario tiene el modulo FOTOS). Mismos datos que ya ve el cliente en su historial de servicios.
+const asignadoDto = (record, { verFotos = false } = {}) =>
+  record
+    ? {
+        aplicativo: record.aplicativo ?? null,
+        targa: record.vehicle?.targa ?? null,
+        chofer: record.driver ? personName(record.driver) : null,
+        bollas: verFotos ? (record.files?.length ?? 0) : 0,
+      }
+    : null;
+
+const toDto = (s, { office = false, verFotos = false } = {}) => ({
   id: s.id,
   servicio: s.servicio,
   servicioLabel: SOLICITUD_SERVICIOS[s.servicio]?.label ?? s.servicio,
@@ -33,6 +56,7 @@ const toDto = (s, { office = false } = {}) => ({
   varie2: s.varie2,
   descripcion: s.descripcion,
   aplicativo: s.aplicativo,
+  ...(s.record !== undefined && !office ? { asignado: asignadoDto(s.record, { verFotos }) } : {}),
   shipment: s.shipment,
   orderNumero: s.orderNumero,
   tipoPedido: s.tipoPedido,
@@ -71,10 +95,27 @@ export const listSolicitudesCliente = async (user, { month } = {}) => {
   const when = month ? { fechaHora: monthRange(month) } : { OR: [{ estado: "PENDIENTE" }, { fechaHora: { gte: since } }] };
   const rows = await prisma.solicitudServicio.findMany({
     where: { AND: [scopeWhere(user), when] },
+    include: { record: RECORD_ASIGNADO },
     orderBy: { fechaHora: "desc" },
     take: 600,
   });
-  return rows.map((s) => toDto(s));
+  const verFotos = Boolean(user.clienteModulos?.includes("FOTOS"));
+  return rows.map((s) => toDto(s, { verFotos }));
+};
+
+// Detalle de una solicitud ya aceptada, para la fila desplegable de la hoja: chofer, targa, numero asignado y las fotos de la bolla (URL firmada).
+export const getDetalleSolicitudCliente = async (user, id) => {
+  requireRegistro(user);
+  const solicitud = await findOwned(user, id);
+  const verFotos = Boolean(user.clienteModulos?.includes("FOTOS"));
+  const record = solicitud.recordId ? await prisma.record.findUnique({ where: { id: solicitud.recordId }, ...RECORD_ASIGNADO }) : null;
+  const asignado = asignadoDto(record, { verFotos });
+  const bollas = verFotos && record
+    ? await Promise.all(
+        record.files.map(async (f) => ({ id: f.id, url: await getSignedUrlForKey(f.archivoKey), esPdf: f.archivoKey.toLowerCase().endsWith(".pdf") }))
+      )
+    : [];
+  return { asignado, bollas };
 };
 
 const ownerAndResponsableIds = async (servicio) => {
@@ -241,4 +282,25 @@ export const crearDesdeTextoForActor = async (actor, data) => {
     include: OFFICE_INCLUDE,
   });
   return toDto(solicitud, { office: true });
+};
+
+// Lector de texto para el usuario cliente (Piazza): igual que el de la oficina pero sin lista de clientes (el "cliente" de la solicitud es el cliente
+// final, texto libre) y los duplicados se buscan solo entre sus propias solicitudes.
+export const leerTextoCliente = async (user, { servicio, texto }) => {
+  requireRegistro(user);
+  if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
+  const { eta, ...parsed } = parseServicioTexto(texto);
+  const numeros = [parsed.shipment && { shipment: parsed.shipment }, parsed.orderNumero && { orderNumero: parsed.orderNumero }].filter(Boolean);
+  const repetidas = numeros.length
+    ? await prisma.solicitudServicio.findMany({
+        where: { AND: [scopeWhere(user), { OR: numeros }] },
+        select: { id: true, cliente: true, fechaHora: true, estado: true },
+        take: 3,
+      })
+    : [];
+  return {
+    ...parsed,
+    eta: eta?.toISOString() ?? null,
+    duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),
+  };
 };

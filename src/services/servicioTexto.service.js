@@ -127,6 +127,12 @@ const findEta = (flat, now, avisos) => {
   return null;
 };
 
+// Km del mensaje interno: "KM 124", "Km 35", "54 km", "141 KM". El texto del portal no los trae.
+const findKm = (lines) => {
+  const m = /(?:^|\n)\s*km\s*[:=]?\s*(\d{1,4}(?:[.,]\d+)?)\b/i.exec(lines) ?? /(?:^|\n)\s*(\d{1,4}(?:[.,]\d+)?)\s*km\b/i.exec(lines);
+  return m ? Number(m[1].replace(",", ".")) : null;
+};
+
 const findCity = (flat, lines) => {
   // Portal: "Ship To City VIZZOLA TICINO" (hasta la siguiente etiqueta). Variante corta: "CITY X".
   let m = new RegExp(`\\bShip To City\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat);
@@ -231,6 +237,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
   const tipoPedido = findTipo(flat, avisos);
   const ciudad = findCity(flat, lines);
   const eta = findEta(flat, now, avisos);
+  const km = findKm(lines);
 
   // Tipo: el que dice el texto o, si no lo dice, el deducido de la ETA ("tipoOrigen": de donde sale).
   let tipo = tipoPedido;
@@ -264,6 +271,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date() } = {}
     tipoOrigen,
     ciudad,
     eta,
+    km,
     avisos,
   };
 };

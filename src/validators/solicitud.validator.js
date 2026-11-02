@@ -50,6 +50,10 @@ const fields = {
   varie2: optionalNumber("Varie 2"),
   descripcion: optionalText(4000),
   aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero invalido" }) }).nullable()),
+  // DHL Milano: lo que se lee del texto del portal de DHL (Shipment, Order y tipo ASAP / SCHEDULED).
+  shipment: optionalText(60),
+  orderNumero: optionalText(60),
+  tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
 };
 
 export const createSolicitudSchema = z.object({ ...fields, pagato50: boolean.default(false) }).transform((data) => applyKm(data, true));

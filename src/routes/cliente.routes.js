@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { disponibilidad, enVivo, exportar, fotos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
-import { createCliente, listCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
+import { createCliente, detalleCliente, leerTextoDelCliente, listCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
 import { clienteMesQuerySchema, clienteServicioIdSchema } from "../validators/cliente.validator.js";
 import { disponibilidadQuerySchema } from "../validators/disponibilidad.validator.js";
-import { clienteSolicitudesQuerySchema, createSolicitudSchema, solicitudIdSchema, updateSolicitudSchema } from "../validators/solicitud.validator.js";
+import { clienteSolicitudesQuerySchema, createSolicitudSchema, leerTextoSchema, solicitudIdSchema, updateSolicitudSchema } from "../validators/solicitud.validator.js";
 
 const router = Router();
 
@@ -25,6 +25,9 @@ router.get("/servicios/:id/fotos", validate(clienteServicioIdSchema, "params"), 
 // Registro limitado: el cliente pide servicios a la oficina (modulo REGISTRO). Solo ve y toca sus solicitudes (y las de su empresa).
 router.get("/solicitudes", validate(clienteSolicitudesQuerySchema, "query"), listCliente);
 router.post("/solicitudes", validate(createSolicitudSchema), createCliente);
+// Leer el texto del portal de DHL (o el mensaje interno) para rellenar la solicitud, y el detalle de una solicitud ya aceptada (chofer, targa, bolla).
+router.post("/solicitudes/leer-texto", validate(leerTextoSchema), leerTextoDelCliente);
+router.get("/solicitudes/:id/detalle", validate(solicitudIdSchema, "params"), detalleCliente);
 router.patch("/solicitudes/:id", validate(solicitudIdSchema, "params"), validate(updateSolicitudSchema), updateCliente);
 router.delete("/solicitudes/:id", validate(solicitudIdSchema, "params"), removeCliente);
 

@@ -2,6 +2,8 @@ import {
   crearDesdeTextoForActor,
   createSolicitudCliente,
   deleteSolicitudCliente,
+  getDetalleSolicitudCliente,
+  leerTextoCliente,
   leerTextoForActor,
   listSolicitudesCliente,
   listSolicitudesForActor,
@@ -46,4 +48,14 @@ export const leerTexto = asyncHandler(async (req, res) => {
 
 export const crearDesdeTexto = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: await crearDesdeTextoForActor(req.user, req.body) });
+});
+
+// Usuario cliente: leer un texto de DHL para rellenar su solicitud y el detalle (chofer, targa, bolla) de una ya aceptada.
+export const leerTextoDelCliente = asyncHandler(async (req, res) => {
+  res.status(200).json({ success: true, data: await leerTextoCliente(req.user, req.body) });
+});
+
+export const detalleCliente = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.status(200).json({ success: true, data: await getDetalleSolicitudCliente(req.user, req.params.id) });
 });
