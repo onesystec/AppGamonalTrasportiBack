@@ -156,7 +156,7 @@ const notifyOffice = async (solicitud, user) => {
 export const createSolicitudCliente = async (user, data) => {
   requireRegistro(user);
   const solicitud = await prisma.solicitudServicio.create({
-    data: { ...data, creadoPorId: user.id, empresaId: user.clienteId ?? null },
+    data: { ...data, zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: user.id, empresaId: user.clienteId ?? null },
     include: { creadoPor: CREADOR },
   });
   void notifyOffice(solicitud, user);
@@ -167,7 +167,10 @@ export const updateSolicitudCliente = async (user, id, data) => {
   requireRegistro(user);
   const current = await findOwned(user, id);
   if (current.estado !== "PENDIENTE") throw new AppError("Si possono modificare solo le richieste in sospeso", 409);
-  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data, include: { creadoPor: CREADOR } });
+  // La zona solo existe en Extra Piazza.
+  const servicio = data.servicio ?? current.servicio;
+  const zona = servicio === "EXTRA_PIAZZA" ? (data.zona ?? current.zona ?? "MILANO") : null;
+  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data: { ...data, zona }, include: { creadoPor: CREADOR } });
   return toDto(solicitud);
 };
 
@@ -354,7 +357,7 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
 // Registrar con un solo paso (portal de Piazza): el cliente pega todo el texto y se crea la solicitud con lo que se pudo leer. Lo que falte (cliente, ciudad, ETA,
 // codigos...) queda vacio y la hoja lo pinta en rojo para completarlo ahi mismo. Si ya hay una solicitud suya con el mismo Shipment / Order / codigo, avisa antes
 // de duplicarla (confirmar = true la crea igual). Sin ninguna señal de que sea un servicio, no crea nada.
-export const registrarDesdeTextoCliente = async (user, { servicio, texto, confirmar = false }) => {
+export const registrarDesdeTextoCliente = async (user, { servicio, zona, texto, confirmar = false }) => {
   requireRegistro(user);
   if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
   const { eta, ...parsed } = parseServicioTexto(texto, { servicio });
@@ -380,6 +383,7 @@ export const registrarDesdeTextoCliente = async (user, { servicio, texto, confir
   const solicitud = await prisma.solicitudServicio.create({
     data: {
       servicio,
+      zona: servicio === "EXTRA_PIAZZA" ? (zona ?? "MILANO") : null,
       cliente: parsed.cliente ?? "",
       destinazione: parsed.ciudad ?? "",
       fechaHora: eta ?? new Date(),
