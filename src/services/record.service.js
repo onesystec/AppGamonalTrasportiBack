@@ -44,6 +44,7 @@ import { AppError } from "../utils/AppError.js";
 import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
+import { deleteSolicitudesOfRecord } from "./solicitud.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
@@ -1063,6 +1064,8 @@ export const deleteRecord = async (actor, id) => {
   // Los peajes asignados a este servicio vuelven a esperar uno (y se re-evaluan sin el).
   await releaseMancatosOfRecord(id);
   await releaseCombustiblesOfRecord(id);
+  // La solicitud del cliente que origino este servicio se borra con el (el cliente deja de verla).
+  await deleteSolicitudesOfRecord(id);
   await deleteRecordById(id);
   void rematchAssignmentsForVehicle(record.vehicleId);
 };

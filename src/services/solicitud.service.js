@@ -64,7 +64,8 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   estado: s.estado,
   motivoRechazo: s.motivoRechazo,
   createdAt: s.createdAt,
-  ...(office ? { creadoPor: personName(s.creadoPor), empresa: s.empresa?.nombre ?? null, recordId: s.recordId } : {}),
+  recordId: s.recordId ?? null,
+  ...(office ? { creadoPor: personName(s.creadoPor), empresa: s.empresa?.nombre ?? null } : {}),
 });
 
 // --- Usuario cliente ---
@@ -95,7 +96,8 @@ export const listSolicitudesCliente = async (user, { month } = {}) => {
   const since = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
   const when = month ? { fechaHora: monthRange(month) } : { OR: [{ estado: "PENDIENTE" }, { fechaHora: { gte: since } }] };
   const rows = await prisma.solicitudServicio.findMany({
-    where: { AND: [scopeWhere(user), when] },
+    // Una solicitud aceptada cuyo servicio la oficina borro despues ya no existe para el cliente.
+    where: { AND: [scopeWhere(user), when, { NOT: { estado: "ACEPTADA", recordId: null } }] },
     include: { record: RECORD_ASIGNADO },
     orderBy: { fechaHora: "desc" },
     take: 600,
@@ -305,3 +307,6 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
     duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),
   };
 };
+
+// Al borrar un servicio de la oficina, la solicitud del cliente que lo origino se borra tambien (si no, el cliente seguiria viendo una fila fantasma).
+export const deleteSolicitudesOfRecord = (recordId) => prisma.solicitudServicio.deleteMany({ where: { recordId } });
