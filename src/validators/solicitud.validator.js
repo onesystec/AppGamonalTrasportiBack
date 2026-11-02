@@ -16,10 +16,10 @@ const romeWallClock = (value) =>
   typeof value === "string" && WALL_CLOCK.test(value) ? romeLocalToDate(value.slice(0, 10), value.slice(11, 16)) : value;
 
 const text = (label, max) =>
-  z.string({ required_error: `${label} es obligatorio` }).trim().min(1, `${label} es obligatorio`).max(max, `${label} es demasiado largo`);
-const optionalText = (max) => z.preprocess(emptyToNull, z.string().trim().max(max, "Texto demasiado largo").nullable());
+  z.string({ required_error: `${label}: campo obbligatorio` }).trim().min(1, `${label}: campo obbligatorio`).max(max, `${label}: testo troppo lungo`);
+const optionalText = (max) => z.preprocess(emptyToNull, z.string().trim().max(max, "Testo troppo lungo").nullable());
 const optionalNumber = (label) =>
-  z.preprocess(emptyToNull, z.coerce.number({ invalid_type_error: `${label} invalido` }).min(0, `${label} invalido`).max(1e6, `${label} invalido`).nullable());
+  z.preprocess(emptyToNull, z.coerce.number({ invalid_type_error: `${label} non valido` }).min(0, `${label} non valido`).max(1e6, `${label} non valido`).nullable());
 
 // KM destino: un numero ("25", "25 KM", "68,5") va a km; cualquier otro texto ("NAVETTA HP") queda como kmTexto y km sin valor.
 const KM_NUMERO = /^\s*(\d+(?:[.,]\d+)?)\s*(?:km)?\s*$/i;
@@ -37,20 +37,20 @@ const applyKm = ({ km, ...rest }, hasKm) => (hasKm ? { ...rest, ...splitKm(km) }
 const boolean = z.preprocess((v) => (v === "true" || v === "on" ? true : v === "false" ? false : v), z.boolean());
 
 const fields = {
-  servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Elige el tipo de servicio" }) }),
+  servicio: z.enum(SOLICITUD_SERVICIO_KEYS, { errorMap: () => ({ message: "Scegli il tipo di servizio" }) }),
   // En Extra Piazza el cliente puede quedar vacio (lo pone la oficina al aceptar): se exige en los demas servicios (ver clienteObligatorio).
-  cliente: z.string({ required_error: "El cliente es obligatorio" }).trim().max(150, "El cliente es demasiado largo"),
+  cliente: z.string({ required_error: "Il cliente è obbligatorio" }).trim().max(150, "Il cliente è troppo lungo"),
   destinazione: text("La destinazione", 250),
-  fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La fecha y hora son invalidas" }) })),
+  fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La data e l'ora non sono valide" }) })),
   km: z.union([z.string(), z.number(), z.null()]).optional(),
-  pagato: optionalNumber("El importe pagado"),
+  pagato: optionalNumber("L'importo pagato"),
   pagato50: boolean,
-  fornitore: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? "Gamonal" : v), z.string().trim().max(100, "El fornitore es demasiado largo").default("Gamonal")),
+  fornitore: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? "Gamonal" : v), z.string().trim().max(100, "Il fornitore è troppo lungo").default("Gamonal")),
   autRitiro: optionalText(100),
   varie: optionalText(500),
   varie2: optionalNumber("Varie 2"),
   descripcion: optionalText(4000),
-  aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero invalido" }) }).nullable()),
+  aplicativo: z.preprocess(emptyToNull, z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Numero non valido" }) }).nullable()),
   // Chofer que indica el cliente (opcional, texto libre).
   choferIndicado: optionalText(100),
   // Extra Piazza: lugar de retiro.
@@ -64,7 +64,7 @@ const fields = {
 // El cliente es obligatorio salvo en Extra Piazza (si se sabe el servicio; en una edicion parcial sin servicio no se revisa).
 const clienteObligatorio = (data, ctx) => {
   if (data.servicio && data.servicio !== "EXTRA_PIAZZA" && "cliente" in data && !data.cliente) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cliente"], message: "El cliente es obligatorio" });
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cliente"], message: "Il cliente è obbligatorio" });
   }
 };
 
@@ -76,13 +76,13 @@ export const updateSolicitudSchema = z
   .object(fields)
   .partial()
   .superRefine(clienteObligatorio)
-  .refine((v) => Object.keys(v).length > 0, { message: "No hay cambios" })
+  .refine((v) => Object.keys(v).length > 0, { message: "Nessuna modifica" })
   .transform((data) => applyKm(data, "km" in data));
 
-export const solicitudIdSchema = z.object({ id: z.string().uuid("Id invalido") });
+export const solicitudIdSchema = z.object({ id: z.string().uuid("Id non valido") });
 
 export const clienteSolicitudesQuerySchema = z.object({
-  month: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)").optional()),
+  month: z.preprocess(emptyToUndefined, z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mese non valido (usa AAAA-MM)").optional()),
 });
 
 export const listSolicitudesQuerySchema = z.object({

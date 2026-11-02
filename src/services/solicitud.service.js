@@ -81,7 +81,7 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
 // --- Usuario cliente ---
 
 export const requireRegistro = (user) => {
-  if (!user.clienteModulos?.includes("REGISTRO")) throw new AppError("No tienes acceso a esta seccion", 403);
+  if (!user.clienteModulos?.includes("REGISTRO")) throw new AppError("Non hai accesso a questa sezione", 403);
 };
 
 // Las solicitudes propias y las de su empresa (otros usuarios de la misma empresa cliente).
@@ -89,7 +89,7 @@ export const scopeWhere = (user) => ({ OR: [{ creadoPorId: user.id }, ...(user.c
 
 const findOwned = async (user, id) => {
   const solicitud = await prisma.solicitudServicio.findFirst({ where: { id, ...scopeWhere(user) }, include: { creadoPor: CREADOR } });
-  if (!solicitud) throw new AppError("Solicitud no encontrada", 404);
+  if (!solicitud) throw new AppError("Richiesta non trovata", 404);
   return solicitud;
 };
 
@@ -166,7 +166,7 @@ export const createSolicitudCliente = async (user, data) => {
 export const updateSolicitudCliente = async (user, id, data) => {
   requireRegistro(user);
   const current = await findOwned(user, id);
-  if (current.estado !== "PENDIENTE") throw new AppError("Solo se pueden editar solicitudes pendientes", 409);
+  if (current.estado !== "PENDIENTE") throw new AppError("Si possono modificare solo le richieste in sospeso", 409);
   const solicitud = await prisma.solicitudServicio.update({ where: { id }, data, include: { creadoPor: CREADOR } });
   return toDto(solicitud);
 };
@@ -174,7 +174,7 @@ export const updateSolicitudCliente = async (user, id, data) => {
 export const deleteSolicitudCliente = async (user, id) => {
   requireRegistro(user);
   const current = await findOwned(user, id);
-  if (current.estado === "ACEPTADA") throw new AppError("La solicitud ya fue aceptada y no se puede borrar", 409);
+  if (current.estado === "ACEPTADA") throw new AppError("La richiesta è già stata accettata e non si può eliminare", 409);
   await prisma.solicitudServicio.delete({ where: { id } });
 };
 
@@ -214,8 +214,12 @@ const findForActor = async (actor, id) => {
   return solicitud;
 };
 
-const notifyCreator = (solicitud, title, body, actorId) =>
-  solicitud.creadoPorId === actorId ? undefined : sendPushToUserIds([solicitud.creadoPorId], { title, body, data: { type: "solicitud", solicitudId: solicitud.id } }).catch(() => {});
+// Aviso a quien subio la solicitud: en italiano si es un usuario cliente (Piazza), en espanol si es de la oficina.
+const notifyCreator = (solicitud, es, it, actorId) => {
+  if (solicitud.creadoPorId === actorId) return undefined;
+  const { title, body } = solicitud.creadoPor?.cargo === "CLIENTE" ? it : es;
+  return sendPushToUserIds([solicitud.creadoPorId], { title, body, data: { type: "solicitud", solicitudId: solicitud.id } }).catch(() => {});
+};
 
 export const rechazarSolicitudForActor = async (actor, id, { motivo }) => {
   const current = await findForActor(actor, id);
@@ -225,7 +229,8 @@ export const rechazarSolicitudForActor = async (actor, id, { motivo }) => {
     data: { estado: "RECHAZADA", motivoRechazo: motivo ?? null, revisadoPorId: actor.id, revisadoAt: new Date() },
     include: OFFICE_INCLUDE,
   });
-  void notifyCreator(solicitud, "Solicitud rechazada", `${solicitud.cliente} - ${solicitud.destinazione}${motivo ? `: ${motivo}` : ""}`, actor.id);
+  const detalle = `${solicitud.cliente} - ${solicitud.destinazione}${motivo ? `: ${motivo}` : ""}`;
+  void notifyCreator(solicitud, { title: "Solicitud rechazada", body: detalle }, { title: "Richiesta rifiutata", body: detalle }, actor.id);
   return toDto(solicitud, { office: true });
 };
 
@@ -239,7 +244,10 @@ export const linkSolicitudToRecord = async (actor, solicitudId, recordId) => {
       where: { id: solicitudId, estado: "PENDIENTE" },
       data: { estado: "ACEPTADA", recordId, revisadoPorId: actor.id, revisadoAt: new Date(), motivoRechazo: null },
     });
-    if (count) void notifyCreator(current, "Solicitud aceptada", `${current.cliente} - ${current.destinazione} ya esta en el registro`, actor.id);
+    if (count) {
+      const dato = `${current.cliente} - ${current.destinazione}`;
+      void notifyCreator(current, { title: "Solicitud aceptada", body: `${dato} ya esta en el registro` }, { title: "Richiesta accettata", body: `${dato} è già nel registro` }, actor.id);
+    }
     return count > 0;
   } catch (err) {
     console.error("No se pudo enlazar la solicitud con el servicio:", err.message);

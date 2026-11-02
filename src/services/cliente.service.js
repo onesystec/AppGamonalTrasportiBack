@@ -24,8 +24,8 @@ const SEGUIMIENTO_TTL_MS = 25 * 1000;
 const FOTO_TIPOS = ["BOLLA", "FOTO_ENTREGA"];
 
 export const requireModulo = (user, ...modulos) => {
-  if (!user.clienteId && !user.clienteAreas?.length) throw new AppError("Tu usuario no tiene empresa ni spedizioni asignadas", 403);
-  if (!modulos.some((m) => user.clienteModulos?.includes(m))) throw new AppError("No tienes acceso a esta seccion", 403);
+  if (!user.clienteId && !user.clienteAreas?.length) throw new AppError("Il tuo utente non ha azienda né spedizioni assegnate", 403);
+  if (!modulos.some((m) => user.clienteModulos?.includes(m))) throw new AppError("Non hai accesso a questa sezione", 403);
 };
 
 // Filtro de servicios (Record) del alcance del cliente: su empresa y/o sus spedizioni.
@@ -243,7 +243,7 @@ export const getFotosCliente = async (user, recordId) => {
     where: { AND: [{ id: recordId }, clienteScopeWhere(user)] },
     select: { id: true, files: { where: { tipoArchivo: { in: FOTO_TIPOS } }, orderBy: { createdAt: "asc" }, select: { id: true, archivoKey: true, tipoArchivo: true } } },
   });
-  if (!record) throw new AppError("Servicio no encontrado", 404);
+  if (!record) throw new AppError("Servizio non trovato", 404);
   const fotos = await Promise.all(
     record.files.map(async (f) => ({
       id: f.id,
@@ -266,7 +266,7 @@ export const getRutaCliente = async (user, id) => {
   requireModulo(user, "MAPA");
   const { servicios } = await allSeguimiento();
   const s = servicios.find((x) => x.id === id && enAlcance(user, x) && esVisibleParaCliente(x));
-  if (!s) throw new AppError("Servicio no encontrado", 404);
+  if (!s) throw new AppError("Servizio non trovato", 404);
   return rutaParaServicio(s);
 };
 
