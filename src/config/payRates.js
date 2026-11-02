@@ -19,6 +19,9 @@ import { festivosDelAnio } from "../utils/feriadosIt.js";
 //    dia o de noche segun la salida) mas la espera que declara, sin aprobacion de horas.
 //  - tiempoRutaHastaKm: con pago por km, los servicios de menos de estos km se pagan por el TIEMPO de ruta del circuito (ida + vuelta) a la
 //    tarifa por hora; desde estos km, km / kmBloque como siempre (en trayectos cortos km / 85 sale muy por debajo del tiempo real de manejo).
+//  - esperaAprobada: con pago por km, la espera que declara el chofer solo suma al pago cuando un responsable la aprueba (horasEstado = APROBADAS).
+//  - salidaPlanificada: el dia/noche y la reperibilidad se toman de la fecha y hora de retiro que carga la oficina (fechaRetiro), no de la hora de inicio o
+//    fin que declare el chofer.
 //  - pagoKmPlanificado: los km que se pagan son los PLANIFICADOS por el responsable o admin (km del servicio, con el criterio de utils/kmFacturables.js:
 //    DHL y AB x2), no los del circuito del sistema ni los reales que declare el chofer. El tiempo de ruta de los servicios cortos y los km de los
 //    viajes compactados y traspasos salen del circuito ESTANDAR (siempre con peajes): marcar "sin peaje" ya no cambia lo que se paga.
@@ -53,6 +56,8 @@ export const PAY_TARIFFS = [
     pagoPorKm: true,
     tiempoRutaHastaKm: 200,
     pagoKmPlanificado: true,
+    esperaAprobada: true,
+    salidaPlanificada: true,
   },
 ];
 

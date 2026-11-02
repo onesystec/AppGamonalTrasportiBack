@@ -110,6 +110,9 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   const aprobadas = porKm || record.horasEstado === "APROBADAS";
   // Km planificados: se pagan los que cargo el responsable/admin; el circuito que se usa es el estandar (con peajes), no el que cambia con lo que declare el chofer.
   const kmPlanificado = porKm && Boolean(tariff.pagoKmPlanificado);
+  // La espera solo suma con la aprobacion de un responsable, y la salida (dia/noche, reperibilidad) es la planificada por la oficina.
+  const esperaAprobada = porKm && Boolean(tariff.esperaAprobada);
+  const salidaPlanificada = porKm && Boolean(tariff.salidaPlanificada);
   const circuitoKmPago = numberOr0(kmPlanificado ? (record.circuitoKmBase ?? record.circuitoKm) : record.circuitoKm);
   const circuitoMinPago = numberOr0(kmPlanificado ? (record.circuitoMinBase ?? record.circuitoMin) : record.circuitoMin);
 
@@ -118,7 +121,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   let horasDia = numberOr0(record.horasDia);
   let horasNoche = numberOr0(record.horasNoche);
   let esperaBruta = numberOr0(record.tiempoEspera);
-  if (tariff.jornadaDesdeInicioFin && record.horaInicioReal && record.horaFinReal) {
+  if (tariff.jornadaDesdeInicioFin && !salidaPlanificada && record.horaInicioReal && record.horaFinReal) {
     const shift = computeShiftHours({
       inicio: record.horaInicioReal,
       fin: record.horaFinReal,
@@ -134,10 +137,13 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   horasDia = roundTo(horasDia, tariff.redondeoHoras);
   horasNoche = roundTo(horasNoche, tariff.redondeoHoras);
   const horas = horasDia + horasNoche;
-  const esperaHoras = aprobadas ? roundTo(esperaBruta, tariff.redondeoHoras) : 0;
+  const esperaCuenta = esperaAprobada ? record.horasEstado === "APROBADAS" : aprobadas;
+  const esperaHoras = esperaCuenta ? roundTo(esperaBruta, tariff.redondeoHoras) : 0;
+  // Espera declarada que todavia espera la aprobacion de un responsable (no suma al pago).
+  const esperaPendienteHoras = esperaAprobada && !esperaCuenta ? roundTo(esperaBruta, tariff.redondeoHoras) : 0;
 
   // Hora de salida del servicio: la jornada real si existe, si no la que cargo la oficina.
-  const salida = record.horaInicioReal ?? record.fechaRetiro ?? record.fechaServicio;
+  const salida = salidaPlanificada ? (record.fechaRetiro ?? record.fechaServicio) : (record.horaInicioReal ?? record.fechaRetiro ?? record.fechaServicio);
 
   let modo = "HORAS";
   let km = null;
@@ -209,7 +215,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     const day = romeDay(new Date(salida));
     if (tariff.reperibilidad.festivosCuentan && esFestivoIT(day)) reperibilidad = "FESTIVO";
     else if (!tariff.reperibilidad.diasLaborales.includes(romeWeekday(salida))) reperibilidad = "FIN_DE_SEMANA";
-    else if (tariff.reperibilidad.nocheCuenta && esServicioNocturno(record, salida, tariff.banda, rutaMin)) reperibilidad = "NOCHE";
+    else if (tariff.reperibilidad.nocheCuenta && esServicioNocturno(salidaPlanificada ? { ...record, horaFinReal: null } : record, salida, tariff.banda, rutaMin)) reperibilidad = "NOCHE";
     if (reperibilidad) pagoReperibilidad = tariff.reperibilidad.extraEur;
   }
 
@@ -233,6 +239,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     tiempoRuta,
     kmFuente,
     esperaHoras: round2(esperaHoras),
+    esperaPendienteHoras: round2(esperaPendienteHoras),
     reperibilidad,
     pagoBase: round2(pagoBase),
     pagoEspera: round2(pagoEspera),
@@ -318,6 +325,7 @@ const includedPay = (record, viaje) => ({
   km: null,
   kmFuente: null,
   esperaHoras: 0,
+  esperaPendienteHoras: 0,
   reperibilidad: null,
   fueraHorario: false,
   pagoBase: 0,
@@ -708,6 +716,7 @@ const newPayEntry = (driverId, nombre) => ({
   horasNoche: 0,
   km: 0,
   esperaHoras: 0,
+  esperaPendienteHoras: 0,
   horasManejo: 0,
   serviciosPorKm: 0,
   horasPorAprobar: 0,
@@ -768,6 +777,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.km += pay.modo === "KM" ? (pay.km ?? 0) : 0;
     entry.horasManejo += pay.horasManejo ?? 0;
     entry.esperaHoras += pay.esperaHoras;
+    entry.esperaPendienteHoras += pay.esperaPendienteHoras ?? 0;
     entry.pagoBase += pay.pagoBase;
     entry.pagoEspera += pay.pagoEspera;
     entry.pagoReperibilidad += pay.pagoReperibilidad;
@@ -828,6 +838,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
         km: round2(e.km),
         horasManejo: round2(e.horasManejo),
         esperaHoras: round2(e.esperaHoras),
+        esperaPendienteHoras: round2(e.esperaPendienteHoras),
         pagoBase: round2(e.pagoBase),
         pagoEspera: round2(e.pagoEspera),
         pagoReperibilidad: round2(e.pagoReperibilidad),

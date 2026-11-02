@@ -4,6 +4,7 @@ import { actorAreaKeys, canAccessAreaKey, recordAreaKey } from "../utils/areaAcc
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { clienteScopeWhere } from "./cliente.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { idsDeLaOficina } from "./oficinaAvisos.service.js";
 import { requireRegistro, scopeWhere } from "./solicitud.service.js";
 
 // Edicion de celdas de la hoja tipo Excel del portal de clientes (los mensajes de error van en italiano, como esa pantalla).
@@ -127,14 +128,6 @@ const textoAlerta = (editor, titulo, cambios) => {
   const una = (c) => `${c.label}: ${c.anterior ?? "—"} → ${c.nuevo ?? "—"}`;
   const cuerpo = cambios.length === 1 ? `${editor} cambió ${una(cambios[0])} en ${titulo}` : `${editor} cambió en ${titulo}: ${cambios.map(una).join("; ")}`;
   return cuerpo.length > 220 ? `${cuerpo.slice(0, 217)}…` : cuerpo;
-};
-
-const idsDeLaOficina = async (areaKey) => {
-  const users = await prisma.user.findMany({
-    where: { estado: "ACTIVO", OR: [{ cargo: "OWNER" }, { cargo: "ADMIN", areasPermitidas: { has: areaKey } }] },
-    select: { id: true },
-  });
-  return users.map((u) => u.id);
 };
 
 const registrarAlerta = async (user, record, cambios) => {

@@ -12,6 +12,8 @@ import { ensureKmhPago } from "./velocidadPago.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
+import { idsDeLaOficina } from "./oficinaAvisos.service.js";
+import { recordAreaKey } from "../utils/areaAccess.js";
 import { attachCompactados } from "./compactadoView.service.js";
 import { computeEstimacionForRecord, ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { refreshEstiloInBackground } from "./drivingStyle.service.js";
@@ -41,6 +43,28 @@ const notify = (record, title, body) =>
   sendPushToUserIds([record.driverId], { title, body, data: { type: "horas", recordId: record.id } }).catch(
     () => {}
   );
+
+// Con pago por km (desde octubre de 2026) la espera que declara el chofer pasa por la aprobacion de un responsable antes de sumar al pago.
+const esperaConAprobacion = (record) => {
+  const tarifa = tariffForMonth(romeDay(record.fechaServicio).slice(0, 7));
+  return Boolean(tarifa.pagoPorKm && tarifa.esperaAprobada);
+};
+// Un servicio cuya unica "jornada" es la espera (el chofer no declara horas): lo que se revisa en la cola de Horas es esa espera.
+const esSoloEspera = (record) => esperaConAprobacion(record) && !record.horaInicioReal;
+
+// Aviso a la oficina de que hay una espera por aprobar (best-effort).
+const notifyReviewers = async (record, quien, esperaMin) => {
+  try {
+    const ids = (await idsDeLaOficina(recordAreaKey(record))).filter((id) => id !== record.driverId);
+    await sendPushToUserIds(ids, {
+      title: "Espera por aprobar",
+      body: `${quien} declaró ${esperaMin} min de espera en ${record.codigo}`,
+      data: { type: "horas-revision", recordId: record.id },
+    });
+  } catch {
+    // un fallo de push no debe romper el cierre del servicio
+  }
+};
 
 // El chofer envia (o corrige) la jornada de su servicio: queda PENDIENTE hasta que el responsable
 // la apruebe. Si la carga la hace la oficina por otro, queda aprobada directamente. Un Admin o Responsable que manejo el
@@ -198,18 +222,37 @@ export const closeServiceForActor = async (actor, id, body) => {
     }
   }
 
+  // La espera declarada queda PENDIENTE hasta que un responsable la apruebe; si quien cierra es de la oficina, queda aprobada. Con 0 min no hay nada que
+  // aprobar. Una espera ya aprobada no la cambia el chofer (se lo pide a la oficina).
+  const aprobacion = {};
+  const esperaActual = Math.round((record.tiempoEspera ?? 0) * 60);
+  if (esperaConAprobacion(record)) {
+    if (!isPrivileged(actor) && record.horasEstado === "APROBADAS" && body.esperaMin !== esperaActual) {
+      throw new AppError("La espera ya fue aprobada: si hay que cambiarla, pídeselo a la oficina", 409);
+    }
+    const now = new Date();
+    if (body.esperaMin <= 0) {
+      if (record.horasEstado && record.horasEstado !== "APROBADAS") Object.assign(aprobacion, { horasEstado: null, horasEnviadasAt: null });
+    } else if (isPrivileged(actor)) {
+      Object.assign(aprobacion, { horasEstado: "APROBADAS", horasRevisadasAt: now, horasRevisadaPorId: actor.id, horasNota: null });
+    } else if (record.horasEstado !== "APROBADAS") {
+      Object.assign(aprobacion, { horasEstado: "PENDIENTE", horasEnviadasAt: now, horasRevisadasAt: null, horasRevisadaPorId: null, horasNota: null });
+    }
+  }
   const markDelivered = !["CONSEGNATO", "RITIRATO"].includes(record.estado);
   const updated = await updateRecordById(id, {
     ...(markDelivered ? { estado: "CONSEGNATO" } : {}),
     tiempoEspera: body.esperaMin / 60,
+    ...aprobacion,
     ...(body.comentarios ? { comentarios: body.comentarios } : {}),
   });
+  if (aprobacion.horasEstado === "PENDIENTE") void notifyReviewers(updated, `${actor.nombre} ${actor.apellido}`.trim(), body.esperaMin);
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
   // El pago usa los km del circuito: se asegura que este servicio lo tenga calculado.
   const circuito = await ensureCircuitSafe(updated.compactadoId ? ((await findGroupMembers(updated.compactadoId))[0]?.id ?? id) : id);
   const paid = circuito?.km && !updated.compactadoId ? { ...updated, circuitoKm: circuito.km, circuitoKmBase: circuito.base?.km ?? circuito.km, circuitoMinBase: circuito.base?.min ?? null } : updated;
-  return { estado: updated.estado, esperaMin: body.esperaMin, pago: computePayPreview(paid) };
+  return { estado: updated.estado, esperaMin: body.esperaMin, esperaEstado: updated.horasEstado ?? null, pago: computePayPreview(paid) };
 };
 
 // Aprobacion automatica: las horas que envia el chofer se aprueban solas si todo queda dentro de lo planificado, es
@@ -273,6 +316,7 @@ export const reviewHoursForActor = async (actor, id, body) => {
 
   const now = new Date();
 
+  const soloEspera = esSoloEspera(record);
   if (body.accion === "DEVOLVER") {
     const updated = await updateRecordById(id, {
       horasEstado: "DEVUELTAS",
@@ -280,12 +324,25 @@ export const reviewHoursForActor = async (actor, id, body) => {
       horasRevisadasAt: now,
       horasRevisadaPorId: actor.id,
     });
-    notify(updated, "Horas devueltas", `${updated.codigo}: ${body.nota}`);
+    notify(updated, soloEspera ? "Espera devuelta" : "Horas devueltas", `${updated.codigo}: ${body.nota}`);
     return { jornada: toJornada(updated), pago: computePayPreview(updated) };
   }
 
   const wantsAdjust = ["inicio", "fin", "esperaMin", "pausaMin"].some((key) => body[key] !== undefined);
   const data = { horasEstado: "APROBADAS", horasRevisadasAt: now, horasRevisadaPorId: actor.id };
+
+  // Espera sola (pago por km): se aprueba tal cual o con otros minutos (el ajuste cambia lo que cobra el chofer: tiene que saber por que).
+  if (soloEspera) {
+    if (body.esperaMin !== undefined && body.esperaMin !== Math.round((record.tiempoEspera ?? 0) * 60)) {
+      if (!body.nota) throw new AppError("Explica el motivo del ajuste para que el chofer lo vea", 400);
+      data.tiempoEspera = body.esperaMin / 60;
+    }
+    data.horasNota = body.nota || null;
+    const updated = await updateRecordById(id, data);
+    const ajustada = data.tiempoEspera !== undefined;
+    notify(updated, ajustada ? "Espera aprobada con ajuste" : "Espera aprobada", ajustada ? `${updated.codigo}: ${body.nota}` : `${updated.codigo}: tu espera fue aprobada`);
+    return { jornada: toJornada(updated), pago: computePayPreview(updated) };
+  }
 
   if (wantsAdjust) {
     if (!record.horaInicioReal || !record.horaFinReal) {
@@ -497,6 +554,8 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
         : null,
       comentarios: record.comentarios,
       jornada: toJornada(record),
+      // Pago por km: lo unico que hay para revisar es la espera que declaro el chofer.
+      soloEspera: esSoloEspera(record),
       totalMin,
       avisos: totalMin != null ? buildWarnings(record, totalMin) : [],
       pago: computePayPreview(record),
