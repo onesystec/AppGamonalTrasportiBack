@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { CLIENTE_RETRASO_MAX_MIN } from "../constants/clientes.js";
+import { env } from "../config/env.js";
 import { AppError } from "../utils/AppError.js";
 import { recordAreaWhere } from "../utils/areaAccess.js";
 import { cachedResponse } from "../utils/responseCache.js";
@@ -47,6 +48,7 @@ export const getClienteMe = (user) => ({
   cliente: user.cliente ? { id: user.cliente.id, nombre: user.cliente.nombre } : null,
   spedizioni: user.clienteAreas ?? [],
   modulos: user.clienteModulos ?? [],
+  contactoWhatsapp: env.CLIENTE_CONTACTO_WHATSAPP.replace(/\D/g, "") || null,
 });
 
 const ESTADO_LABEL = {

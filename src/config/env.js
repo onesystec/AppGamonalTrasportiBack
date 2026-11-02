@@ -191,6 +191,8 @@ const envSchema = z.object({
   AREA_C_RECORDATORIO_MAX_DIAS: z.coerce.number().min(1).default(7),
   AREA_C_SILENCIO: z.string().default("21:00-07:30"),
   AREA_C_MONITOR_ENABLED: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
+  // Numero de WhatsApp de la oficina (solo digitos con prefijo, ej. 393331234567): el portal del cliente muestra "Scrivi all'ufficio" si esta puesto.
+  CLIENTE_CONTACTO_WHATSAPP: z.string().default(""),
   APP_URL: z.string().url().default("https://app-gamonal-trasporti-front.vercel.app"),
 
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via

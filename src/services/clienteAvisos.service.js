@@ -4,8 +4,8 @@ import { recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { romeHHMM } from "../utils/romeTime.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 
-// Avisos al celular de los usuarios de una empresa cliente (casilla AVISOS): cuando su servicio sale, cuando se atrasa, cuando llega y
-// cuando se entrega. Los dispara el monitor de seguimiento (cada pocos minutos, ver runSeguimientoAlerts). Cada aviso se manda una sola vez
+// Avisos al celular de los usuarios de una empresa cliente (casilla AVISOS), en italiano: cuando su servicio sale, cuando se atrasa (en camino, o ya pasada
+// la ETA sin haber llegado), cuando llega y cuando se entrega. Los dispara el monitor de seguimiento (cada pocos minutos, ver runSeguimientoAlerts). Cada aviso se manda una sola vez
 // por servicio (se guarda en AvisoCliente, asi sobrevive a un reinicio); el de retraso se repite solo si el atraso crece mucho.
 
 const MIN_MS = 60 * 1000;
@@ -47,7 +47,23 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
     .map((r) => ({ ...r, destinatarios: recipientsOf(r.clientId, recordAreaKey(r)) }))
     .filter((r) => r.destinatarios.length > 0);
 
-  const ids = [...new Set([...enCamino.map((s) => s.id), ...entregados.map((r) => r.id)])];
+  // Servicios cuya ETA ya paso sin haber llegado y que no estan en el seguimiento en camino (todavia no salieron, o sin GPS): tambien se avisa (una sola vez).
+  const enCaminoIds = new Set(enCamino.map((s) => s.id));
+  const atrasadosRaw = await prisma.record.findMany({
+    where: {
+      AND: [
+        { OR: alcance },
+        { estado: { in: ["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA"] }, llegadaGpsAt: null, eta: { lt: new Date(now - retrasoAvisoMin * MIN_MS), gte: new Date(now - CLIENTE_RETRASO_MAX_MIN * MIN_MS) } },
+      ],
+    },
+    select: { id: true, codigo: true, eta: true, clientId: true, spedizzione: true, extrasPiazzaZona: true, vehicle: { select: { targa: true } } },
+  });
+  const atrasados = atrasadosRaw
+    .filter((r) => !enCaminoIds.has(r.id))
+    .map((r) => ({ ...r, destinatarios: recipientsOf(r.clientId, recordAreaKey(r)) }))
+    .filter((r) => r.destinatarios.length > 0);
+
+  const ids = [...new Set([...enCamino.map((s) => s.id), ...entregados.map((r) => r.id), ...atrasados.map((r) => r.id)])];
   if (!ids.length) return;
   const previos = await prisma.avisoCliente.findMany({ where: { recordId: { in: ids } }, select: { recordId: true, tipo: true, valor: true } });
   const visto = new Map(previos.map((a) => [`${a.recordId}:${a.tipo}`, a]));
@@ -61,8 +77,8 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
       avisos.push({
         ...base,
         tipo: "SALIDA",
-        title: "Tu servicio salio",
-        body: `${s.codigo}${targa ? ` (${targa})` : ""} va en camino${s.llegadaEstimada ? `. Llegada estimada: ${hora(s.llegadaEstimada)}` : ""}.`,
+        title: "Il tuo servizio è partito",
+        body: `${s.codigo}${targa ? ` (${targa})` : ""} è in viaggio${s.llegadaEstimada ? `. Arrivo stimato: ${hora(s.llegadaEstimada)}` : ""}.`,
       });
     }
     const retraso = Math.max(0, s.retrasoMin ?? 0);
@@ -72,13 +88,25 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
         ...base,
         tipo: "RETRASO",
         valor: retraso,
-        title: "Tu servicio llegara con retraso",
-        body: `${s.codigo}${targa ? ` (${targa})` : ""} llegara con ~${duracion(retraso)} de retraso${s.llegadaEstimada ? `, a las ${hora(s.llegadaEstimada)}` : ""}.`,
+        title: "Il tuo servizio arriverà in ritardo",
+        body: `${s.codigo}${targa ? ` (${targa})` : ""} arriverà con circa ${duracion(retraso)} di ritardo${s.llegadaEstimada ? `, alle ${hora(s.llegadaEstimada)}` : ""}.`,
       });
     }
     if (s.llego && !has(s.id, "LLEGADA")) {
-      avisos.push({ ...base, tipo: "LLEGADA", title: "Tu servicio llego", body: `${s.codigo}${targa ? ` (${targa})` : ""} llego a su destino${s.llegoAt ? ` a las ${hora(s.llegoAt)}` : ""}.` });
+      avisos.push({ ...base, tipo: "LLEGADA", title: "Il tuo servizio è arrivato", body: `${s.codigo}${targa ? ` (${targa})` : ""} è arrivato a destinazione${s.llegoAt ? ` alle ${hora(s.llegoAt)}` : ""}.` });
     }
+  }
+  for (const r of atrasados) {
+    if (has(r.id, "RETRASO")) continue;
+    const min = Math.round((now - r.eta.getTime()) / MIN_MS);
+    avisos.push({
+      recordId: r.id,
+      destinatarios: r.destinatarios,
+      tipo: "RETRASO",
+      valor: min,
+      title: "Servizio in ritardo",
+      body: `${r.codigo}${r.vehicle?.targa ? ` (${r.vehicle.targa})` : ""} non è ancora arrivato: l'ETA delle ${hora(r.eta)} è passata da ${duracion(min)}.`,
+    });
   }
   const llegaron = new Set(avisos.filter((a) => a.tipo === "LLEGADA").map((a) => a.recordId));
   for (const r of entregados) {
@@ -90,8 +118,8 @@ export const processClienteAvisos = async (servicios, now, { retrasoAvisoMin = 5
       destinatarios: r.destinatarios,
       tipo: "ENTREGA",
       silencioso: yaAvisadoLlegada,
-      title: "Servicio entregado",
-      body: `${r.codigo}${r.vehicle?.targa ? ` (${r.vehicle.targa})` : ""} fue entregado.`,
+      title: "Servizio consegnato",
+      body: `${r.codigo}${r.vehicle?.targa ? ` (${r.vehicle.targa})` : ""} è stato consegnato.`,
     });
   }
 
