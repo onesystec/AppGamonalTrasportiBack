@@ -93,8 +93,8 @@ export const rechazarSolicitudSchema = z.object({
   motivo: z.preprocess(emptyToNull, z.string().trim().max(500, "El motivo es demasiado largo").nullable()),
 });
 
-// Servicio desde un texto pegado (por ahora DHL Milano y DHL Roma). Todo este proceso va en italiano.
-const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO", "DHL_ROMA"];
+// Servicio desde un texto pegado (DHL Milano, DHL Roma, AB Service y Extra Piazza; Extras Stefania todavia no). Todo este proceso va en italiano.
+const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO", "DHL_ROMA", "AB_SERVICE", "EXTRA_PIAZZA"];
 const servizioDaTesto = z.enum(SERVICIOS_DESDE_TEXTO, { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
 const testoObbligatorio = (label, max, femminile = false) =>
   z
@@ -115,9 +115,11 @@ export const registrarDesdeTextoClienteSchema = z.object({
   confirmar: z.boolean().optional(),
 });
 
-export const crearDesdeTextoSchema = z.object({
+export const crearDesdeTextoSchema = z
+  .object({
   servicio: servizioDaTesto,
-  cliente: testoObbligatorio("Il cliente", 150),
+  // El cliente es obligatorio salvo en Extra Piazza (lo pone la oficina al aceptar).
+  cliente: z.string().trim().max(150, "Il cliente è troppo lungo").default(""),
   destinazione: testoObbligatorio("La città", 250, true),
   fechaHora: z.preprocess(romeWallClock, z.coerce.date({ errorMap: () => ({ message: "La data e l'ora non sono valide" }) })),
   // El texto completo pegado.
@@ -126,4 +128,10 @@ export const crearDesdeTextoSchema = z.object({
   orderNumero: optionalText(60),
   tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
   aplicativo: fields.aplicativo,
-});
+  // Extra Piazza: donde se retira; AB Service: km si el texto los trae.
+  ritiro: fields.ritiro,
+  km: z.preprocess(emptyToNull, z.coerce.number().min(0, "I km non sono validi").max(1e6, "I km non sono validi").nullable()),
+  })
+  .superRefine((d, ctx) => {
+    if (d.servicio !== "EXTRA_PIAZZA" && !d.cliente) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["cliente"], message: "Il cliente è obbligatorio" });
+  });
