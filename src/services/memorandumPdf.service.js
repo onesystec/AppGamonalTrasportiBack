@@ -58,7 +58,7 @@ export const buildMemorandumPdf = ({ numero, tipo, titulo, cuerpo, emisor, emiso
     // Cabecera de marca
     doc.rect(0, 0, PAGE_W, 92).fill(NAVY);
     doc.save().circle(MARGIN + 25, 46, 25).clip().image(LOGO, MARGIN, 21, { width: 50, height: 50 }).restore();
-    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(18).text("Gamonal Driver 2.0", MARGIN + 68, 31, { lineBreak: false });
+    doc.fillColor("#ffffff").font("Helvetica-Bold").fontSize(18).text("ONE DRIVER Express", MARGIN + 68, 31, { lineBreak: false });
     doc.fillColor("#9fb3c8").font("Helvetica").fontSize(8.5).text("GESTIÓN DE FLOTA · GAMONAL TRASPORTI", MARGIN + 68, 55, { lineBreak: false, characterSpacing: 1 });
 
     // Titulo y numero

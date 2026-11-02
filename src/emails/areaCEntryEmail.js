@@ -61,10 +61,10 @@ export const buildAreaCEntryEmail = ({ nombre, targa, modelo, enteredAt, plazoHa
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="width:64px;vertical-align:middle;">
-                    <img src="${logoUrl}" width="56" height="56" alt="Gamonal Driver 2.0" style="display:block;border-radius:28px;background:#ffffff;border:0;">
+                    <img src="${logoUrl}" width="56" height="56" alt="ONE DRIVER Express" style="display:block;border-radius:28px;background:#ffffff;border:0;">
                   </td>
                   <td style="vertical-align:middle;padding-left:14px;">
-                    <div style="font-size:19px;font-weight:700;color:#ffffff;letter-spacing:0.2px;">Gamonal Driver 2.0</div>
+                    <div style="font-size:19px;font-weight:700;color:#ffffff;letter-spacing:0.2px;">ONE DRIVER Express</div>
                     <div style="font-size:12px;color:#9fb3c8;letter-spacing:1px;text-transform:uppercase;margin-top:3px;">Gestión de flota · Gamonal Trasporti</div>
                   </td>
                 </tr>
@@ -142,7 +142,7 @@ export const buildAreaCEntryEmail = ({ nombre, targa, modelo, enteredAt, plazoHa
           <tr>
             <td style="background:#f6f8fa;border-top:1px solid #e6eaf0;padding:20px 28px;">
               <div style="font-size:12px;line-height:19px;color:#6b7785;">
-                Este es un mensaje automático de <strong>Gamonal Driver 2.0</strong>, enviado a los responsables y administradores a cargo de este vehículo.
+                Este es un mensaje automático de <strong>ONE DRIVER Express</strong>, enviado a los responsables y administradores a cargo de este vehículo.
                 Se envía una sola vez por entrada; los recordatorios posteriores llegan como notificaciones en la app.
               </div>
               <div style="font-size:12px;color:#9aa5b1;margin-top:10px;">© Gamonal Trasporti · Gestión de flota</div>
@@ -172,7 +172,7 @@ export const buildAreaCEntryEmail = ({ nombre, targa, modelo, enteredAt, plazoHa
     "",
     `Abrir Área C: ${areaCUrl}`,
     "",
-    "Mensaje automático de Gamonal Driver 2.0 - Gamonal Trasporti.",
+    "Mensaje automático de ONE DRIVER Express - Gamonal Trasporti.",
   ].join("\n");
 
   return { subject, html, text };

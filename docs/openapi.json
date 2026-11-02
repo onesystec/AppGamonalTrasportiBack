@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "API Gamonal Driver 2.0",
+    "title": "API ONE DRIVER Express",
     "version": "1.0.0",
-    "description": "Backend de Gamonal Driver 2.0. Generada a partir del codigo (rutas y validadores).\n\nAutenticacion: Authorization: Bearer <token> (token de POST /api/auth/login). Cabecera opcional X-Modo-Chofer: 1 (solo OWNER/ADMIN): responde como si fuera chofer.\n\nCargos: OWNER (Admin), ADMIN (Responsable, solo las areas que le marcaron), CHOFER, RRHH."
+    "description": "Backend de ONE DRIVER Express. Generada a partir del codigo (rutas y validadores).\n\nAutenticacion: Authorization: Bearer <token> (token de POST /api/auth/login). Cabecera opcional X-Modo-Chofer: 1 (solo OWNER/ADMIN): responde como si fuera chofer.\n\nCargos: OWNER (Admin), ADMIN (Responsable, solo las areas que le marcaron), CHOFER, RRHH."
   },
   "servers": [
     {

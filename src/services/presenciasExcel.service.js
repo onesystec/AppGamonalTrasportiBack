@@ -41,7 +41,7 @@ const legendLines = [
 ];
 
 const notesLines = (formato) => [
-  "COMO SE RELLENO ESTA PLANILLA (generada por Gamonal Driver):",
+  "COMO SE RELLENO ESTA PLANILLA (generada por ONE DRIVER Express):",
   `- Horas de un servicio: las mismas que usa Pago a choferes (tiempo de circuito; km / 85 si el circuito pasa de 200 km; horas aprobadas en meses anteriores) más la espera declarada. Un viaje compactado cuenta una sola vez.`,
   `- Fila O: hasta ${HORAS_ORDINARIAS_DIA} h por día (supuesto: el contrato de cada chofer no está guardado en el sistema). Lo que pase de ${HORAS_ORDINARIAS_DIA} h va a la fila S.`,
   "- Domingos y festivos trabajados: todas las horas van a la fila S. En los festivos, la fila O lleva FS.",
@@ -66,7 +66,7 @@ export const buildPresenciasWorkbook = async ({ month, choferes, formato = "deci
   const weekday = (d) => new Date(Date.UTC(year, monthIdx, d)).getUTCDay();
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Gamonal Driver";
+  wb.creator = "ONE DRIVER Express";
   wb.calcProperties.fullCalcOnLoad = true;
 
   // ---- Leyenda
