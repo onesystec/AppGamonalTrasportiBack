@@ -79,8 +79,8 @@ export const rechazarSolicitudSchema = z.object({
   motivo: z.preprocess(emptyToNull, z.string().trim().max(500, "El motivo es demasiado largo").nullable()),
 });
 
-// Servicio desde un texto pegado (por ahora solo DHL Milano). Todo este proceso va en italiano.
-const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO"];
+// Servicio desde un texto pegado (por ahora DHL Milano y DHL Roma). Todo este proceso va en italiano.
+const SERVICIOS_DESDE_TEXTO = ["DHL_MILANO", "DHL_ROMA"];
 const servizioDaTesto = z.enum(SERVICIOS_DESDE_TEXTO, { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
 const testoObbligatorio = (label, max, femminile = false) =>
   z
@@ -89,8 +89,8 @@ const testoObbligatorio = (label, max, femminile = false) =>
     .min(1, `${label} è ${femminile ? "obbligatoria" : "obbligatorio"}`)
     .max(max, `${label} è ${femminile ? "troppo lunga" : "troppo lungo"}`);
 
-// Leer un texto: DHL Milano y AB Service. (Crear la solicitud pendiente desde la oficina sigue siendo solo DHL Milano.)
-const servizioLeggibile = z.enum(["DHL_MILANO", "AB_SERVICE"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
+// Leer un texto: DHL Milano, DHL Roma y AB Service. (Crear la solicitud pendiente desde la oficina: solo DHL Milano y DHL Roma.)
+const servizioLeggibile = z.enum(["DHL_MILANO", "DHL_ROMA", "AB_SERVICE"], { errorMap: () => ({ message: "Questo tipo di servizio non si carica ancora da un testo" }) });
 
 export const leerTextoSchema = z.object({ servicio: servizioLeggibile, texto: testoObbligatorio("Il testo", 20000) });
 
@@ -104,4 +104,5 @@ export const crearDesdeTextoSchema = z.object({
   shipment: optionalText(60),
   orderNumero: optionalText(60),
   tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
+  aplicativo: fields.aplicativo,
 });

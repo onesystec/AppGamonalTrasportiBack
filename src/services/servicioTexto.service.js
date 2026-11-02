@@ -1,10 +1,11 @@
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 
-// Lector de textos de servicio (DHL Milano): un texto pegado -> los datos que se pueden sacar SOLO con reglas, sin IA y sin costo.
+// Lector de textos de servicio (DHL Milano, DHL Roma y AB Service): un texto pegado -> los datos que se pueden sacar SOLO con reglas, sin IA y sin costo.
 // Entiende dos formas de texto:
 //  - El del portal de DHL ("Shipment # 171712939 / Customer EMC2 / Ship To City VIZZOLA TICINO / ETA 2026-Oct-31 00:44:30 (+01:00) ..."),
 //    con las etiquetas a veces partidas en dos lineas y con caracteres invisibles dentro de las fechas y los codigos.
-//  - El mensaje interno de la oficina ("MEDTRONIC ASAP CON APP / MILANO 12 / PER BRESCIA / ETA ORE 13.40 / ORDER ... / SHIPMENT ...").
+//  - El mensaje interno de la oficina ("MEDTRONIC ASAP CON APP / MILANO 12 / PER BRESCIA / ETA ORE 13.40 / ORDER ... / SHIPMENT ..."; en Roma, "ROMA 2" y
+//    "ASSEGNATO ROMA 4" dicen el numero de Roma; los "@nombre" no se leen: el chofer lo decide la oficina).
 // Devuelve solo lo que encontro (null en lo demas) y una lista de avisos para quien revisa. No decide nada: lo demas lo completa la persona.
 
 // Marcas invisibles que traen los textos copiados (guion blando, ancho cero, aislantes de direccion, BOM) y espacios raros.
@@ -54,8 +55,11 @@ const titleCase = (s) =>
     .replace(/\s+/g, " ")
     .trim();
 
+// "ROMA VIA FOSSO DEL CAVALIERE" -> ciudad "Roma" (la calle no es parte de la ciudad: queda en la descripcion con el texto completo).
+const CALLE = /\s+(?:via|viale|v\.le|piazza|p\.zza|piazzale|corso|largo|strada|vicolo|lungotevere|lungomare|localita|loc\.)\s+.+$/i;
+
 const cityName = (raw) => {
-  const clean = raw.replace(/[*_]/g, "").trim();
+  const clean = raw.replace(/[*_]/g, "").replace(CALLE, "").trim();
   return CITY_IT[clean.toLowerCase()] ?? titleCase(clean);
 };
 
@@ -154,6 +158,8 @@ const findTipo = (flat, avisos) => {
     const value = level[1].trim();
     if (/^asap\b/i.test(value)) return "ASAP";
     if (/^schedul/i.test(value)) return "SCHEDULED";
+    // "PRE 4 HR", "PRE 3:45 HR SLA": servicio con un plazo de horas para retirar y entregar, o sea urgente (en los mensajes sale como "Nuovo servizio ASAP").
+    if (/^pre\s*\d/i.test(value)) return "ASAP";
     avisos.push(`Service Level "${value}": non è né ASAP né SCHEDULED, il tipo resta da completare.`);
   }
   // Sin Service Level (o con uno que no es ASAP / SCHEDULED): la palabra suelta en el texto ("consegni asap", "servizio schedulato").
@@ -208,6 +214,16 @@ const deducirTipo = (eta, now) => {
   const horas = (eta.getTime() - now.getTime()) / 3600000;
   if (horas < -1) return { tipo: null, horas };
   return { tipo: horas <= ASAP_MAX_HORAS ? "ASAP" : "SCHEDULED", horas };
+};
+
+// Numero de la zona del mensaje interno: una linea "ROMA 2" / "MILANO 12" o "ASSEGNATO ROMA 4". Solo el de la zona del servicio (Roma 1..10, Milano 1..18).
+const ZONA_NUMEROS = { DHL_ROMA: { zona: "ROMA", max: 10 }, DHL_MILANO: { zona: "MILANO", max: 18 } };
+const findAplicativo = (lines, servicio) => {
+  const cfg = ZONA_NUMEROS[servicio];
+  if (!cfg) return null;
+  const m = new RegExp(`(?:^|\\n)\\s*(?:(?:e\\s+)?assegnato\\s+(?:a\\s+)?)?${cfg.zona}\\s+(\\d{1,2})\\s*(?=\\n|$)`, "i").exec(lines);
+  const n = m ? Number(m[1]) : 0;
+  return n >= 1 && n <= cfg.max ? `${cfg.zona}_${n}` : null;
 };
 
 // --- AB Service: lugares del mensaje ---
@@ -301,6 +317,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
   const ciudad = ciudadTexto ?? (entrega ? ciudadDeLugar(entrega.texto) : null);
   const eta = findEta(flat, now, avisos);
   const km = findKm(lines);
+  const aplicativo = findAplicativo(lines, servicio);
 
   // Tipo: el que dice el texto o, si no lo dice, el deducido de la ETA ("tipoOrigen": de donde sale).
   let tipo = tipoPedido;
@@ -336,6 +353,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
     ciudad,
     eta,
     km,
+    aplicativo,
     lugares,
     avisos,
   };
