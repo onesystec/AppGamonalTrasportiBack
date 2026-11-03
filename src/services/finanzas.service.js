@@ -513,6 +513,21 @@ export const getFinanzasResumenForActor = async (actor, query) => {
     if (day.startsWith(prevMonth) && dayOfMonth(day) <= limitDay) prevSame.combustible += Number(f.monto);
   }
 
+  // Trabajos adicionales aprobados: tambien son pago a choferes (igual que en Pago a choferes: sus horas de dia y de noche a la tarifa del mes).
+  const areasAdicionales = privileged ? actorAreaKeys(actor) ?? undefined : undefined;
+  await Promise.all(
+    [...buckets.entries()].map(async ([key, b]) => {
+      const tarifa = tariffForMonth(key);
+      const porChofer = await approvedByDriverForMonth(key, { driverId, areaKeys: areasAdicionales });
+      for (const a of porChofer.values()) {
+        const pago = a.horasDia * tarifa.horaDiaEur + a.horasNoche * tarifa.horaNocheEur;
+        b.pago.total += pago;
+        b.pago.base += pago;
+        b.pago.choferes.add(a.driverId);
+      }
+    })
+  );
+
   const current = buckets.get(month);
   const pagoMes = finishPay(current.pago);
   const gastosMes = round2(current.gastos);
