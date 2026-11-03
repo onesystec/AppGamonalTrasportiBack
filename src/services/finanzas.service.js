@@ -692,7 +692,7 @@ const serviceItem = (record, pay) => ({
 
 // El chofer ve sus horas, sus km y el estado de cada servicio, pero NINGUN importe en dinero (ni su pago, ni las tarifas):
 // los importes de uno no tienen que prestarse a comparaciones con los de otros choferes.
-const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago", "kmDudoso", "kmRevisar", "aparte", "basico", "pagoAparte"];
+const MONEY_KEYS = ["pagoBase", "pagoEspera", "pagoReperibilidad", "total", "estimadoSiAprobada", "aDescontar", "neto", "kmhPago", "kmDudoso", "kmRevisar", "aparte", "basico", "pagoAparte", "desglose"];
 const withoutMoney = (row) => {
   const clean = Object.fromEntries(Object.entries(row).filter(([key]) => !MONEY_KEYS.includes(key)));
   // Los trabajos adicionales: el chofer ve cuantos y cuantas horas, no el importe.
@@ -708,6 +708,50 @@ const redactPagosForChofer = (result) => ({
   porChofer: result.porChofer.map(withoutMoney),
   servicios: result.servicios?.map(withoutMoney) ?? null,
 });
+
+const newBucket = () => ({ servicios: 0, km: 0, horas: 0, pago: 0 });
+const newDesglose = () => ({
+  dia: { porKm: newBucket(), porRuta: newBucket(), porHoras: newBucket() },
+  noche: { porKm: newBucket(), porRuta: newBucket(), porHoras: newBucket() },
+  espera: { horas: 0, pago: 0, pendienteHoras: 0, servicios: 0 },
+  reperibilidad: { salidas: 0, noche: 0, finDeSemana: 0, festivo: 0, pago: 0 },
+  viajesIncluidos: 0,
+});
+const addToBucket = (bucket, { km = 0, horas = 0, pago = 0 }) => {
+  bucket.servicios += 1;
+  bucket.km += km;
+  bucket.horas += horas;
+  bucket.pago += pago;
+};
+// Suma el pago de UN servicio al desglose del chofer.
+const addDesglose = (d, pay, tariff) => {
+  if (pay.incluidoEnViaje) {
+    d.viajesIncluidos += 1;
+    return;
+  }
+  if (pay.modo === "KM") {
+    const franja = pay.franja === "NOCHE" ? d.noche : d.dia;
+    addToBucket(pay.tiempoRuta ? franja.porRuta : franja.porKm, { km: pay.km ?? 0, horas: pay.horasManejo ?? 0, pago: pay.pagoBase });
+  } else {
+    // Antes del pago por km: horas de jornada de dia y de noche a la tarifa por hora.
+    if (pay.horasDia > 0) addToBucket(d.dia.porHoras, { horas: pay.horasDia, pago: pay.horasDia * tariff.horaDiaEur });
+    if (pay.horasNoche > 0) addToBucket(d.noche.porHoras, { horas: pay.horasNoche, pago: pay.horasNoche * tariff.horaNocheEur });
+  }
+  if (pay.esperaHoras > 0) {
+    d.espera.horas += pay.esperaHoras;
+    d.espera.pago += pay.pagoEspera;
+    d.espera.servicios += 1;
+  }
+  d.espera.pendienteHoras += pay.esperaPendienteHoras ?? 0;
+  if (pay.reperibilidad) {
+    d.reperibilidad.salidas += 1;
+    d.reperibilidad.pago += pay.pagoReperibilidad;
+    if (pay.reperibilidad === "NOCHE") d.reperibilidad.noche += 1;
+    else if (pay.reperibilidad === "FESTIVO") d.reperibilidad.festivo += 1;
+    else d.reperibilidad.finDeSemana += 1;
+  }
+};
+const round2Bucket = (b) => ({ servicios: b.servicios, km: round2(b.km), horas: round2(b.horas), pago: round2(b.pago) });
 
 const newPayEntry = (driverId, nombre) => ({
   driverId,
@@ -737,7 +781,39 @@ const newPayEntry = (driverId, nombre) => ({
   aparte: { servicios: 0, km: 0, horasManejo: 0, base: 0, espera: 0, reperibilidad: 0, total: 0 },
   // Trabajos adicionales aprobados (tareas fuera de los servicios): sus horas se suman a las del chofer y se pagan a tarifa de horas.
   adicionales: { count: 0, horas: 0, pago: 0 },
+  // De donde sale cada euro: servicios de dia y de noche (por km y por tiempo de ruta, o por horas de jornada), espera, reperibilidad y otros datos que se validan.
+  desglose: newDesglose(),
 });
+
+// Desglose del pago de un chofer para mostrarlo: cada concepto con su cantidad, su tarifa y su pago, mas los datos que se validan. La suma de los pagos es el total.
+const desgloseFinal = (e, tariff, kmh) => {
+  const d = e.desglose;
+  const rep = tariff.reperibilidad;
+  return {
+    tarifas: {
+      kmh,
+      horaDiaEur: tariff.horaDiaEur,
+      horaNocheEur: tariff.horaNocheEur,
+      kmBloqueDiaEur: tariff.kmBloqueDiaEur,
+      kmBloqueNocheEur: tariff.kmBloqueNocheEur,
+      esperaHoraEur: tariff.esperaHoraEur,
+      reperibilidadEur: rep ? rep.extraEur : 0,
+      tiempoRutaHastaKm: tariff.tiempoRutaHastaKm ?? null,
+      pagoPorKm: Boolean(tariff.pagoPorKm),
+    },
+    dia: { porKm: round2Bucket(d.dia.porKm), porRuta: round2Bucket(d.dia.porRuta), porHoras: round2Bucket(d.dia.porHoras) },
+    noche: { porKm: round2Bucket(d.noche.porKm), porRuta: round2Bucket(d.noche.porRuta), porHoras: round2Bucket(d.noche.porHoras) },
+    espera: { horas: round2(d.espera.horas), pago: round2(d.espera.pago), pendienteHoras: round2(d.espera.pendienteHoras), pendientePago: round2(d.espera.pendienteHoras * tariff.esperaHoraEur), servicios: d.espera.servicios },
+    reperibilidad: { ...d.reperibilidad, pago: round2(d.reperibilidad.pago) },
+    adicionales: { count: e.adicionales.count, horas: round2(e.adicionales.horas), pago: round2(e.adicionales.pago) },
+    validaciones: {
+      serviciosSinKm: e.serviciosSinDato,
+      kmARevisar: e.kmRevisar.length,
+      viajesIncluidos: d.viajesIncluidos,
+      horasPorAprobar: e.horasPorAprobar,
+    },
+  };
+};
 
 export const getPagosChoferesForActor = async (actor, query) => {
   await ensureKmhPago();
@@ -758,6 +834,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
 
   const byDriver = new Map();
   const total = emptyPay();
+  const tarifaMes = tariffForMonth(month);
   const viajes = buildViajeContext(records);
   // Viajes sin circuito: se calcula en segundo plano para que la proxima vez ya tengan los km (no hace esperar esta consulta).
   for (const viaje of viajes.values()) if (viaje.sinCircuito) void ensureCircuitSafe(viaje.holderId);
@@ -783,6 +860,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
     entry.pagoBase += pay.pagoBase;
     entry.pagoEspera += pay.pagoEspera;
     entry.pagoReperibilidad += pay.pagoReperibilidad;
+    addDesglose(entry.desglose, pay, tarifaMes);
     if (pay.reperibilidad) entry.salidasReperibilidad += 1;
     if (pay.reperibilidad === "NOCHE") entry.salidasNoche += 1;
     if (pay.fueraHorario && !pay.incluidoEnViaje) {
@@ -847,6 +925,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
         total: totalPago,
         aDescontar: deduction,
         neto: round2(totalPago - deduction.total),
+        desglose: desgloseFinal(e, tariff, kmhPagoInfo(e.driverId, month, tariff.kmBloque).valor),
         // Dias del mes: trabajados, sin justificar y justificados. Informativo: no cambia el importe.
         asistencia: asistencia.get(e.driverId) ?? null,
       };
