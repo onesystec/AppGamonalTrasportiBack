@@ -25,6 +25,14 @@ export const rankingKmQuerySchema = z.object({
 
 export const monthQuerySchema = z.object({ month });
 
+// Pago por servicio de un rango de meses (dashboard): desde y hasta, como maximo 14 meses.
+export const pagoServiciosQuerySchema = z
+  .object({
+    desde: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)"),
+    hasta: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)"),
+  })
+  .refine((v) => v.hasta >= v.desde, { message: "El rango de meses es invalido" });
+
 export const pagosQuerySchema = z.object({
   month,
   driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),

@@ -1,9 +1,9 @@
 import { Router } from "express";
-import { getTarifas, gastosServicios, pagoAparte, pagos, presencias, putTarifas, rankingKm, resumen, velocidadPago } from "../controllers/finanzas.controller.js";
+import { getTarifas, gastosServicios, pagoAparte, pagoServicios, pagos, presencias, putTarifas, rankingKm, resumen, velocidadPago } from "../controllers/finanzas.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
-import { monthQuerySchema, pagoAparteSchema, pagosQuerySchema, presenciasQuerySchema, rankingKmQuerySchema, tarifasKmSchema, velocidadPagoSchema } from "../validators/finanzas.validator.js";
+import { monthQuerySchema, pagoAparteSchema, pagoServiciosQuerySchema, pagosQuerySchema, presenciasQuerySchema, rankingKmQuerySchema, tarifasKmSchema, velocidadPagoSchema } from "../validators/finanzas.validator.js";
 
 const router = Router();
 
@@ -11,6 +11,7 @@ router.use(authenticate);
 
 router.get("/resumen", validate(monthQuerySchema, "query"), resumen);
 router.get("/pagos", validate(pagosQuerySchema, "query"), pagos);
+router.get("/pago-servicios", authorize("OWNER", "ADMIN"), validate(pagoServiciosQuerySchema, "query"), pagoServicios);
 router.get("/ranking-km", authorize("OWNER", "ADMIN"), validate(rankingKmQuerySchema, "query"), rankingKm);
 router.get("/presencias", authorize("OWNER", "ADMIN"), validate(presenciasQuerySchema, "query"), presencias);
 router.put("/pago-aparte", authorize("OWNER"), validate(pagoAparteSchema), pagoAparte);

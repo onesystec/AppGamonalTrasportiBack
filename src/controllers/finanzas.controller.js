@@ -1,6 +1,7 @@
 import {
   getFinanzasResumenForActor,
   getGastosServiciosForActor,
+  getPagoServiciosForActor,
   getPagosChoferesForActor,
   getPresenciasDataForActor,
   getKmRankingForActor,
@@ -20,6 +21,11 @@ export const resumen = asyncHandler(async (req, res) => {
 export const rankingKm = asyncHandler(async (req, res) => {
   const result = await sharedForOffice("finanzas-ranking-km", req.user, req.query, () => getKmRankingForActor(req.user, req.query));
   res.status(200).json({ success: true, data: { ranking: result } });
+});
+
+export const pagoServicios = asyncHandler(async (req, res) => {
+  const result = await sharedForOffice("finanzas-pago-servicios", req.user, req.query, () => getPagoServiciosForActor(req.user, req.query));
+  res.status(200).json({ success: true, data: { pagoServicios: result } });
 });
 
 export const pagos = asyncHandler(async (req, res) => {

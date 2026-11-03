@@ -954,6 +954,37 @@ export const getPagosChoferesForActor = async (actor, query) => {
   return privileged ? result : redactPagosForChofer(result);
 };
 
+// ---------------------------------------------------------------- pago por servicio (dashboard)
+// Lo que se paga al chofer por CADA servicio de uno o varios meses, para que el dashboard use el pago real y no una estimacion: { items: [{ id, total }], meses,
+// adicionales: { "AAAA-MM": EUR } }. Es el mismo calculo que Pago a choferes (viajes compactados incluidos: el viaje se paga una vez, en su servicio principal).
+// Solo la oficina.
+const MAX_MESES_PAGO = 14;
+export const getPagoServiciosForActor = async (actor, { desde, hasta }) => {
+  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  await ensureKmhPago();
+  const meses = [];
+  for (let m = desde; m <= hasta && meses.length < MAX_MESES_PAGO; m = shiftMonth(m, 1)) meses.push(m);
+  const areaKeys = actorAreaKeys(actor) ?? undefined;
+  const delMes = async (month) => {
+    const { from, to } = windowFor(month, month);
+    const rows = await findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }).then((list) => list.map(withEffectiveTolls));
+    const records = rows.filter((r) => monthOfRecord(r) === month && isPayable(r));
+    const viajes = buildViajeContext(records);
+    const tarifa = tariffForMonth(month);
+    const extra = await approvedByDriverForMonth(month, { areaKeys });
+    let adicionales = 0;
+    for (const a of extra.values()) adicionales += a.horasDia * tarifa.horaDiaEur + a.horasNoche * tarifa.horaNocheEur;
+    return { month, items: records.map((r) => ({ id: r.id, total: payOf(r, viajes).total })), adicionales: round2(adicionales) };
+  };
+  const resultados = [];
+  for (let i = 0; i < meses.length; i += 4) resultados.push(...(await Promise.all(meses.slice(i, i + 4).map(delMes))));
+  return {
+    meses,
+    items: resultados.flatMap((r) => r.items),
+    adicionales: Object.fromEntries(resultados.map((r) => [r.month, r.adicionales])),
+  };
+};
+
 // ---------------------------------------------------------------- ranking de km
 // Los km del ranking son LOS MISMOS que se pagan (payOf): con la tarifa de km planificados, los que cargo el responsable o admin (DHL x2); en las demas,
 // los km reales que anoto el chofer o, si no, el circuito del sistema. Un viaje compactado cuenta una sola vez y solo servicios pagables.
