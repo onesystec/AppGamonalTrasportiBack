@@ -6,6 +6,10 @@ export const findRecordsLite = ({ from, to, driverId, areaWhere }) =>
   prisma.record.findMany({
     where: { fechaServicio: { gte: from, lt: to }, ...(driverId ? { driverId } : {}), ...(areaWhere ?? {}) },
     select: {
+      // El id (para distinguir el servicio principal de un viaje compactado de los demas) y la duracion de la ruta (para saber si un servicio es de noche):
+      // el pago de cada servicio los usa, y sin ellos el Resumen no daba lo mismo que Pago a choferes.
+      id: true,
+      rutaDuracionMin: true,
       estado: true,
       fechaServicio: true,
       driverId: true,
