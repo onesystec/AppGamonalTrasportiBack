@@ -495,6 +495,8 @@ const toChoferResponse = (record) => ({
   traspasoHora: record.traspasoHora ?? null,
   comentarios: record.comentarios,
   kilometros: record.kilometros,
+  // Km planificados contados (DHL / AB Service: los del cliente x2; Extras Piazza x1): lo que ve el chofer en vez del circuito.
+  kmFacturables: kmFacturables(record),
   kilometrosReales: record.kilometrosReales,
   appsheetSyncFallido: record.appsheetSyncFallido,
   createdAt: record.createdAt,
