@@ -2,12 +2,11 @@ import { viajesAplican } from "../config/viajes.js";
 import { PAYABLE_STATUSES, tariffForDisplay, tariffForMonth } from "../config/payRates.js";
 import {
   findCombustibleLite,
-  findPendingDeductions,
   findRecordsForFuelAudit,
   findRecordsDetailed,
   findRecordsLite,
 } from "../models/finanzas.model.js";
-import { combustibleAreaWhere, multaAreaWhere, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
+import { combustibleAreaWhere, recordAreaKey, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { countRecordsByHorasEstado } from "../models/record.model.js";
 import { spedizzioneFilterForActor } from "./record.service.js";
@@ -823,14 +822,9 @@ export const getPagosChoferesForActor = async (actor, query) => {
   // El chofer solo ve lo suyo, aunque pida otro.
   const driverId = privileged ? query.driverId : actor.id;
 
-  const [allRecords, deductions] = await Promise.all([
-    findRecordsDetailed({ from, to, driverId, areaWhere: recordAreaWhere(actor) }).then((rows) => rows.map(withEffectiveTolls)),
-    findPendingDeductions({ driverId, areaWhere: multaAreaWhere(actor) }),
-  ]);
+  // El pago a choferes es el pago completo: las multas pendientes NO se restan aca (se ven en Multas).
+  const allRecords = await findRecordsDetailed({ from, to, driverId, areaWhere: recordAreaWhere(actor) }).then((rows) => rows.map(withEffectiveTolls));
   const records = allRecords.filter((r) => monthOfRecord(r) === month && isPayable(r));
-  const deductionByDriver = new Map(
-    deductions.map((d) => [d.driverId, { count: d._count._all, total: round2(Number(d._sum.costo ?? 0)) }])
-  );
 
   const byDriver = new Map();
   const total = emptyPay();
@@ -901,7 +895,6 @@ export const getPagosChoferesForActor = async (actor, query) => {
   const asistencia = await getAttendanceByDriver([...byDriver.keys()], month);
   const porChofer = [...byDriver.values()]
     .map((e) => {
-      const deduction = deductionByDriver.get(e.driverId) ?? { count: 0, total: 0 };
       const totalPago = round2(e.total);
       return {
         ...e,
@@ -923,8 +916,6 @@ export const getPagosChoferesForActor = async (actor, query) => {
         pagoEspera: round2(e.pagoEspera),
         pagoReperibilidad: round2(e.pagoReperibilidad),
         total: totalPago,
-        aDescontar: deduction,
-        neto: round2(totalPago - deduction.total),
         desglose: desgloseFinal(e, tariff, kmhPagoInfo(e.driverId, month, tariff.kmBloque).valor),
         // Dias del mes: trabajados, sin justificar y justificados. Informativo: no cambia el importe.
         asistencia: asistencia.get(e.driverId) ?? null,
