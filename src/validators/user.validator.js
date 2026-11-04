@@ -87,6 +87,10 @@ export const updateUserSchema = z
     message: "Debe enviar al menos un campo para actualizar",
   });
 
+export const fusionSchema = z.object({
+  origenId: z.string().uuid("Id invalido"),
+});
+
 export const idParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
 });

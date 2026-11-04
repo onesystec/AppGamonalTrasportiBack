@@ -15,6 +15,7 @@ import {
   updateUser,
   uploadUserAvatar,
 } from "../services/user.service.js";
+import { fusionarChoferes, previewFusion } from "../services/fusionChoferes.service.js";
 import { getMyGpsRespaldo, recordMyBackupLocation, setMyGpsRespaldo } from "../services/gpsRespaldo.service.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -118,4 +119,15 @@ export const getMyGpsRespaldoHandler = asyncHandler(async (req, res) => {
 
 export const postMyGpsRespaldoLocationHandler = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: await recordMyBackupLocation(req.user, req.body) });
+});
+
+// Fusionar un chofer duplicado (origenId, en el body o en la query) dentro de :id. Solo el Owner. La vista previa no cambia nada.
+export const fusionPreviewHandler = asyncHandler(async (req, res) => {
+  const data = await previewFusion(req.user, req.params.id, req.query.origenId);
+  res.status(200).json({ success: true, data });
+});
+
+export const fusionHandler = asyncHandler(async (req, res) => {
+  const data = await fusionarChoferes(req.user, req.params.id, req.body.origenId);
+  res.status(200).json({ success: true, data });
 });

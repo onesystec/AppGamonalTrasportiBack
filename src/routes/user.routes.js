@@ -2,6 +2,8 @@ import { Router } from "express";
 import {
   cleanupLocationPingsHandler,
   create,
+  fusionHandler,
+  fusionPreviewHandler,
   getById,
   getMyGpsRespaldoHandler,
   getReturnEtaHandler,
@@ -25,6 +27,7 @@ import { userAvatarUpload } from "../middlewares/userAvatarUpload.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createUserSchema,
+  fusionSchema,
   gpsRespaldoSchema,
   idParamSchema,
   registerPushTokenSchema,
@@ -112,6 +115,9 @@ router.delete(
   authorize("OWNER", "ADMIN"),
   remove
 );
+
+router.get("/:id/fusion/preview", validate(idParamSchema, "params"), authorize("OWNER"), validate(fusionSchema, "query"), fusionPreviewHandler);
+router.post("/:id/fusion", validate(idParamSchema, "params"), authorize("OWNER"), validate(fusionSchema), fusionHandler);
 
 router.post(
   "/:id/avatar",
