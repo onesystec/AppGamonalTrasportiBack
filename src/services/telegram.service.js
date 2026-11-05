@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { env } from "../config/env.js";
 
 const TELEGRAM_API = "https://api.telegram.org";
@@ -72,8 +73,9 @@ export const notifyGroup = (text) => (env.TELEGRAM_ALLOWED_CHAT_ID ? sendTelegra
 // la URL con /setWebhook, ver README) - si no coincide, no es un mensaje real de
 // Telegram y se descarta sin procesar nada.
 export const isValidWebhookSecret = (headerValue) => {
-  if (!env.TELEGRAM_WEBHOOK_SECRET) return false;
-  return headerValue === env.TELEGRAM_WEBHOOK_SECRET;
+  if (!env.TELEGRAM_WEBHOOK_SECRET || typeof headerValue !== "string") return false;
+  const digest = (value) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(digest(headerValue), digest(env.TELEGRAM_WEBHOOK_SECRET));
 };
 
 // Solo el chat configurado puede cargar servicios - cualquier otro (alguien que le

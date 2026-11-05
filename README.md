@@ -78,21 +78,7 @@ Verifica que responde en `GET http://localhost:4000/api/health`.
 
 ## 5. Probar el flujo de autenticacion (curl)
 
-**Registro** (siempre crea un CHOFER activo, sin importar lo que se envie en `cargo`/`estado`):
-
-```bash
-curl -X POST http://localhost:4000/api/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "nombre": "Juan",
-    "apellido": "Perez",
-    "area": "DHL",
-    "fechaNacimiento": "1995-04-10",
-    "numeroCelular": "+39 333 1234567",
-    "correoElectronico": "juan@example.com",
-    "password": "SuperSegura123"
-  }'
-```
+**Registro:** desactivado. Las cuentas las crea la oficina (OWNER/ADMIN/RRHH) con `POST /api/users`.
 
 **Login**:
 
@@ -275,7 +261,6 @@ curl -X DELETE http://localhost:4000/api/files/<FILE_ID> -H "Authorization: Bear
 ## Endpoints
 
 ```
-POST   /api/auth/register         publico
 POST   /api/auth/login            publico
 GET    /api/auth/me               autenticado
 POST   /api/auth/forgot-password  publico

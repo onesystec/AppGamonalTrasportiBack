@@ -1,7 +1,6 @@
 import { env } from "../config/env.js";
 import { resend } from "../config/resend.js";
 import {
-  createUser,
   findUserByEmail,
   findUserByEmailWithPassword,
   findUserById,
@@ -18,43 +17,22 @@ import { generateResetToken, hashResetToken } from "../utils/resetToken.js";
 
 const GENERIC_LOGIN_ERROR = "Correo electronico o contrasena incorrectos";
 
-export const registerUser = async (data) => {
-  const hashedPassword = await hashPassword(data.password);
-
-  // El cargo y el estado nunca se toman del cliente en el registro publico:
-  // se fuerzan aqui para evitar que alguien se autoasigne un rol privilegiado.
-  const user = await createUser({
-    nombre: data.nombre,
-    apellido: data.apellido,
-    area: data.area,
-    fechaNacimiento: data.fechaNacimiento,
-    numeroCelular: data.numeroCelular,
-    correoElectronico: data.correoElectronico,
-    password: hashedPassword,
-    cargo: "CHOFER",
-    estado: "ACTIVO",
-  });
-
-  const token = signToken({ sub: user.id });
-
-  return { user: await toUserResponse(user), token };
-};
+// Hash de una clave que nadie conoce: cuando el correo no existe se compara contra este, para que responder tarde lo mismo que con un
+// correo real y no se pueda saber por el tiempo (12 ms contra 140 ms) que cuentas existen.
+const DUMMY_HASH = "$2b$12$bo9b1O3oAT6muvrq0BPqqOxj4ViWMYXj5zE8IY.kPVmuseMCkagq.";
 
 export const loginUser = async ({ correoElectronico, password }) => {
   const user = await findUserByEmailWithPassword(correoElectronico);
 
-  if (!user) {
+  const isPasswordValid = await comparePassword(password, user?.password ?? DUMMY_HASH);
+
+  if (!user || !isPasswordValid) {
     throw new AppError(GENERIC_LOGIN_ERROR, 401);
   }
 
+  // Recien con la clave correcta se dice que la cuenta esta inactiva: antes, ese mensaje confirmaba que el correo existe sin saber la clave.
   if (user.estado === "INACTIVO") {
     throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
-  }
-
-  const isPasswordValid = await comparePassword(password, user.password);
-
-  if (!isPasswordValid) {
-    throw new AppError(GENERIC_LOGIN_ERROR, 401);
   }
 
   const token = signToken({ sub: user.id });
@@ -65,6 +43,7 @@ export const loginUser = async ({ correoElectronico, password }) => {
 
 // Productos de OneSystec que entran a esta plataforma (Driver y Farmacy comparten backend).
 const SSO_PRODUCTS = ["driver", "farmacy"];
+const SSO_MAX_TICKET_SECONDS = 5 * 60;
 
 /**
  * Acceso directo desde OneSystec: el ticket solo prueba que ese correo acaba de iniciar sesion alla.
@@ -79,6 +58,11 @@ export const ssoLoginUser = async (ticket) => {
   try {
     claims = verifySsoTicket(ticket, env.SSO_SHARED_SECRET);
   } catch {
+    throw new AppError("Ticket invalido o vencido", 401);
+  }
+  // El ticket debe vencer y vivir poco (OneSystec lo emite por 60 s): sin "exp" valdria para siempre y se podria reusar.
+  const lifetime = Number(claims.exp) - Number(claims.iat ?? Math.floor(Date.now() / 1000));
+  if (!Number.isFinite(lifetime) || lifetime > SSO_MAX_TICKET_SECONDS) {
     throw new AppError("Ticket invalido o vencido", 401);
   }
   if (typeof claims.email !== "string" || !SSO_PRODUCTS.includes(claims.product)) {

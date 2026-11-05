@@ -108,6 +108,8 @@ model User {
   password                     String
   resetPasswordToken           String?
   resetPasswordExpires         DateTime?
+  // Cuando se cambio la contrasena por ultima vez: las sesiones (tokens) emitidas antes de esa fecha dejan de valer.
+  passwordChangedAt            DateTime?
   ubicacionLat                 Float?
   ubicacionLng                 Float?
   ubicacionActualizada         DateTime?

@@ -24,10 +24,15 @@ export const authenticate = asyncHandler(async (req, res, next) => {
   // el token. Sale de una cache en memoria de pocos minutos que se invalida en cada
   // escritura sobre el usuario (ver findUserByIdForAuth), para no consultar Postgres en
   // cada pedido - eso lo mantiene despierto en Neon.
-  const user = await findUserByIdForAuth(payload.sub);
+  const { passwordChangedAt, ...user } = (await findUserByIdForAuth(payload.sub)) ?? {};
 
-  if (!user) {
+  if (!user.id) {
     throw new AppError("No autenticado: el usuario ya no existe", 401);
+  }
+
+  // Un token emitido antes del ultimo cambio de contrasena ya no vale (se compara en segundos, que es lo que trae "iat").
+  if (passwordChangedAt && (payload.iat ?? 0) < Math.floor(passwordChangedAt.getTime() / 1000)) {
+    throw new AppError("No autenticado: la sesion se cerro al cambiar la contrasena", 401);
   }
 
   if (user.estado === "INACTIVO") {

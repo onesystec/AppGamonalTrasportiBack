@@ -15,12 +15,18 @@ const sameSecret = (given, expected) => {
 
 // Publica un APK nuevo (lo llama GitHub Actions al compilar). No usa sesion: va con la clave APP_PUBLISH_TOKEN en la cabecera
 // x-publish-token. El APK va como cuerpo binario y los datos en cabeceras (x-version-code, x-version-name, x-notas codificada).
+// La clave se comprueba ANTES de leer el cuerpo: si no, cualquiera (sin clave) podia mandar 150 MB por peticion y agotar la memoria del servidor.
+const requirePublishToken = (req, _res, next) => {
+  if (!env.APP_PUBLISH_TOKEN) return next(new AppError("La publicacion automatica de APK no esta activada en el servidor", 503));
+  if (!sameSecret(req.get("x-publish-token") ?? "", env.APP_PUBLISH_TOKEN)) return next(new AppError("Clave de publicacion invalida", 401));
+  next();
+};
+
 router.post(
   "/android/publicar",
+  requirePublishToken,
   express.raw({ type: () => true, limit: "150mb" }),
   asyncHandler(async (req, res) => {
-    if (!env.APP_PUBLISH_TOKEN) throw new AppError("La publicacion automatica de APK no esta activada en el servidor", 503);
-    if (!sameSecret(req.get("x-publish-token") ?? "", env.APP_PUBLISH_TOKEN)) throw new AppError("Clave de publicacion invalida", 401);
 
     const versionCode = Number(req.get("x-version-code"));
     const versionName = (req.get("x-version-name") ?? "").trim();

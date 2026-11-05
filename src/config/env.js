@@ -235,3 +235,9 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+// Avisos (no cortan el arranque, para no tumbar la app si hoy esta asi): configuracion floja en produccion.
+if (env.NODE_ENV === "production") {
+  if (env.JWT_SECRET.length < 32) console.warn("[seguridad] JWT_SECRET tiene menos de 32 caracteres: conviene uno aleatorio de 64 (rotarlo cierra todas las sesiones).");
+  if (env.CORS_ORIGIN === "*") console.warn("[seguridad] CORS_ORIGIN es '*': deberia ser solo el dominio de la app (https://app-gamonal-trasporti-front.vercel.app).");
+}

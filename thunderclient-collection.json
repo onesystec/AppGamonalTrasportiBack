@@ -33,19 +33,6 @@
       "name": "Auth",
       "item": [
         {
-          "name": "Register",
-          "request": {
-            "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"nombre\": \"Mauro\",\n  \"apellido\": \"Agostinelli\",\n  \"area\": \"DHL\",\n  \"fechaNacimiento\": \"1995-04-10\",\n  \"numeroCelular\": \"+39 333 1234567\",\n  \"correoElectronico\": \"test@example.com\",\n  \"password\": \"SuperSegura123\"\n}",
-              "options": { "raw": { "language": "json" } }
-            },
-            "url": "{{baseUrl}}/auth/register"
-          }
-        },
-        {
           "name": "Login",
           "request": {
             "method": "POST",

@@ -10,6 +10,10 @@ import { trackRequests } from "./utils/memoryMonitor.js";
 
 const app = express();
 
+// Render pone UN proxy delante de la app: con esto req.ip es la IP real del cliente (si no, todos comparten la del proxy y el
+// limitador de intentos de login bloquea a todo el mundo a la vez). Es un numero de saltos, no una lista de subredes.
+app.set("trust proxy", 1);
+
 app.use(helmet());
 // gzip de las respuestas JSON: GET /records del historial pesa MBs sin comprimir y el
 // trafico de salida de Render se cobra por GB pasado el cupo incluido.

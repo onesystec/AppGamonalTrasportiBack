@@ -1,17 +1,11 @@
 import {
   loginUser,
-  registerUser,
   requestPasswordReset,
   resetPassword,
   ssoLoginUser,
 } from "../services/auth.service.js";
 import { toUserResponse } from "../services/user.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-
-export const register = asyncHandler(async (req, res) => {
-  const { user, token } = await registerUser(req.body);
-  res.status(201).json({ success: true, data: { user, token } });
-});
 
 export const login = asyncHandler(async (req, res) => {
   const { user, token } = await loginUser(req.body);

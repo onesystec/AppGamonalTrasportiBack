@@ -67,12 +67,15 @@ const invalidatingAuthCache = (id, writePromise) => {
   return writePromise.finally(() => dropAuthCache(id));
 };
 
+// passwordChangedAt solo lo necesita authenticate (para cerrar sesiones viejas): se pide aparte para que no viaje en las respuestas.
+const AUTH_USER_SELECT = { ...SAFE_USER_SELECT, passwordChangedAt: true };
+
 export const findUserByIdForAuth = async (id) => {
   const cached = authCache.get(id);
   if (cached && cached.expiresAt > Date.now()) return { ...cached.user };
 
   const epochAtStart = authCacheEpoch;
-  const user = await findUserById(id);
+  const user = await prisma.user.findUnique({ where: { id }, select: AUTH_USER_SELECT });
   if (user && epochAtStart === authCacheEpoch) {
     if (authCache.size >= AUTH_CACHE_MAX_ENTRIES) authCache.clear();
     authCache.set(id, { user, expiresAt: Date.now() + AUTH_CACHE_TTL_MS });
@@ -263,6 +266,8 @@ export const resetPasswordAndClearToken = (id, hashedPassword) =>
         password: hashedPassword,
         resetPasswordToken: null,
         resetPasswordExpires: null,
+        // Corta todas las sesiones abiertas (ver authenticate.js): si la contrasena se cambia porque robaron un celular, el token robado muere.
+        passwordChangedAt: new Date(),
       },
       select: SAFE_USER_SELECT,
     })
