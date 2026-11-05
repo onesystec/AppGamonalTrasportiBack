@@ -13,8 +13,9 @@ import { getDisponibilidadForActor } from "./disponibilidad.service.js";
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
-//  - Del chofer solo se ve la targa del vehiculo: nunca su telefono. Su nombre y el Milano/Roma asignado (aplicativo) se ven solo en el historial
-//    de servicios (el seguimiento, el mapa y la disponibilidad siguen sin nombres).
+//  - Del chofer solo se ve la targa del vehiculo: nunca su telefono. Su nombre y el Milano/Roma asignado (aplicativo) se ven en el historial de
+//    servicios. En el seguimiento (lista de servicios en camino y programados) el nombre se ve solo si el usuario tiene el modulo CHOFER; el mapa
+//    y la disponibilidad siguen sin nombres.
 //  - No se devuelve la ruta del viaje ni las paradas de otros clientes: una furgoneta lleva paquetes de varios clientes.
 //  - La posicion de la furgoneta se muestra solo mientras el servicio de ese cliente esta en camino; en cuanto llega o se
 //    entrega deja de verse, para no seguirla durante el reparto de los demas.
@@ -122,7 +123,7 @@ export const getDisponibilidadCliente = async (user, { desde, hasta } = {}) => {
   };
 };
 
-export const toClienteServicio = (s, { conMapa }) => {
+export const toClienteServicio = (s, { conMapa, conChofer = false }) => {
   const llego = Boolean(s.llego);
   const retrasoMin = Math.max(0, s.retrasoMin ?? 0);
   const conPosicion = conMapa && !llego && s.gps && s.gps.fuente !== "SIMULADO";
@@ -130,6 +131,8 @@ export const toClienteServicio = (s, { conMapa }) => {
     id: s.id,
     codigo: s.codigo,
     targa: s.vehiculo ?? null,
+    // Solo el nombre (nunca el telefono ni el id) y solo con el modulo CHOFER.
+    chofer: conChofer ? s.chofer?.nombre ?? null : undefined,
     destino: s.destino,
     destinoCoords: conMapa ? s.destinoCoords ?? null : null,
     etaPlan: s.etaPlan,
@@ -149,15 +152,23 @@ export const toClienteServicio = (s, { conMapa }) => {
 export const getSeguimientoCliente = async (user) => {
   requireModulo(user, "MAPA", "LISTA");
   const conMapa = user.clienteModulos.includes("MAPA");
+  const conChofer = user.clienteModulos.includes("CHOFER");
   const { servicios, generadoAt } = await allSeguimiento();
-  const enCamino = servicios.filter((s) => enAlcance(user, s) && esVisibleParaCliente(s)).map((s) => toClienteServicio(s, { conMapa }));
+  const enCamino = servicios.filter((s) => enAlcance(user, s) && esVisibleParaCliente(s)).map((s) => toClienteServicio(s, { conMapa, conChofer }));
 
   const now = Date.now();
   const programados = await prisma.record.findMany({
     where: {
       AND: [clienteScopeWhere(user), { estado: "IN_SOSPESO", eta: { gte: new Date(now - 3 * 60 * 60 * 1000), lte: new Date(now + DAY_MS) } }],
     },
-    select: { id: true, codigo: true, eta: true, destinazione: true, vehicle: { select: { targa: true } } },
+    select: {
+      id: true,
+      codigo: true,
+      eta: true,
+      destinazione: true,
+      vehicle: { select: { targa: true } },
+      ...(conChofer ? { driver: { select: { nombre: true, apellido: true } } } : {}),
+    },
     orderBy: { eta: "asc" },
     take: 50,
   });
@@ -165,7 +176,14 @@ export const getSeguimientoCliente = async (user) => {
   return {
     generadoAt,
     enCamino,
-    programados: programados.map((r) => ({ id: r.id, codigo: r.codigo, targa: r.vehicle?.targa ?? null, destino: r.destinazione, etaPlan: r.eta.toISOString() })),
+    programados: programados.map((r) => ({
+      id: r.id,
+      codigo: r.codigo,
+      targa: r.vehicle?.targa ?? null,
+      chofer: conChofer ? (r.driver ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null) : undefined,
+      destino: r.destinazione,
+      etaPlan: r.eta.toISOString(),
+    })),
   };
 };
 
