@@ -79,7 +79,6 @@ export const updateUserSchema = z
       .max(6)
       .optional(),
     compartirUbicacion: z.boolean().optional(),
-    vehiculoAsignadoId: z.string().uuid("Vehiculo invalido").nullable().optional(),
     reperibilidadNoDisponible: z.boolean().optional(),
     proximoServicioFecha: z.coerce.date().nullable().optional(),
     proximoServicioNota: z.string().trim().max(500).nullable().optional(),

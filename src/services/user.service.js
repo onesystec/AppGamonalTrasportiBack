@@ -77,7 +77,6 @@ const RRHH_EDITABLE_FIELDS = [
   "contactoEmergenciaParentesco",
   "contactoEmergenciaTelefono",
   "estado",
-  "vehiculoAsignadoId",
 ];
 // El correo NO esta en la lista a proposito: con "olvide mi contrasena" quien controla el correo controla la cuenta, asi que solo la
 // oficina (OWNER/ADMIN) lo cambia.
