@@ -8,7 +8,7 @@ import {
 } from "../models/document.model.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
-import { findUserById } from "../models/user.model.js";
+import { findUserById, updateUserById } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
 
 // Admin y Responsables ven los documentos de todos; Recursos Humanos, solo los de los choferes.
@@ -92,6 +92,12 @@ export const createDocumentForUser = async (actor, file, data) => {
     mimeType,
     fechaScadenza: data.fechaScadenza,
   });
+
+  // Si lo tenia marcado como "no tengo", ya no: acaba de subirlo.
+  const owner = await findUserById(targetUsuarioId);
+  if (owner?.documentosNoTiene?.includes(data.tipoDocumento)) {
+    await updateUserById(targetUsuarioId, { documentosNoTiene: owner.documentosNoTiene.filter((t) => t !== data.tipoDocumento) });
+  }
 
   return toResponse(document);
 };

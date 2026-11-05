@@ -73,6 +73,11 @@ export const updateUserSchema = z
     numeroCelular: z.string().trim().min(6).optional(),
     correoElectronico: z.string().trim().email().optional(),
     password: passwordSchema.optional(),
+    // Documentos personales que la persona marca como "no tengo" (solo los 6 que ella misma sube).
+    documentosNoTiene: z
+      .array(z.enum(["CARTA_IDENTITA", "PATENTE", "TRADUZIONE_PATENTE", "CODICE_FISCALE", "PASSAPORTO", "SOGGIORNO"]))
+      .max(6)
+      .optional(),
     compartirUbicacion: z.boolean().optional(),
     vehiculoAsignadoId: z.string().uuid("Vehiculo invalido").nullable().optional(),
     reperibilidadNoDisponible: z.boolean().optional(),

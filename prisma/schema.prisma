@@ -110,6 +110,8 @@ model User {
   resetPasswordExpires         DateTime?
   // Cuando se cambio la contrasena por ultima vez: las sesiones (tokens) emitidas antes de esa fecha dejan de valer.
   passwordChangedAt            DateTime?
+  // Documentos personales que la persona marca como "no tengo" (ver SELF_DOCUMENT_TYPES en document.service.js): dejan de figurar como faltantes.
+  documentosNoTiene            TipoDocumento[]  @default([])
   ubicacionLat                 Float?
   ubicacionLng                 Float?
   ubicacionActualizada         DateTime?

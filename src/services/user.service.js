@@ -21,6 +21,7 @@ import { getFreshVehiclePositionByTarga } from "./velocityFleet.service.js";
 import { findActiveRecordsByDriverIds } from "../models/record.model.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { calculateRoute, snapPointsToRoad } from "./routing.service.js";
+import { findDocuments } from "../models/document.model.js";
 import { purgeDocumentsForUser } from "./document.service.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
 import { compressAvatar, compressLogo } from "../utils/imageProcessor.js";
@@ -125,6 +126,7 @@ const SELF_EDITABLE_FIELDS = [
   "contactoEmergenciaNombre",
   "contactoEmergenciaParentesco",
   "contactoEmergenciaTelefono",
+  "documentosNoTiene",
 ];
 
 // El bucket es privado: nunca se expone la key interna, siempre una URL firmada fresca.
@@ -217,6 +219,15 @@ export const updateUser = async (actor, targetId, data) => {
       throw new AppError("Solo un Admin puede definir el acceso de un usuario cliente", 403);
     }
     payload = await normalizeClienteFields(payload, target);
+  }
+
+  // "No tengo este documento": sin duplicados, y no se puede marcar un documento que ya esta subido (primero habria que borrarlo).
+  if (payload.documentosNoTiene !== undefined) {
+    const marcados = [...new Set(payload.documentosNoTiene)];
+    const subidos = new Set((await findDocuments(targetId)).map((d) => d.tipoDocumento));
+    const conflicto = marcados.find((tipo) => subidos.has(tipo));
+    if (conflicto) throw new AppError("Ya subiste ese documento: no puedes marcarlo como que no lo tienes", 400);
+    payload = { ...payload, documentosNoTiene: marcados };
   }
 
   if (payload.password) {
