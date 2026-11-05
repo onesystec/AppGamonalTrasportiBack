@@ -29,6 +29,7 @@ import { romeHHMM, romeLocalToDate, romeDay } from "../utils/romeTime.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { canAccessRecordArea, mancatoAreaWhere, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
+import { resolveServicioParaSubir } from "./servicioPropio.service.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Regla de la empresa: el vencimiento es la fecha del aviso (la del transito, no la de
@@ -351,12 +352,29 @@ export const createMancatoForActor = async (actor, data, files) => {
     }
 
     const vehicle = await findVehicleByTarga(data.targa);
-    // A que servicio pertenece este peaje (AUTO / SUGERIDO / EN_ESPERA).
-    const assignment = await matchMancato({
-      vehicleId: vehicle?.id ?? null,
-      driverId,
-      fechaHoraTransito: transitAt,
-    });
+    // Subido desde dentro de un servicio: va directo a ese servicio y tramo. Si no, A que servicio pertenece este peaje (AUTO / SUGERIDO / EN_ESPERA).
+    let assignment;
+    if (data.recordId) {
+      if (!data.tramo) throw new AppError("Indica si el peaje es de la ida o de la vuelta", 400);
+      const service = await resolveServicioParaSubir(actor, data.recordId);
+      // Misma regla que al asignar a mano: la targa tiene que ser la de uno de los vehiculos del servicio.
+      if (!vehicle || ![service.vehicleId, service.vehiculoFinalId].includes(vehicle.id)) {
+        const targasServicio = [service.vehicle?.targa, service.vehiculoFinal?.targa].filter(Boolean).join(" / ");
+        throw new AppError(`La targa del peaje (${data.targa}) no coincide con la del servicio ${service.codigo} (${targasServicio}).`, 400);
+      }
+      assignment = {
+        recordId: service.id,
+        asignacion: "MANUAL",
+        tramo: data.tramo,
+        asignacionMotivo: `Subido desde el servicio ${service.codigo}.`,
+      };
+    } else {
+      assignment = await matchMancato({
+        vehicleId: vehicle?.id ?? null,
+        driverId,
+        fechaHoraTransito: transitAt,
+      });
+    }
     const created = await createMancatoRecord({
       id,
       numero: data.numero,

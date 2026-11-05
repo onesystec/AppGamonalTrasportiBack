@@ -15,6 +15,7 @@ import {
   updateCombustibleById,
 } from "../models/combustible.model.js";
 import { findRecordForAssignment, findRecordIdsInArea } from "../models/mancato.model.js";
+import { resolveServicioParaSubir } from "./servicioPropio.service.js";
 import {
   listCandidatesForCombustible,
   matchCombustible,
@@ -206,12 +207,18 @@ export const createCombustibleForActor = async (actor, data, files) => {
   const comprobanteKey = await uploadComprobante(id, comprobanteFile);
   try {
     const vehicle = await findVehicleByTarga(data.targa);
-    // A que servicio se imputa (AUTO / SUGERIDO / EN_ESPERA).
-    const assignment = await matchCombustible({
-      vehicleId: vehicle?.id ?? null,
-      driverId,
-      fechaHora,
-    });
+    // Subido desde dentro de un servicio: se imputa directo a ese servicio. Si no, a que servicio se imputa (AUTO / SUGERIDO / EN_ESPERA).
+    let assignment;
+    if (data.recordId) {
+      const service = await resolveServicioParaSubir(actor, data.recordId);
+      assignment = { recordId: service.id, asignacion: "MANUAL", asignacionMotivo: `Subido desde el servicio ${service.codigo}.` };
+    } else {
+      assignment = await matchCombustible({
+        vehicleId: vehicle?.id ?? null,
+        driverId,
+        fechaHora,
+      });
+    }
     const created = await createCombustibleRecord({
       id,
       targa: data.targa,

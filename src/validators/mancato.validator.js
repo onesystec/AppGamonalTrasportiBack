@@ -67,6 +67,9 @@ export const createMancatoSchema = z.object({
   costo,
   sitioWeb: z.preprocess(emptyToUndefined, sitioWeb.optional()),
   comentarios: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
+  // Subido desde dentro de un servicio: queda asignado a ese servicio y tramo, sin esperar a que el sistema lo adivine por la hora.
+  recordId: z.preprocess(emptyToUndefined, z.string().uuid("Servicio invalido").optional()),
+  tramo: z.preprocess(emptyToUndefined, z.enum(["IDA", "VUELTA"], { errorMap: () => ({ message: "Elige ida o vuelta" }) }).optional()),
 });
 
 // "" borra el campo (null); ausente no lo toca.

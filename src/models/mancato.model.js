@@ -224,6 +224,7 @@ export const findRecordForAssignment = (id) =>
     select: {
       id: true,
       codigo: true,
+      driverId: true,
       fechaServicio: true,
       fechaRetiro: true,
       eta: true,

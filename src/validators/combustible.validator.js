@@ -61,6 +61,8 @@ export const createCombustibleSchema = z.object({
   hora,
   // Solo OWNER/ADMIN: registrar igual aunque parezca un duplicado.
   forzar: z.enum(["true"]).optional(),
+  // Subido desde dentro de un servicio: queda asignado a ese servicio, sin esperar a que el sistema lo adivine por la hora.
+  recordId: z.preprocess(emptyToUndefined, z.string().uuid("Servicio invalido").optional()),
 });
 
 export const updateCombustibleSchema = z.object({
