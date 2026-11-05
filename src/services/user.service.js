@@ -65,13 +65,12 @@ const normalizeClienteFields = async (data, target) => {
 };
 
 // Recursos Humanos gestiona la ficha de los choferes (datos personales, estado, vehiculo asignado),
-// pero no su cargo, nivel, areas, contrasena ni nada operativo.
+// pero no su cargo, nivel, areas, contrasena, correo ni nada operativo.
 const RRHH_EDITABLE_FIELDS = [
   "nombre",
   "apellido",
   "fechaNacimiento",
   "numeroCelular",
-  "correoElectronico",
   "direccion",
   "contactoEmergenciaNombre",
   "contactoEmergenciaParentesco",
@@ -79,6 +78,8 @@ const RRHH_EDITABLE_FIELDS = [
   "estado",
   "vehiculoAsignadoId",
 ];
+// El correo NO esta en la lista a proposito: con "olvide mi contrasena" quien controla el correo controla la cuenta, asi que solo la
+// oficina (OWNER/ADMIN) lo cambia.
 
 const sameAreas = (a = [], b = []) => a.length === b.length && a.every((key) => b.includes(key));
 
@@ -118,7 +119,6 @@ const SELF_EDITABLE_FIELDS = [
   "nombre",
   "apellido",
   "numeroCelular",
-  "password",
   "compartirUbicacion",
   "idioma",
   "direccion",
@@ -177,6 +177,11 @@ export const updateUser = async (actor, targetId, data) => {
 
   let payload = data;
 
+  // La propia contrasena se cambia solo por POST /api/auth/change-password (pide la clave actual y cierra las otras sesiones).
+  if (isSelf && data.password !== undefined) {
+    throw new AppError("Cambia tu contrasena desde Perfil > Contrasena", 400);
+  }
+
   const target = await findUserById(targetId);
   if (!target) {
     throw new AppError("Usuario no encontrado", 404);
@@ -215,7 +220,8 @@ export const updateUser = async (actor, targetId, data) => {
   }
 
   if (payload.password) {
-    payload = { ...payload, password: await hashPassword(payload.password) };
+    // La oficina cambia la clave de otra persona: sus sesiones abiertas dejan de valer (passwordChangedAt).
+    payload = { ...payload, password: await hashPassword(payload.password), passwordChangedAt: new Date() };
   }
 
   // OWNER/ADMIN puede marcar/desmarcar la reperibilita de otro chofer directamente

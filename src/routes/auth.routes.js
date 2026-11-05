@@ -1,9 +1,9 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { forgotPassword, login, me, resetPasswordHandler, sso } from "../controllers/auth.controller.js";
+import { changePassword, forgotPassword, login, me, resetPasswordHandler, sso } from "../controllers/auth.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { validate } from "../middlewares/validate.js";
-import { forgotPasswordSchema, loginSchema, resetPasswordSchema, ssoSchema } from "../validators/auth.validator.js";
+import { changePasswordSchema, forgotPasswordSchema, loginSchema, resetPasswordSchema, ssoSchema } from "../validators/auth.validator.js";
 
 const router = Router();
 
@@ -32,10 +32,13 @@ const loginByIpAndEmail = limiter({
 const forgotLimiter = limiter({ limit: 10 });
 const resetLimiter = limiter({ limit: 20 });
 const ssoLimiter = limiter({ limit: 40 });
+// Cambio de clave (ya con sesion): los intentos fallidos se cuentan por usuario, para no poder adivinar la clave actual con un token robado.
+const changePasswordLimiter = limiter({ limit: 8, skipSuccessfulRequests: true, keyGenerator: (req) => `u:${(req.realUser ?? req.user)?.id ?? req.ip}` });
 
 router.post("/login", loginByIp, validate(loginSchema), loginByIpAndEmail, login);
 router.post("/sso", ssoLimiter, validate(ssoSchema), sso);
 router.get("/me", authenticate, me);
+router.post("/change-password", authenticate, changePasswordLimiter, validate(changePasswordSchema), changePassword);
 router.post("/forgot-password", forgotLimiter, validate(forgotPasswordSchema), forgotPassword);
 router.post("/reset-password", resetLimiter, validate(resetPasswordSchema), resetPasswordHandler);
 

@@ -117,6 +117,9 @@ export const findOfficeUserIdsForArea = async (areaKey) => {
 export const findUserByEmailWithPassword = (correoElectronico) =>
   prisma.user.findUnique({ where: { correoElectronico: normalizeEmail(correoElectronico) } });
 
+// Incluye password: solo para verificar la clave actual al cambiarla (ver auth.service changePassword).
+export const findUserByIdWithPassword = (id) => prisma.user.findUnique({ where: { id } });
+
 export const findUserByEmail = (correoElectronico) =>
   prisma.user.findUnique({
     where: { correoElectronico: normalizeEmail(correoElectronico) },

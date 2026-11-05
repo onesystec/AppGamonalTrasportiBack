@@ -1,4 +1,5 @@
 import {
+  changeOwnPassword,
   loginUser,
   requestPasswordReset,
   resetPassword,
@@ -32,4 +33,10 @@ export const forgotPassword = asyncHandler(async (req, res) => {
 export const resetPasswordHandler = asyncHandler(async (req, res) => {
   await resetPassword(req.body.token, req.body.newPassword);
   res.status(200).json({ success: true, message: "Contrasena actualizada correctamente" });
+});
+
+export const changePassword = asyncHandler(async (req, res) => {
+  // realUser: con el "modo chofer" activo req.user es una copia con otro cargo, pero la cuenta que cambia la clave es la de verdad.
+  const { token } = await changeOwnPassword((req.realUser ?? req.user).id, req.body);
+  res.status(200).json({ success: true, message: "Contrasena actualizada correctamente", data: { token } });
 });

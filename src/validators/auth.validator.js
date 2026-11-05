@@ -23,3 +23,8 @@ export const resetPasswordSchema = z.object({
 export const ssoSchema = z.object({
   ticket: z.string().trim().min(1, "El ticket es obligatorio"),
 });
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Escribe tu contrasena actual").max(200, "Contrasena invalida"),
+  newPassword: passwordSchema,
+});

@@ -263,6 +263,7 @@ curl -X DELETE http://localhost:4000/api/files/<FILE_ID> -H "Authorization: Bear
 ```
 POST   /api/auth/login            publico
 GET    /api/auth/me               autenticado
+POST   /api/auth/change-password  autenticado (clave actual + nueva; cierra las otras sesiones)
 POST   /api/auth/forgot-password  publico
 POST   /api/auth/reset-password   publico (requiere token valido)
 

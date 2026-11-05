@@ -3,6 +3,7 @@ import { resend } from "../config/resend.js";
 import {
   findUserByEmail,
   findUserByEmailWithPassword,
+  findUserByIdWithPassword,
   findUserById,
   findUserByValidResetToken,
   resetPasswordAndClearToken,
@@ -112,4 +113,20 @@ export const resetPassword = async (token, newPassword) => {
 
   const hashedPassword = await hashPassword(newPassword);
   return resetPasswordAndClearToken(user.id, hashedPassword);
+};
+
+/**
+ * Cambio de contrasena de quien ya tiene sesion: pide la clave actual (un token robado no alcanza para quedarse con la cuenta),
+ * corta todas las demas sesiones (passwordChangedAt) y devuelve un token nuevo para que esta siga abierta.
+ */
+export const changeOwnPassword = async (actorId, { currentPassword, newPassword }) => {
+  const user = await findUserByIdWithPassword(actorId);
+  if (!user || !(await comparePassword(currentPassword, user.password))) {
+    throw new AppError("La contrasena actual no es correcta", 400);
+  }
+  if (currentPassword === newPassword) {
+    throw new AppError("La contrasena nueva debe ser distinta de la actual", 400);
+  }
+  await resetPasswordAndClearToken(actorId, await hashPassword(newPassword));
+  return { token: signToken({ sub: actorId }) };
 };
