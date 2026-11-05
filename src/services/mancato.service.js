@@ -172,15 +172,20 @@ const buildWhere = (actor, filters, today) => {
   if (filters.asignacion) and.push(asignacionWhere(filters.asignacion));
   if (filters.q) {
     const q = filters.q;
-    and.push({
-      OR: [
-        { numero: { contains: q, mode: "insensitive" } },
-        { targa: { contains: q.replace(/\s+/g, ""), mode: "insensitive" } },
-        { comentarios: { contains: q, mode: "insensitive" } },
-        { driver: { is: { nombre: { contains: q, mode: "insensitive" } } } },
-        { driver: { is: { apellido: { contains: q, mode: "insensitive" } } } },
-      ],
-    });
+    const or = [
+      { numero: { contains: q, mode: "insensitive" } },
+      { targa: { contains: q.replace(/\s+/g, ""), mode: "insensitive" } },
+      { comentarios: { contains: q, mode: "insensitive" } },
+      { driver: { is: { nombre: { contains: q, mode: "insensitive" } } } },
+      { driver: { is: { apellido: { contains: q, mode: "insensitive" } } } },
+    ];
+    // Un importe ("37", "37,5", "37.50"): con decimales es ese importe; sin decimales, todo lo de ese euro (37 trae de 37,00 a 37,99).
+    const importe = q.replace(/\s|€/g, "").replace(",", ".");
+    if (/^\d+(\.\d{1,2})?$/.test(importe)) {
+      const n = Number(importe);
+      or.push(importe.includes(".") ? { costo: n } : { costo: { gte: n, lt: n + 1 } });
+    }
+    and.push({ OR: or });
   }
   return and.length > 0 ? { AND: and } : {};
 };
