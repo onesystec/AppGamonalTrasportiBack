@@ -7,6 +7,7 @@ import { sendPushToUserIds } from "./pushNotification.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
 import { geocodeAddress, geocodePreview } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
+import { verificarDestino } from "./destinoVerificacion.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -321,8 +322,17 @@ const localizarLugares = (lugares = []) =>
 export const leerTextoForActor = async (actor, { servicio, zona, texto }) => {
   assertServicioDelActor(actor, servicio, zona);
   const clients = await prisma.client.findMany({ select: { id: true, nombre: true } });
-  const { eta, ...parsed } = parseServicioTexto(texto, { clients, servicio });
-  return { ...parsed, lugares: await localizarLugares(parsed.lugares), eta: eta?.toISOString() ?? null, duplicados: await findDuplicados(parsed) };
+  const { eta, ...leido } = parseServicioTexto(texto, { clients, servicio });
+  // La direccion de entrega se confirma con el pais y el CAP (formato y lo que encuentra Google); si falta el pais se deduce.
+  const destino = await verificarDestino(leido);
+  const parsed = { ...leido, pais: destino.pais, avisos: [...leido.avisos, ...destino.avisos] };
+  return {
+    ...parsed,
+    verificacion: destino.verificacion,
+    lugares: await localizarLugares(parsed.lugares),
+    eta: eta?.toISOString() ?? null,
+    duplicados: await findDuplicados(parsed),
+  };
 };
 
 export const crearDesdeTextoForActor = async (actor, data) => {
@@ -339,7 +349,9 @@ export const crearDesdeTextoForActor = async (actor, data) => {
 export const leerTextoCliente = async (user, { servicio, texto }) => {
   requireRegistro(user);
   if (!SOLICITUD_SERVICIOS[servicio]) throw new AppError("Tipo di servizio non valido", 400);
-  const { eta, ...parsed } = parseServicioTexto(texto, { servicio });
+  const { eta, ...leido } = parseServicioTexto(texto, { servicio });
+  const destino = await verificarDestino(leido);
+  const parsed = { ...leido, pais: destino.pais, avisos: [...leido.avisos, ...destino.avisos] };
   const lugares = await localizarLugares(parsed.lugares);
   const numeros = [parsed.shipment && { shipment: parsed.shipment }, parsed.orderNumero && { orderNumero: parsed.orderNumero }].filter(Boolean);
   const repetidas = numeros.length
@@ -351,6 +363,7 @@ export const leerTextoCliente = async (user, { servicio, texto }) => {
     : [];
   return {
     ...parsed,
+    verificacion: destino.verificacion,
     lugares,
     eta: eta?.toISOString() ?? null,
     duplicados: repetidas.map((r) => ({ tipo: "SOLICITUD", id: r.id, cliente: r.cliente, estado: r.estado, fecha: r.fechaHora })),

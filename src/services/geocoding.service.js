@@ -91,6 +91,16 @@ export const geocodePreview = async (direccion, fallbackAddress) => {
   return row?.raw?.formatted_address ?? null;
 };
 
+// Lo que Google entiende de una direccion: texto formateado, pais (codigo ISO), CAP y localidad. Sin aproximar a la ciudad: si la direccion no existe, falla.
+export const geocodeComponents = async (direccion) => {
+  await geocodeAddress(direccion);
+  const row = await prisma.geocodeCache.findUnique({ where: { queryKey: buildQueryKey(direccion) }, select: { raw: true } });
+  const raw = row?.raw;
+  if (!raw) return null;
+  const parte = (tipo, campo = "short_name") => raw.address_components?.find((c) => c.types?.includes(tipo))?.[campo] ?? null;
+  return { formatted: raw.formatted_address ?? null, pais: parte("country"), cap: parte("postal_code"), localidad: parte("locality", "long_name") };
+};
+
 // Geocodifica en orden secuencial (respeta el orden de las paradas). fallbackAddress
 // (la ciudad del registro) se intenta para cualquier parada que no de resultado, ver
 // fetchFromGoogle - si tampoco esa resuelve, recien ahi se interrumpe y propaga el
