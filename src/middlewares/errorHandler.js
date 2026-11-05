@@ -34,6 +34,20 @@ export const errorHandler = (err, req, res, next) => {
     handled = true;
   }
 
+  // body-parser: JSON mal formado o cuerpo demasiado grande (son errores de quien llama, no del servidor)
+  if (err.type === "entity.parse.failed") {
+    statusCode = 400;
+    message = "El cuerpo de la peticion no es un JSON valido";
+    details = undefined;
+    handled = true;
+  }
+  if (err.type === "entity.too.large") {
+    statusCode = 413;
+    message = "La peticion es demasiado grande";
+    details = undefined;
+    handled = true;
+  }
+
   // Multer: archivo demasiado grande, campo inesperado, etc.
   if (err.name === "MulterError") {
     statusCode = 400;

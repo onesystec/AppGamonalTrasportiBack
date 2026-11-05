@@ -1,5 +1,6 @@
 import multer from "multer";
 import { AppError } from "../utils/AppError.js";
+import { safeMemoryStorage } from "../utils/safeMemoryStorage.js";
 
 const MAX_FILE_SIZE_BYTES = 15 * 1024 * 1024; // 15MB
 
@@ -24,7 +25,7 @@ const fileFilter = (req, file, cb) => {
 };
 
 export const vehicleUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: safeMemoryStorage(),
   limits: { fileSize: MAX_FILE_SIZE_BYTES },
   fileFilter,
 });
