@@ -4,6 +4,7 @@ import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
 import { env } from "./config/env.js";
+import { apiLimiter } from "./middlewares/apiLimiter.js";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
 import routes from "./routes/index.js";
 import { trackRequests } from "./utils/memoryMonitor.js";
@@ -23,6 +24,8 @@ app.use(
     origin: env.CORS_ORIGIN === "*" ? "*" : env.CORS_ORIGIN.split(",").map((o) => o.trim()),
   })
 );
+// Antes de leer el cuerpo: una peticion de mas no gasta memoria ni CPU en parsear.
+app.use("/api", apiLimiter);
 app.use(express.json());
 if (env.NODE_ENV !== "test") {
   app.use(morgan(env.NODE_ENV === "development" ? "dev" : "combined"));

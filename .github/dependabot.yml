@@ -1,0 +1,12 @@
+# Avisos automaticos de dependencias con vulnerabilidades y actualizaciones (abre pull requests, no cambia nada solo).
+# OJO: GitHub solo lee este archivo desde la rama por defecto del repositorio.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
