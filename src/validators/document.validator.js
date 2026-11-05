@@ -19,7 +19,7 @@ export const createDocumentSchema = z.object({
     errorMap: () => ({ message: "Tipo de documento invalido" }),
   }),
   fechaScadenza: z.coerce.date().optional(),
-  // Solo lo usan OWNER/ADMIN para crear el documento de otro usuario; un CHOFER lo tiene forzado a si mismo.
+  // Solo lo usa la oficina (OWNER/ADMIN/RRHH) para cargar el documento de otro usuario; sin el, el documento es del propio usuario.
   usuarioId: z.string().uuid().optional(),
 });
 
