@@ -112,6 +112,8 @@ export const createRecordSchema = z.object({
   descripcion: z.string().trim().min(1, "La descripcion es obligatoria"),
   codigo: z.string().trim().min(1, "El codigo es obligatorio"),
   ciudad: z.string().trim().optional(),
+  // Pais de la entrega (codigo ISO de 2 letras); vacio = Italia.
+  pais: z.preprocess((v) => (v === "" ? null : v), z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Pais invalido").nullable().optional()),
   aplicativo: z.enum(APLICATIVO_VALUES, { errorMap: () => ({ message: "Aplicativo invalido" }) }).optional(),
   spedizzione: z.enum(SPEDIZZIONE_VALUES, { errorMap: () => ({ message: "Spedizzione invalida" }) }).optional(),
   extrasPiazzaZona: z
@@ -141,6 +143,8 @@ export const updateRecordSchema = z.object({
   descripcion: z.string().trim().min(1).optional(),
   codigo: z.string().trim().min(1).optional(),
   ciudad: z.string().trim().optional(),
+  // Pais de la entrega (codigo ISO de 2 letras); vacio = Italia.
+  pais: z.preprocess((v) => (v === "" ? null : v), z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Pais invalido").nullable().optional()),
   aplicativo: z.enum(APLICATIVO_VALUES).optional(),
   spedizzione: z.enum(SPEDIZZIONE_VALUES).optional(),
   extrasPiazzaZona: z.enum(EXTRAS_PIAZZA_ZONA_VALUES).optional(),

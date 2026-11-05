@@ -1,3 +1,4 @@
+import { parsePais } from "../constants/paises.js";
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 
 // Lector de textos de servicio (DHL Milano, DHL Roma, AB Service y Extra Piazza): un texto pegado -> los datos que se pueden sacar SOLO con reglas, sin IA y sin costo.
@@ -240,6 +241,8 @@ const LUGAR_AB = { rol: "ritiro", texto: "AB Service (magazzino di Romanengo)", 
 
 // "Ship To Address" (calle, puede venir en dos lineas) y "Ship To Postal Code" (CAP) del texto del portal. null si no estan.
 const findCalle = (flat) => new RegExp(`\\bShip To Address\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]?.trim() || null;
+// Pais de la entrega ("Ship To Country Code FRANCE" / "Ship To Country FR") en codigo ISO. null si no esta o no se reconoce.
+const findPais = (flat) => parsePais(new RegExp(`\\bShip To Country(?:\\s+Code)?\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]);
 const findCap = (flat) => new RegExp(`\\bShip To Postal Code\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]?.trim() || null;
 
 // Texto del portal: la direccion de entrega son "Ship To Address", "Ship To Postal Code", "Ship To City" y la provincia (que el portal pone en "Ship To Country").
@@ -499,6 +502,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
   const ciudadTexto = findCity(flat, lines);
   const calle = findCalle(flat);
   const cap = findCap(flat);
+  const pais = findPais(flat);
   // AB Service: la recogida es el deposito de AB; la entrega, la direccion del texto (portal) o la linea "Consegna: ...".
   const portal = esAb ? lugarDeEntregaPortal(flat, ciudadTexto) : null;
   const etiquetados = esAb && !portal ? findLugares(lines) : [];
@@ -543,6 +547,7 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
     ciudad,
     calle,
     cap,
+    pais,
     eta,
     km,
     aplicativo,

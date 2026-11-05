@@ -101,6 +101,7 @@ const RECORD_SELECT_LIST = {
   codigo: true,
   destinazione: true,
   ciudad: true,
+  pais: true,
   aplicativo: true,
   shipment: true,
   orderNumero: true,

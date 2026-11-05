@@ -534,6 +534,8 @@ model Record {
   codigo           String            @unique
   destinazione     String
   ciudad           String?
+  // Pais de la entrega (codigo ISO de 2 letras). null = Italia.
+  pais             String?
   aplicativo       Aplicativo?
   spedizzione      Spedizzione?
   extrasPiazzaZona ExtrasPiazzaZona?
@@ -1446,6 +1448,8 @@ model SolicitudServicio {
   // DHL / AB Service leidos del texto: "Ship To Address" (calle) y "Ship To Postal Code" (CAP). Pasan al formulario del servicio al aceptar la solicitud.
   calle        String?
   cap          String?
+  // Pais de la entrega (codigo ISO de 2 letras, "Ship To Country Code" del portal). null = Italia.
+  pais         String?
   // Chofer que el cliente indica (texto libre, opcional): la oficina decide el chofer real al aceptar la solicitud.
   choferIndicado String?
   // true = la solicitud se registro pegando solo el texto y este no traia la ETA: fechaHora es un valor de relleno hasta que se escriba la real.

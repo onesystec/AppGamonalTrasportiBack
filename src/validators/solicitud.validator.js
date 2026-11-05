@@ -139,6 +139,8 @@ export const crearDesdeTextoSchema = z
   // Calle y CAP de la entrega (Ship To Address / Ship To Postal Code).
   calle: optionalText(250),
   cap: optionalText(20),
+  // Pais de la entrega (codigo ISO de 2 letras; vacio = Italia).
+  pais: z.preprocess(emptyToNull, z.string().trim().toUpperCase().regex(/^[A-Z]{2}$/, "Paese non valido").nullable()),
   aplicativo: fields.aplicativo,
   // Extra Piazza: donde se retira; AB Service: km si el texto los trae.
   ritiro: fields.ritiro,
