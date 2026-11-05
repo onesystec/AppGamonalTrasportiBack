@@ -136,6 +136,9 @@ export const crearDesdeTextoSchema = z
   shipment: optionalText(60),
   orderNumero: optionalText(60),
   tipoPedido: z.preprocess(emptyToNull, z.enum(["ASAP", "SCHEDULED"], { errorMap: () => ({ message: "Tipo non valido (ASAP o SCHEDULED)" }) }).nullable()),
+  // Calle y CAP de la entrega (Ship To Address / Ship To Postal Code).
+  calle: optionalText(250),
+  cap: optionalText(20),
   aplicativo: fields.aplicativo,
   // Extra Piazza: donde se retira; AB Service: km si el texto los trae.
   ritiro: fields.ritiro,

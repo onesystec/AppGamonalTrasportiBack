@@ -1443,6 +1443,9 @@ model SolicitudServicio {
   shipment     String?
   orderNumero  String?
   tipoPedido   String?
+  // DHL / AB Service leidos del texto: "Ship To Address" (calle) y "Ship To Postal Code" (CAP). Pasan al formulario del servicio al aceptar la solicitud.
+  calle        String?
+  cap          String?
   // Chofer que el cliente indica (texto libre, opcional): la oficina decide el chofer real al aceptar la solicitud.
   choferIndicado String?
   // true = la solicitud se registro pegando solo el texto y este no traia la ETA: fechaHora es un valor de relleno hasta que se escriba la real.

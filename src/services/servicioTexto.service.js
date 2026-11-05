@@ -14,6 +14,8 @@ const INVISIBLES = new RegExp("[\\u00AD\\u200B-\\u200F\\u2028\\u2029\\u202A-\\u2
 export const cleanText = (text) =>
   String(text ?? "")
     .replace(/\r\n?/g, "\n")
+    // El portal pone un guion blando donde va un guion ("Cagnes-Sur-Mer"): entre dos letras es un guion de verdad; en fechas y codigos se borra.
+    .replace(/(\p{L})\u00AD(\p{L})/gu, "$1-$2")
     .replace(INVISIBLES, "")
     .replace(new RegExp("[\u00A0\u2007\u202F]", "g"), " ")
     .trim();
@@ -235,6 +237,10 @@ const OTRA_ETIQUETA = /^(?:ritiro|ritirare|prelievo|pick|partenza|origine|da|con
 
 // El deposito de AB Service (Romanengo): de ahi salen todos sus servicios. Va ya localizado (sus coordenadas estan en constants/salidaPorDefecto.js).
 const LUGAR_AB = { rol: "ritiro", texto: "AB Service (magazzino di Romanengo)", fijo: true };
+
+// "Ship To Address" (calle, puede venir en dos lineas) y "Ship To Postal Code" (CAP) del texto del portal. null si no estan.
+const findCalle = (flat) => new RegExp(`\\bShip To Address\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]?.trim() || null;
+const findCap = (flat) => new RegExp(`\\bShip To Postal Code\\s*[:=]?\\s*(.+?)${NEXT_LABEL}`, "i").exec(flat)?.[1]?.trim() || null;
 
 // Texto del portal: la direccion de entrega son "Ship To Address", "Ship To Postal Code", "Ship To City" y la provincia (que el portal pone en "Ship To Country").
 const lugarDeEntregaPortal = (flat, ciudad) => {
@@ -491,6 +497,8 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
   const client = matchClient(clienteTexto, clients);
   const tipoPedido = findTipo(flat, avisos);
   const ciudadTexto = findCity(flat, lines);
+  const calle = findCalle(flat);
+  const cap = findCap(flat);
   // AB Service: la recogida es el deposito de AB; la entrega, la direccion del texto (portal) o la linea "Consegna: ...".
   const portal = esAb ? lugarDeEntregaPortal(flat, ciudadTexto) : null;
   const etiquetados = esAb && !portal ? findLugares(lines) : [];
@@ -533,6 +541,8 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
     tipoPedido: tipo,
     tipoOrigen,
     ciudad,
+    calle,
+    cap,
     eta,
     km,
     aplicativo,
