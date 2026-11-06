@@ -492,9 +492,17 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
   if (servicio === "EXTRA_PIAZZA") return parseExtraPiazza(lines, now);
   const flat = ` ${lines.replace(/\s+/g, " ")} `;
 
-  const shipment = /\bShipment\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
-  const orderNumero = /\bOrder\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
   const esAb = servicio === "AB_SERVICE";
+  // "SHIPMENT" tambien con el error de tipeo habitual ("SHIPMEMT"). El mensaje de la oficina a veces trae Shipment y Order cruzados ("ORDER 171434512 /
+  // SHIPMEMT 1167746741"): cada numero va donde corresponde por su forma. DHL: Shipment de 9 cifras que empieza por 16 o 17, Order de 10 que empieza por 116.
+  // AB Service: Shipment 182xxxxxx, Order 0xxxxxxxx.
+  let shipment = /\bShipm\w{1,5}\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
+  let orderNumero = /\bOrder\s*#?\s*[:.]?\s*(\d{6,})/i.exec(flat)?.[1] ?? null;
+  const formaShipment = esAb ? /^182\d{6}$/ : /^1[67]\d{7}$/;
+  const formaOrder = esAb ? /^0\d{8}$/ : /^116\d{7}$/;
+  const cruzados =
+    (shipment && formaOrder.test(shipment) && !formaShipment.test(shipment)) || (orderNumero && formaShipment.test(orderNumero) && !formaOrder.test(orderNumero));
+  if (cruzados) [shipment, orderNumero] = [orderNumero, shipment];
   // AB Service es siempre del cliente AB: si el texto no dice otro, se da por AB.
   const clienteTexto = findCliente(flat, lines) ?? (esAb ? "AB" : null);
   const client = matchClient(clienteTexto, clients);
@@ -527,8 +535,10 @@ export const parseServicioTexto = (text, { clients = [], now = new Date(), servi
     }
   }
 
-  if (!shipment) avisos.push("Shipment non trovato.");
-  if (!orderNumero) avisos.push("Order non trovato.");
+  // Las navette (HP, COLT: "NAVETTA SETTALA", "Navetta Ferrera") nunca traen Shipment ni Order: sin esos datos no se avisa; si estan, se usan.
+  const navetta = /navett/i.test(flat);
+  if (!shipment && !navetta) avisos.push("Shipment non trovato.");
+  if (!orderNumero && !navetta) avisos.push("Order non trovato.");
   if (!clienteTexto) avisos.push("Cliente non trovato.");
   else if (!client && clients.length) avisos.push(`Il cliente "${clienteTexto}" non esiste nella tua lista: scegline uno o crealo prima di accettare.`);
   if (!tipo && !eta) avisos.push("Tipo (ASAP o SCHEDULED) non trovato.");
