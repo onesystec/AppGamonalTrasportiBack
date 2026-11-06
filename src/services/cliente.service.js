@@ -131,6 +131,8 @@ export const toClienteServicio = (s, { conMapa, conChofer = false }) => {
     id: s.id,
     codigo: s.codigo,
     targa: s.vehiculo ?? null,
+    // Servicio de Medtronic (material sanitario): el mapa le pone una alerta sobre la patente. Solo el indicador, no el nombre del cliente final.
+    medtronic: /medtronic/i.test(s.cliente ?? ""),
     // Solo el nombre (nunca el telefono ni el id) y solo con el modulo CHOFER.
     chofer: conChofer ? s.chofer?.nombre ?? null : undefined,
     destino: s.destino,
