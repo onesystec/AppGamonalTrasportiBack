@@ -69,7 +69,7 @@ const loadForCompact = async (actor, ids, groupId = null) => {
     }
     if (!isCompactable(r)) {
       throw new AppError(
-        `${r.codigo}: solo se pueden compactar servicios abiertos (en suspenso, en camino o retirado) o entregados sin horas cargadas`,
+        `${r.codigo}: solo se pueden compactar servicios abiertos (en suspenso, en camino o retirado), anulados o entregados sin horas cargadas`,
         409
       );
     }
@@ -79,6 +79,13 @@ const loadForCompact = async (actor, ids, groupId = null) => {
   }
 
   const first = ordered[0];
+  // El primero es el servicio principal: ahi se cargan las horas y se paga el viaje. Un anulado sin km no se trabajo, no puede serlo.
+  if (first.estado === "ANNULLATO" && !first.anuladoAt) {
+    throw new AppError(
+      `${first.codigo} esta anulado sin km recorridos: no puede ser el servicio principal del viaje. Pon primero un servicio que se haya hecho, o anota los km que recorrio el chofer antes de anularlo`,
+      409
+    );
+  }
   const otroChofer = ordered.find((r) => r.driverId !== first.driverId);
   if (otroChofer) {
     throw new AppError(

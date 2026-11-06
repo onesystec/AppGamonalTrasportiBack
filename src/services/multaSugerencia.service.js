@@ -112,8 +112,7 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
     ranges.length
       ? prisma.record.findMany({
           where: {
-            estado: { not: "ANNULLATO" },
-            ...(recordFilter ?? {}),
+            AND: [{ OR: [{ estado: { not: "ANNULLATO" } }, { anuladoAt: { not: null } }] }, recordFilter ?? {}],
             OR: ranges.map((r) => ({ vehicleId: r.vehicleId, fechaServicio: { gte: r.gte, lt: r.lt } })),
           },
           select: {

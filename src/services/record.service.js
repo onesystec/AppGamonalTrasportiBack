@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import {
   createRecord as createRecordModel,
   deleteRecordById,
@@ -196,6 +197,9 @@ const toReprogramado = (record) =>
     ? { at: record.reprogramadoAt, ...(record.reprogramacion ?? {}) }
     : null;
 
+// Anulacion con km (ver anulacion.service.js): el servicio se anulo despues de que el chofer manejo y se factura/paga por esos km.
+const toAnulado = (record) => (record.anuladoAt ? { at: record.anuladoAt, ...(record.anulacion ?? {}) } : null);
+
 // Jornada declarada por el chofer y su estado de aprobacion (ver utils/workHours.js).
 // "esperaMin" se reconstruye de tiempoEspera (horas) para que el formulario trabaje en minutos.
 export const toJornada = (record) => ({
@@ -374,6 +378,7 @@ const toFullResponse = (record) => {
     origen: toOrigen(record),
     traspasoHora: record.traspasoHora ?? null,
     reprogramado: toReprogramado(record),
+    anulado: toAnulado(record),
     reprogramadoDe: record.reprogramadoDe
       ? { recordId: record.reprogramadoDe.id, codigo: record.reprogramadoDe.codigo }
       : record.reprogramadoDeId
@@ -467,6 +472,7 @@ const toChoferResponse = (record) => ({
   fechaRetiro: record.fechaRetiro,
   retiroPaqueteAt: record.retiroPaqueteAt ?? null,
   reprogramado: record.reprogramadoAt ? { at: record.reprogramadoAt } : null,
+  anulado: record.anuladoAt ? { at: record.anuladoAt } : null,
   reprogramadoDe: record.reprogramadoDe ? { recordId: record.reprogramadoDe.id, codigo: record.reprogramadoDe.codigo } : null,
   mancatos: toMancatosSummary(record.mancatos),
   faltantes: faltantesOf(record),
@@ -989,6 +995,16 @@ export const updateRecordForActor = async (actor, id, data) => {
       });
       if (nuevo != null) payload = { ...payload, precioKm: nuevo };
     }
+  }
+
+  // Sacar un servicio del estado Anulado deshace la anulacion con km: vuelven los km que tenia.
+  if (record.anuladoAt && payload.estado && payload.estado !== "ANNULLATO") {
+    payload = {
+      ...payload,
+      anuladoAt: null,
+      anulacion: Prisma.DbNull,
+      ...(!("kilometros" in payload) && record.anulacion?.kilometrosOriginales !== undefined ? { kilometros: record.anulacion.kilometrosOriginales } : {}),
+    };
   }
 
   const viaje = applyViajeRules(actor, record, payload);

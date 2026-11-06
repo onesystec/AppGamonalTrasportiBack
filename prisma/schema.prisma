@@ -701,6 +701,12 @@ model Record {
   reprogramadoDe   Record?   @relation("Reprogramacion", fields: [reprogramadoDeId], references: [id], onDelete: SetNull)
   reprogramaciones Record[]  @relation("Reprogramacion")
 
+  // Anulacion con km (ver anulacion.service.js): un servicio anulado despues de que el chofer ya manejo. Sus kilometros pasan a ser
+  // los que hizo (se facturan y se pagan, como en una reprogramacion). anulacion = { kmPlanificados, kmHechos, kilometrosOriginales,
+  // nota, porId, at }. Sin km hechos el servicio anulado queda como siempre: sin pago ni facturacion.
+  anuladoAt        DateTime?
+  anulacion        Json?
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]

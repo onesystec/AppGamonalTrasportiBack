@@ -16,6 +16,7 @@ import { esFestivoIT } from "../utils/feriadosIt.js";
 import { romeHHMM, romeDay, romeWeekdayShort } from "../utils/romeTime.js";
 import { computeShiftHours, isDayTime, splitDayNightMinutes } from "../utils/workHours.js";
 import { kmFacturables } from "../utils/kmFacturables.js";
+import { cortadoConKm } from "../utils/workedRecords.js";
 import { withEffectiveTolls } from "../utils/tollCost.js";
 import { getMancatoStatsForActor } from "./mancato.service.js";
 import { getMultaStatsForActor } from "./multa.service.js";
@@ -170,7 +171,7 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
     } else if (!kmPlanificado && numberOr0(record.kilometrosReales) > 0) {
       km = record.kilometrosReales;
       kmFuente = "REAL";
-    } else if (enTraspaso(record) && !(porKm && !record.reprogramadoAt && circuitoKmPago > 0)) {
+    } else if (enTraspaso(record) && !(porKm && !cortadoConKm(record) && circuitoKmPago > 0)) {
       // Sin horas aprobadas ni sus km reales no se sabe cuanto manejo cada uno: no se paga por los km del
       // servicio entero. En cuanto cargue sus horas o sus km reales, se calcula solo.
       km = 0;
@@ -180,8 +181,8 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
       // circuito estandar; un servicio reprogramado paga solo lo que se hizo (sus km), sin tiempo de circuito.
       km = kmFacturables(record);
       kmFuente = "PLANIFICADO";
-      rutaMin = record.reprogramadoAt ? 0 : circuitoMinPago;
-    } else if (porKm && !record.reprogramadoAt && circuitoKmPago > 0) {
+      rutaMin = cortadoConKm(record) ? 0 : circuitoMinPago;
+    } else if (porKm && !cortadoConKm(record) && circuitoKmPago > 0) {
       // Pago por km: se paga el circuito completo del sistema (lugar de espera, retiro, entrega y vuelta). Un servicio
       // reprogramado por la oficina no: solo se paga lo que se hizo hasta ahi (sus km, no el circuito entero). Con km planificados
       // esto solo pasa en traspasos (cada chofer hace un tramo) o si el servicio no trae km planificados.
@@ -254,9 +255,11 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
 export const computePayIfApproved = (record) =>
   computeServicePay({ ...record, horasEstado: "APROBADAS" });
 
-// Un servicio reprogramado por la oficina (reprogramadoAt) se paga por lo que el chofer hizo hasta ahi.
+// Un servicio reprogramado por la oficina (reprogramadoAt) o anulado con km (anuladoAt) se paga por lo que el chofer hizo hasta ahi.
 const isPayable = (record) =>
-  PAYABLE_STATUSES.includes(record.estado) || (record.estado === "RISCHEDULATO" && Boolean(record.reprogramadoAt));
+  PAYABLE_STATUSES.includes(record.estado) ||
+  (record.estado === "RISCHEDULATO" && Boolean(record.reprogramadoAt)) ||
+  (record.estado === "ANNULLATO" && Boolean(record.anuladoAt));
 
 // ---------------------------------------------------------------- viajes compactados
 // Varios servicios de un chofer en un solo viaje se pagan UNA vez, como un solo servicio: el principal (el de

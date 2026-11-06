@@ -20,6 +20,7 @@ import {
   reprogramacionKmGps,
   reprogramacionPrevia,
   reprogramar,
+  anular,
   sinSustentar,
   listCompactables,
   listSyncFailures,
@@ -46,6 +47,7 @@ import {
   idParamSchema,
   reprogramacionPreviaQuerySchema,
   reprogramarSchema,
+  anularSchema,
   updateRecordSchema,
   yearMonthDayParamSchema,
   yearMonthParamSchema,
@@ -140,6 +142,8 @@ router.get(
 );
 router.get("/:id/reprogramacion/km-gps", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), reprogramacionKmGps);
 router.post("/:id/reprogramar", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(reprogramarSchema), reprogramar);
+// Anular un servicio anotando los km que el chofer hizo antes (solo Admin/Responsable). Con 0 km queda anulado sin pago.
+router.post("/:id/anular", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(anularSchema), anular);
 router.post("/:id/reprogramacion/deshacer", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), deshacerReprogramacion);
 
 // Los switches de peajes y carburante del chofer: liviano a proposito (no sincroniza con AppSheet ni reasigna

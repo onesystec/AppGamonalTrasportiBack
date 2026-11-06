@@ -275,6 +275,12 @@ export const reprogramarSchema = z.object({
   nuevoVehiculoId: z.string().uuid("Vehiculo invalido").nullable().optional(),
 });
 
+// Anulacion de un servicio con los km que el chofer hizo antes (0 = sin km). Ver anulacion.service.js.
+export const anularSchema = z.object({
+  kmRecorridos: z.coerce.number({ invalid_type_error: "Indica los km recorridos" }).min(0, "No puede ser negativo").max(5000, "Maximo 5000 km").optional(),
+  nota: z.string().trim().max(300).nullable().optional(),
+});
+
 export const reprogramacionPreviaQuerySchema = z.object({
   eta: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),
   salida: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),

@@ -96,6 +96,8 @@ const RECORD_SELECT_LIST = {
   ...TRASPASO_SELECT,
   reprogramadoAt: true,
   reprogramacion: true,
+  anuladoAt: true,
+  anulacion: true,
   reprogramadoDeId: true,
   descripcion: true,
   codigo: true,

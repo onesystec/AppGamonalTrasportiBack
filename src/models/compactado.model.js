@@ -5,10 +5,11 @@ import { prisma } from "../config/prisma.js";
 // Servicios abiertos (aun no terminados).
 export const OPEN_STATES = ["IN_SOSPESO", "IN_CONSEGNA", "RITIRATO"];
 
-// Se puede compactar un servicio abierto o uno ya entregado al que todavia no se le cargaron horas (los que
-// se crean cuando el viaje ya paso: la ETA vencida no importa). Con horas cargadas ya no.
+// Se puede compactar un servicio abierto, uno ya entregado al que todavia no se le cargaron horas (los que
+// se crean cuando el viaje ya paso: la ETA vencida no importa) o uno anulado (el chofer puede seguir con otro servicio
+// en el mismo viaje). Con horas cargadas ya no.
 export const isCompactable = (r) =>
-  OPEN_STATES.includes(r.estado) || (r.estado === "CONSEGNATO" && !r.horasEstado);
+  OPEN_STATES.includes(r.estado) || r.estado === "ANNULLATO" || (r.estado === "CONSEGNATO" && !r.horasEstado);
 
 // Los ultimos servicios creados que se pueden compactar (abiertos, o entregados sin horas) y aun no estan en un viaje.
 export const findCompactableRecords = ({ spedizzioneFilter, limit = 60 } = {}) =>
@@ -16,7 +17,7 @@ export const findCompactableRecords = ({ spedizzioneFilter, limit = 60 } = {}) =
     // Incluye la continuacion de un traspaso (el servicio que recibe otro chofer): se puede llevar junto con
     // los servicios propios de ese chofer.
     where: {
-      OR: [{ estado: { in: OPEN_STATES } }, { estado: "CONSEGNATO", horasEstado: null }],
+      OR: [{ estado: { in: OPEN_STATES } }, { estado: "CONSEGNATO", horasEstado: null }, { estado: "ANNULLATO", horasEstado: null }],
       compactadoId: null,
       fechaServicio: { gte: VIAJES_DESDE_DATE },
       ...(spedizzioneFilter ?? {}),
@@ -57,6 +58,7 @@ export const findRecordsForCompact = (ids) =>
       spedizzione: true,
       extrasPiazzaZona: true,
       horasEstado: true,
+      anuladoAt: true,
       compactadoId: true,
       compactadoOrden: true,
       driver: { select: { nombre: true, apellido: true } },
