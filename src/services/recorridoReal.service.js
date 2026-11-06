@@ -18,6 +18,8 @@ const MIN_MS = 60 * 1000;
 const HOUR_MS = 60 * MIN_MS;
 const ANTES_DE_SALIR_MS = 20 * MIN_MS;
 const DESPUES_DE_ETA_MS = 3 * HOUR_MS;
+// En un viaje compactado la ultima ETA es la de la ultima entrega: la vuelta al lugar de espera puede llevar medio dia (p. ej. Mainz -> Milano).
+const DESPUES_DE_ETA_VIAJE_MS = 12 * HOUR_MS;
 const MAX_VENTANA_MS = 16 * HOUR_MS;
 // Un viaje compactado (varios servicios, a veces con traspaso y espera en la frontera) puede durar mas de un dia: se mira hasta 60 horas.
 const MAX_VENTANA_VIAJE_MS = 60 * HOUR_MS;
@@ -71,7 +73,8 @@ const ventanaDe = async (record) => {
   const fines = list.flatMap((m) => [m.eta, m.llegadaGpsAt].filter(Boolean).map((d) => new Date(d).getTime()));
   const from = Math.min(...salidas) - ANTES_DE_SALIR_MS;
   const tope = record.compactadoId && list.length > 1 ? MAX_VENTANA_VIAJE_MS : MAX_VENTANA_MS;
-  const to = Math.min(Date.now(), Math.min(Math.max(...fines, from) + DESPUES_DE_ETA_MS, from + tope));
+  const despues = record.compactadoId && list.length > 1 ? DESPUES_DE_ETA_VIAJE_MS : DESPUES_DE_ETA_MS;
+  const to = Math.min(Date.now(), Math.min(Math.max(...fines, from) + despues, from + tope));
   return { from, to };
 };
 
