@@ -39,7 +39,7 @@ import { pasosDe, routePoints } from "../constants/brennero.js";
 import { toRomeParts } from "../constants/appsheetMaps.js";
 import { OPEN_STATES, setGroupOpenEstado } from "../models/compactado.model.js";
 import { viajesAplican } from "../config/viajes.js";
-import { ensureCircuitSafe } from "./rutaEstimada.service.js";
+import { circuitoDeServicio, ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { canAccessRecordArea, recordAreaWhere } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
 import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
@@ -755,7 +755,8 @@ export const getRecordByIdForActor = async (actor, id) => {
   // primera vez y cuando cambian las paradas.
   if (viajesAplican(record.fechaServicio)) {
     const circuito = await ensureCircuitSafe(id);
-    if (circuito) record.circuito = circuito;
+    // Un servicio recibido en un viaje con un anulado muestra solo su tramo (desde donde el chofer ya estaba), no el circuito entero.
+    if (circuito) record.circuito = circuitoDeServicio(record, circuito);
   }
   await attachFaltantes([record]);
   return toResponse(record, actor);

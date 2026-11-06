@@ -168,6 +168,61 @@ export const traspasoPoints = async (record) => {
   return { base, retiros: distanceMeters(base, lugar) > CIRCUIT_SAME_PLACE_M ? [lugar] : [], paradas: placedStops(record), pasos: [] };
 };
 
+// Viaje compacto con un servicio ANULADO y otro RECIBIDO por traspaso (el chofer manejo hasta el lugar del traspaso, el servicio se
+// anulo, y alli recibio el paquete de otro chofer en vez de volver al lugar de espera). El recorrido real es:
+//   lugar de espera -> retiro del anulado -> lugar del traspaso -> paradas del servicio recibido -> lugar de espera
+// El anulado no entrega (su parada no se alcanzo) y el recibido NO sale de la base: sigue desde el lugar donde ya estaba el chofer.
+export const esViajeConRecibido = (members) => members.some((m) => m.servicioOrigenId) && members.some((m) => m.estado === "ANNULLATO");
+
+const viajeConRecibidoPoints = async (members) => {
+  const base = await resolveReturn(members[0]);
+  const retiros = [];
+  const paradas = [];
+  // Cada servicio recibido: donde se paso el paquete (dato de la continuacion), ya ubicado en el mapa.
+  const lugares = new Map();
+  for (const m of members) {
+    if (m.servicioOrigenId) {
+      const text = m.traspasoLugar?.trim();
+      if (!text) return null;
+      try {
+        const found = await geocodeAddress(text);
+        lugares.set(m.id, { direccion: text, lat: found.lat, lng: found.lng });
+      } catch {
+        return null;
+      }
+      if ((m.stops ?? []).length === 0 || placedStops(m).length !== m.stops.length) return null;
+    } else if (m.estado !== "ANNULLATO" && ((m.stops ?? []).length === 0 || placedStops(m).length !== m.stops.length)) {
+      return null;
+    }
+  }
+  for (const m of members) {
+    if (m.servicioOrigenId) {
+      paradas.push(lugares.get(m.id), ...placedStops(m));
+      continue;
+    }
+    const pickup = pickupOf(m);
+    if (distanceMeters(base, pickup) > CIRCUIT_SAME_PLACE_M && !retiros.some((r) => distanceMeters(r, pickup) <= CIRCUIT_SAME_PLACE_M)) retiros.push(pickup);
+    // Un anulado no entrego: sus paradas no se recorrieron.
+    if (m.estado !== "ANNULLATO") paradas.push(...placedStops(m));
+  }
+  if (paradas.length === 0) return null;
+  return { base, retiros, paradas, pasos: [], lugares: members.filter((m) => m.servicioOrigenId).map((m) => ({ codigo: m.codigo, lugar: lugares.get(m.id).direccion })) };
+};
+
+// El tramo del circuito del viaje que le toca a un servicio recibido: desde el lugar del traspaso en adelante (no sale de la base).
+export const circuitoDeServicio = (record, circuito) => {
+  const parte = circuito?.partes?.[record?.codigo];
+  if (!parte) return circuito ?? null;
+  return {
+    ...circuito,
+    km: parte.km,
+    tramos: parte.tramos,
+    base: circuito.base,
+    nota: parte.nota,
+    esParte: true,
+  };
+};
+
 // Ruta de ida (base -> retiros -> paradas) y de vuelta (ultima parada -> base). Si el chofer declaro que no uso peaje de ida o de
 // vuelta, ese sentido se calcula sin autopistas de pago (sinPeaje). Sin servidor de rutas se estima en linea recta (con un factor), y
 // queda marcado.
@@ -235,11 +290,14 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   const record = await findRecordById(recordId);
   if (!record) return null;
   const traspaso = Boolean(record.servicioOrigenId || record.continuaciones?.length);
+  // Viaje con un anulado y un servicio recibido: un solo circuito del viaje (ver viajeConRecibidoPoints).
+  const unidad = record.compactadoId ? await unitOf(record) : null;
+  const viajeRecibido = Boolean(unidad && esViajeConRecibido(unidad));
   // Un servicio con traspaso dentro de un viaje compacto no tiene circuito propio.
-  if (traspaso && record.compactadoId) return null;
-  const members = traspaso ? [record] : await unitOf(record);
-  if (!traspaso && members.some((m) => m.servicioOrigenId || m.continuaciones?.length)) return null;
-  const points = traspaso ? await traspasoPoints(record) : await circuitPoints(members);
+  if (traspaso && record.compactadoId && !viajeRecibido) return null;
+  const members = viajeRecibido ? unidad : traspaso ? [record] : (unidad ?? (await unitOf(record)));
+  if (!viajeRecibido && !traspaso && members.some((m) => m.servicioOrigenId || m.continuaciones?.length)) return null;
+  const points = viajeRecibido ? await viajeConRecibidoPoints(members) : traspaso ? await traspasoPoints(record) : await circuitPoints(members);
   if (!points) {
     // Sin lugar del traspaso (o sin ubicarlo) no hay circuito: se borra el que hubiera de antes del traspaso (era el del servicio entero).
     if (traspaso && (record.circuito || record.circuitoKm != null)) {
@@ -285,6 +343,7 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     retiros: points.retiros.map((p) => p.direccion),
     paradas: points.paradas.map((p) => p.direccion ?? null),
     servicios: members.map((m) => m.codigo),
+    viaje: viajeRecibido ? "ANULADO_Y_RECIBIDO" : undefined,
     firma,
     peajes: await peajesDeLegs(legs, sinPeaje),
     fuente: legs.estimada ? "estimada" : "ruta",
@@ -292,6 +351,20 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
   };
   // El total es la suma de los tramos que se muestran (asi lo que se ve en pantalla siempre suma).
   circuito.km = round1(circuito.tramos.reduce((sum, t) => sum + t.km, 0));
+  // Del servicio recibido, solo lo que le toca: desde el lugar del traspaso (donde ya estaba el chofer) hasta volver al lugar de espera.
+  if (viajeRecibido) {
+    circuito.partes = {};
+    for (const { codigo, lugar } of points.lugares) {
+      const i = circuito.tramos.findIndex((t) => t.hasta === lugar);
+      if (i === -1) continue;
+      const tramos = circuito.tramos.slice(i + 1);
+      circuito.partes[codigo] = {
+        km: round1(tramos.reduce((sum, t) => sum + t.km, 0)),
+        tramos,
+        nota: `Sale desde ${lugar}, donde el chofer ya estaba (venia de un servicio anulado): no sale del lugar de espera.`,
+      };
+    }
+  }
   circuito.base = {
     km: round1([...legsBase.tramosIda.map((t) => round1(t.km)), round1(legsBase.vueltaKm)].reduce((sum, km) => sum + km, 0)),
     min: Math.round(legsBase.idaMin) + Math.round(legsBase.vueltaMin),
@@ -303,6 +376,12 @@ export const ensureCircuit = async (recordId, { force = false } = {}) => {
     circuitoKmBase: circuito.base.km,
     circuitoMinBase: circuito.base.min,
   });
+  // El servicio recibido ya no tiene circuito propio (el viejo salia de la base y quedaba desactualizado): lo cubre el del viaje.
+  if (viajeRecibido) {
+    for (const m of members.filter((x) => x.id !== holder.id && (x.circuito || x.circuitoKm != null))) {
+      await updateRecordById(m.id, { circuito: Prisma.DbNull, circuitoKm: null, circuitoMin: null, circuitoKmBase: null, circuitoMinBase: null });
+    }
+  }
   return circuito;
 };
 

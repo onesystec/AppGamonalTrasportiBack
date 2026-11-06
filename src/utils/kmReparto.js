@@ -21,6 +21,14 @@ export const planesDelViaje = (members) => {
   const ownTotal = own.reduce((sum, v) => sum + v, 0);
   const circuito = members[0]?.circuito?.km;
   if (!(circuito > 0)) return { total: round1(ownTotal), planes: own, circuito: false };
+  // Viaje con un anulado y un servicio recibido en el lugar del traspaso: al recibido le toca su tramo (desde ese lugar) y el resto, al otro.
+  const partes = members[0]?.circuito?.partes;
+  if (partes) {
+    const propios = members.map((m) => (typeof partes[m.codigo]?.km === "number" ? partes[m.codigo].km : null));
+    const sinParte = propios.filter((v) => v == null).length;
+    const resto = Math.max(0, circuito - propios.reduce((sum, v) => sum + (v ?? 0), 0));
+    return { total: round1(circuito), planes: propios.map((v) => v ?? (sinParte > 0 ? resto / sinParte : 0)), circuito: true };
+  }
   const planes = ownTotal > 0 ? own.map((v) => (circuito * v) / ownTotal) : members.map(() => circuito / members.length);
   return { total: round1(circuito), planes, circuito: true };
 };
