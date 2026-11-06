@@ -93,10 +93,14 @@ const loadForCompact = async (actor, ids, groupId = null) => {
       400
     );
   }
-  const otroVehiculo = ordered.find((r) => r.vehicleId !== first.vehicleId);
+  // Mismo vehiculo, salvo los anulados: despues de anular, el chofer puede seguir con otro servicio en otro vehiculo (por ejemplo,
+  // se queda en la frontera a recibir un paquete de otro chofer). Los servicios que se hicieron si comparten vehiculo.
+  const hechos = ordered.filter((r) => r.estado !== "ANNULLATO");
+  const base = hechos[0];
+  const otroVehiculo = base ? hechos.find((r) => r.vehicleId !== base.vehicleId) : null;
   if (otroVehiculo) {
     throw new AppError(
-      `Los servicios deben usar el mismo vehiculo: ${first.codigo} usa ${first.vehicle.targa} y ${otroVehiculo.codigo} usa ${otroVehiculo.vehicle.targa}`,
+      `Los servicios deben usar el mismo vehiculo: ${base.codigo} usa ${base.vehicle.targa} y ${otroVehiculo.codigo} usa ${otroVehiculo.vehicle.targa} (solo un servicio anulado puede ir en otro vehiculo)`,
       400
     );
   }

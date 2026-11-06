@@ -278,6 +278,8 @@ export const reprogramarSchema = z.object({
 // Anulacion de un servicio con los km que el chofer hizo antes (0 = sin km). Ver anulacion.service.js.
 export const anularSchema = z.object({
   kmRecorridos: z.coerce.number({ invalid_type_error: "Indica los km recorridos" }).min(0, "No puede ser negativo").max(5000, "Maximo 5000 km").optional(),
+  // true = los km indicados son solo de ida: se cuenta tambien la vuelta (x2).
+  soloIda: z.boolean().optional(),
   nota: z.string().trim().max(300).nullable().optional(),
 });
 

@@ -21,7 +21,7 @@ const assertOffice = (actor) => {
   if (actor.cargo !== "OWNER" && actor.cargo !== "ADMIN") throw new AppError("Solo Admin y Responsables pueden anotar los km de una anulacion", 403);
 };
 
-export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, nota = null }) => {
+export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, soloIda = false, nota = null }) => {
   assertOffice(actor);
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
@@ -32,7 +32,9 @@ export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, nota =
     throw new AppError("Solo se puede anular un servicio que todavia esta abierto (en suspenso, en camino o retirado)", 409);
   }
 
-  const km = round1(Number(kmRecorridos) || 0);
+  // "Solo ida": el chofer indica los km de ida y la vuelta tambien se cuenta (x2).
+  const kmIngresados = round1(Number(kmRecorridos) || 0);
+  const km = round1(kmIngresados * (soloIda ? 2 : 1));
   if (km < 0 || km > MAX_KM) throw new AppError(`Los km recorridos tienen que estar entre 0 y ${MAX_KM}`, 400, { kmRecorridos: [`Entre 0 y ${MAX_KM} km`] });
   if (km > 0 && (record.servicioOrigenId || record.continuaciones?.length)) {
     throw new AppError("Este servicio tiene un traspaso entre choferes: por ahora no se pueden anotar km al anularlo", 409);
@@ -56,6 +58,8 @@ export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, nota =
       anulacion: {
         kmPlanificados: planificados,
         kmHechos: km,
+        kmIngresados,
+        soloIda: Boolean(soloIda),
         kilometrosOriginales: originales,
         nota: textoNota,
         porId: actor.id,
@@ -63,7 +67,7 @@ export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, nota =
       },
       ...(record.anuladoAt
         ? {}
-        : { comentarios: [record.comentarios, `Anulado: el chofer hizo ${km} km antes de la anulacion.${textoNota ? ` ${textoNota}` : ""}`].filter(Boolean).join("\n") }),
+        : { comentarios: [record.comentarios, `Anulado: el chofer hizo ${km} km antes de la anulacion${soloIda ? ` (${kmIngresados} de ida y otros tantos de vuelta)` : ""}.${textoNota ? ` ${textoNota}` : ""}`].filter(Boolean).join("\n") }),
     };
   } else {
     data = {
