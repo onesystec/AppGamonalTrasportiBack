@@ -105,10 +105,16 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const ESTADOS = ["IN_SOSPESO", "IN_CONSEGNA", "RITIRATO", "CONSEGNATO", "ANNULLATO", "RISCHEDULATO"];
 const SPEDIZZIONI = ["DHL", "AB_SERVICE", "EXTRA_PIAZZA", "EXTRAS_STEFANIA"];
 const only = (value, ok) => (typeof value === "string" && ok(value) ? value : undefined);
+// Importe en euros (acepta coma decimal); cualquier otra cosa se ignora.
+const euros = (value) => {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const n = Number(value.trim().replace(",", "."));
+  return Number.isFinite(n) && n >= 0 && n < 1e9 ? n : undefined;
+};
 
 // Filtros opcionales de la busqueda (solo se aceptan valores con el formato esperado; el resto se ignora).
 export const search = asyncHandler(async (req, res) => {
-  const { q, driverId, vehicleId, clientId, estado, targa, spedizzione, from, to } = req.query;
+  const { q, driverId, vehicleId, clientId, estado, targa, spedizzione, from, to, montoMin, montoMax } = req.query;
   const estados = typeof estado === "string" ? estado.split(",").filter((e) => ESTADOS.includes(e)) : [];
   const { records, total } = await searchRecordsForActor(req.user, {
     q: typeof q === "string" ? q : "",
@@ -120,6 +126,8 @@ export const search = asyncHandler(async (req, res) => {
     spedizzione: only(spedizzione, (v) => SPEDIZZIONI.includes(v)),
     from: only(from, (v) => DAY.test(v)),
     to: only(to, (v) => DAY.test(v)),
+    montoMin: euros(montoMin),
+    montoMax: euros(montoMax),
   });
   res.status(200).json({ success: true, data: { records, total } });
 });

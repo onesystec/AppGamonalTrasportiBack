@@ -672,7 +672,7 @@ const nextDay = (day) => {
   const [y, m, d] = day.split("-").map(Number);
   return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
 };
-const hasFilters = (f) => Boolean(f.driverId || f.vehicleId || f.clientId || f.estados?.length || f.targa || f.spedizzione || f.from || f.to);
+const hasFilters = (f) => Boolean(f.driverId || f.vehicleId || f.clientId || f.estados?.length || f.targa || f.spedizzione || f.from || f.to || f.montoMin != null || f.montoMax != null);
 
 export const searchRecordsForActor = async (actor, params) => {
   const { q: rawQ, ...rest } = typeof params === "string" ? { q: params } : (params ?? {});
@@ -689,6 +689,8 @@ export const searchRecordsForActor = async (actor, params) => {
         estados: rest.estados,
         targa: rest.targa,
         spedizzione: rest.spedizzione,
+        montoMin: rest.montoMin,
+        montoMax: rest.montoMax,
         dateRange: {
           gte: rest.from ? romeLocalToDate(rest.from, "00:00") : undefined,
           lt: rest.to ? romeLocalToDate(nextDay(rest.to), "00:00") : undefined,

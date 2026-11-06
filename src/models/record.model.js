@@ -338,13 +338,17 @@ const SEARCH_RESULTS_LIMIT = 50;
 // Con filtros (chofer, vehiculo, fechas...) la busqueda es mas especifica: se devuelven mas resultados (y el total, para avisar si hay mas).
 const FILTERED_SEARCH_LIMIT = 300;
 
-// filters: { driverId, vehicleId, clientId, estados[], targa, spedizzione, dateRange: { gte?, lt? } } - todos opcionales.
+// filters: { driverId, vehicleId, clientId, estados[], targa, spedizzione, montoMin, montoMax, dateRange: { gte?, lt? } } - todos opcionales.
 // "driverId" de arriba (el del chofer que consulta) manda sobre el filtro de chofer.
 const searchWhere = ({ q, driverId, spedizzioneFilter, filters = {} }) => ({
   ...((driverId ?? filters.driverId) ? { driverId: driverId ?? filters.driverId } : {}),
   ...(filters.vehicleId ? { vehicleId: filters.vehicleId } : {}),
   ...(filters.clientId ? { clientId: filters.clientId } : {}),
   ...(filters.estados?.length ? { estado: { in: filters.estados } } : {}),
+  // Monto recibido (pagoRecibido) entre montoMin y montoMax, ambos incluidos; los servicios sin monto no entran.
+  ...(filters.montoMin != null || filters.montoMax != null
+    ? { pagoRecibido: { ...(filters.montoMin != null ? { gte: filters.montoMin } : {}), ...(filters.montoMax != null ? { lte: filters.montoMax } : {}) } }
+    : {}),
   ...(filters.targa ? { vehicle: { targa: { contains: filters.targa, mode: "insensitive" } } } : {}),
   ...(filters.dateRange?.gte || filters.dateRange?.lt
     ? { fechaServicio: { ...(filters.dateRange.gte ? { gte: filters.dateRange.gte } : {}), ...(filters.dateRange.lt ? { lt: filters.dateRange.lt } : {}) } }
