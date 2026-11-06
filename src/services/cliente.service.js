@@ -10,6 +10,7 @@ import { getSeguimiento, RETRASO_AVISO_MIN } from "./seguimiento.service.js";
 import { getSignedUrlForKey } from "./storage.service.js";
 import { listVehicleLivePositionsForActor } from "./vehicle.service.js";
 import { getDisponibilidadForActor } from "./disponibilidad.service.js";
+import { esMedtronic } from "../utils/aortic.js";
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
@@ -131,8 +132,9 @@ export const toClienteServicio = (s, { conMapa, conChofer = false }) => {
     id: s.id,
     codigo: s.codigo,
     targa: s.vehiculo ?? null,
-    // Servicio de Medtronic (material sanitario): el mapa le pone una alerta sobre la patente. Solo el indicador, no el nombre del cliente final.
-    medtronic: /medtronic/i.test(s.cliente ?? ""),
+    // Servicio critico: Medtronic AORTIC (los Medtronic "scheduled" no lo son necesariamente). El mapa y la tarjeta le ponen una alerta. Solo el
+    // indicador, no el nombre del cliente final.
+    critico: esMedtronic(s.cliente) && Boolean(s.aortic),
     // Solo el nombre (nunca el telefono ni el id) y solo con el modulo CHOFER.
     chofer: conChofer ? s.chofer?.nombre ?? null : undefined,
     destino: s.destino,

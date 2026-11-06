@@ -101,6 +101,7 @@ const RECORD_SELECT_LIST = {
   kmPago: true,
   reprogramadoDeId: true,
   descripcion: true,
+  aortic: true,
   codigo: true,
   destinazione: true,
   ciudad: true,

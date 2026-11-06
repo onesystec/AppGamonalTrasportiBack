@@ -424,6 +424,7 @@ export const getSeguimiento = async (actor, { now = Date.now() } = {}) => {
         vehiculo: data.targa ?? null,
         cliente: member.client?.nombre ?? null,
         clienteId: member.clientId ?? null,
+        aortic: Boolean(member.aortic),
         destino: item.destino,
         // Coordenadas de la parada final (para que el cliente vea donde esta SU entrega en el mapa).
         destinoCoords: hasCoords(lastPlacedStop(member)) ? { lat: lastPlacedStop(member).lat, lng: lastPlacedStop(member).lng } : null,

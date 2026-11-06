@@ -712,6 +712,9 @@ model Record {
   // va en el primer servicio del viaje.
   kmPago           Json?
 
+  // Servicio AORTIC de Medtronic (critico): se detecta en la descripcion (utils/aortic.js) y se puede corregir a mano en el formulario.
+  aortic           Boolean  @default(false)
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]

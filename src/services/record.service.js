@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { esAortic } from "../utils/aortic.js";
 import {
   createRecord as createRecordModel,
   deleteRecordById,
@@ -379,6 +380,7 @@ const toFullResponse = (record) => {
     traspasoHora: record.traspasoHora ?? null,
     reprogramado: toReprogramado(record),
     anulado: toAnulado(record),
+    aortic: Boolean(record.aortic),
     // En un viaje compacto el dato vive en el primer servicio: los demas lo muestran tambien.
     kmPago: record.kmPago ?? record.compactadoMembers?.[0]?.kmPago ?? null,
     reprogramadoDe: record.reprogramadoDe
@@ -527,6 +529,8 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
   }
 
   const { stops: direcciones, salida: salidaInput, ...rest } = data;
+  // AORTIC (Medtronic critico): lo que diga el formulario o, si no dice, lo que se lea en la descripcion.
+  rest.aortic = rest.aortic ?? esAortic(rest.descripcion);
   // El dia del servicio es el de la salida (Fecha retiro) o, sin ella, el de la ETA: ya no se carga aparte.
   // (El historico importado conserva la fecha que trae.)
   if (!skipActiveCheck) rest.fechaServicio = rest.fechaRetiro ?? rest.fechaServicio ?? rest.eta;
@@ -999,6 +1003,9 @@ export const updateRecordForActor = async (actor, id, data) => {
       if (nuevo != null) payload = { ...payload, precioKm: nuevo };
     }
   }
+
+  // Si la oficina cambia la descripcion y no toca el interruptor AORTIC, se vuelve a detectar en el texto nuevo.
+  if (isPrivileged(actor) && "descripcion" in payload && !("aortic" in payload)) payload = { ...payload, aortic: esAortic(payload.descripcion) };
 
   // Sacar un servicio del estado Anulado deshace la anulacion con km: vuelven los km que tenia.
   if (record.anuladoAt && payload.estado && payload.estado !== "ANNULLATO") {

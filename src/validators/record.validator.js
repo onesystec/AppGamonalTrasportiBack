@@ -110,6 +110,7 @@ export const createRecordSchema = z.object({
   fechaRetiro,
   retiroPaqueteAt: fechaRetiro,
   descripcion: z.string().trim().min(1, "La descripcion es obligatoria"),
+  aortic: z.boolean().optional(),
   codigo: z.string().trim().min(1, "El codigo es obligatorio"),
   ciudad: z.string().trim().optional(),
   // Pais de la entrega (codigo ISO de 2 letras); vacio = Italia.
@@ -149,6 +150,7 @@ export const updateRecordSchema = z.object({
   fechaRetiro,
   retiroPaqueteAt: fechaRetiro,
   descripcion: z.string().trim().min(1).optional(),
+  aortic: z.boolean().optional(),
   codigo: z.string().trim().min(1).optional(),
   ciudad: z.string().trim().optional(),
   // Pais de la entrega (codigo ISO de 2 letras); vacio = Italia.
