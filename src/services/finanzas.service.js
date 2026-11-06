@@ -99,7 +99,7 @@ const esServicioNocturno = (record, salida, banda, rutaMin) => {
 //  - Reperibilidad: si el servicio es fuera del horario laboral (sale en fin de semana o festivo, o es de noche) se suma
 //    un solo extra, con cualquiera de las dos modalidades.
 // Distancia: la que reporto el chofer si la cargo, si no la del servicio y, de ultima, la de la ruta.
-export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeSinCircuito = false } = {}) => {
+export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeSinCircuito = false, kmFijado = false } = {}) => {
   const month = romeDay(record.fechaServicio).slice(0, 7);
   const tariff = tariffForMonth(month);
   // Con pago por km (tarifa desde 2026-10) no hay horas declaradas ni aprobacion: siempre se paga por distancia y la espera
@@ -159,10 +159,15 @@ export const computeServicePay = (record, { kmViaje = null, viajeMin = 0, viajeS
   } else {
     modo = "KM";
     if (kmViaje != null && kmViaje > 0) {
-      // Servicio principal de un viaje compacto: los km de todo el viaje, pagados una sola vez.
+      // Servicio principal de un viaje compacto: los km de todo el viaje, pagados una sola vez. Si la oficina fijo los km a pagar, esos.
       km = kmViaje;
-      kmFuente = "VIAJE";
+      kmFuente = kmFijado ? "FIJADO" : "VIAJE";
       rutaMin = numberOr0(viajeMin);
+    } else if (numberOr0(record.kmPago?.km) > 0) {
+      // Km fijados por la oficina para este servicio: mandan sobre el circuito y los km planificados o reales.
+      km = record.kmPago.km;
+      kmFuente = "FIJADO";
+      rutaMin = 0;
     } else if (viajeSinCircuito) {
       // Viaje compacto sin circuito calculado: no se paga la suma de sus servicios por separado (contaria varias vueltas al
       // lugar de espera). Queda en 0, marcado para revisar, hasta que el circuito del viaje se calcule.
@@ -299,8 +304,12 @@ export const buildViajeContext = (records) => {
     const holder = [...members].sort((a, b) => (a.compactadoOrden ?? 0) - (b.compactadoOrden ?? 0))[0];
     const circuitoViaje = !conReales && porKmViaje ? circuitoKmDe(principal) || circuitoKmDe(holder) : 0;
     const sinCircuito = porKmViaje && !conReales && circuitoViaje === 0;
+    // Km a pagar fijados por la oficina (van en el primer servicio del viaje): mandan sobre el circuito y los km reales.
+    const fijado = numberOr0(members.find((m) => numberOr0(m.kmPago?.km) > 0)?.kmPago?.km);
     const km =
-      circuitoViaje > 0
+      fijado > 0
+        ? fijado
+        : circuitoViaje > 0
         ? circuitoViaje
         : sinReparto && numberOr0(principal.kilometrosReales) > 0
           ? principal.kilometrosReales
@@ -309,9 +318,10 @@ export const buildViajeContext = (records) => {
       principalId: principal.id,
       principalCodigo: principal.codigo,
       principalHorasEstado: principal.horasEstado ?? null,
-      km: sinCircuito ? 0 : km,
-      min: circuitoViaje > 0 ? circuitoMinDe(circuitoKmDe(principal) ? principal : holder) : 0,
-      sinCircuito,
+      km: fijado > 0 ? fijado : sinCircuito ? 0 : km,
+      fijado: fijado > 0,
+      min: fijado > 0 ? 0 : circuitoViaje > 0 ? circuitoMinDe(circuitoKmDe(principal) ? principal : holder) : 0,
+      sinCircuito: fijado > 0 ? false : sinCircuito,
       holderId: holder?.id ?? principal.id,
       servicios: members.length,
     });
@@ -348,7 +358,7 @@ export const payOf = (record, ctx) => {
   const viaje = record.compactadoId ? ctx?.get(record.compactadoId) : null;
   if (!viaje) return computeServicePay(record);
   if (record.id !== viaje.principalId) return includedPay(record, viaje);
-  return { ...computeServicePay(record, { kmViaje: viaje.km, viajeMin: viaje.min, viajeSinCircuito: viaje.sinCircuito }), viajeServicios: viaje.servicios };
+  return { ...computeServicePay(record, { kmViaje: viaje.km, viajeMin: viaje.min, viajeSinCircuito: viaje.sinCircuito, kmFijado: viaje.fijado }), viajeServicios: viaje.servicios };
 };
 
 const emptyPay = () => ({ total: 0, base: 0, espera: 0, reperibilidad: 0, salidas: 0, salidasNoche: 0, kmDudosos: 0, servicios: 0, choferes: new Set() });

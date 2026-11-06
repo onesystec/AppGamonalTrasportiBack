@@ -87,6 +87,7 @@ const MEMBER_SELECT = {
   kilometrosReales: true,
   rutaDistanciaKm: true,
   kmReparto: true,
+  kmPago: true,
   circuito: true,
   circuitoKmBase: true,
   circuitoMinBase: true,

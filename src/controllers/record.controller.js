@@ -29,6 +29,7 @@ import {
   reprogramarRecordForActor,
 } from "../services/reprogramacion.service.js";
 import { anularRecordForActor } from "../services/anulacion.service.js";
+import { fijarKmPagoForActor } from "../services/kmPago.service.js";
 import { countUnsupportedForDriver } from "../services/faltantes.service.js";
 import { buildDateRange } from "../utils/dateRange.js";
 import { getRecorridoForActor } from "../services/recorridoReal.service.js";
@@ -259,6 +260,11 @@ export const reprogramacionKmGps = asyncHandler(async (req, res) => {
 export const reprogramar = asyncHandler(async (req, res) => {
   const data = await reprogramarRecordForActor(req.user, req.params.id, req.body);
   res.status(201).json({ success: true, data });
+});
+
+export const fijarKmPago = asyncHandler(async (req, res) => {
+  const record = await fijarKmPagoForActor(req.user, req.params.id, req.body);
+  res.status(200).json({ success: true, data: { record } });
 });
 
 export const anular = asyncHandler(async (req, res) => {

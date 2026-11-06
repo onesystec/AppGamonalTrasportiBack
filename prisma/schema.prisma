@@ -707,6 +707,11 @@ model Record {
   anuladoAt        DateTime?
   anulacion        Json?
 
+  // Km a pagar al chofer fijados por la oficina (ver kmPago.service.js): { km, nota, porId, at }. Manda sobre el circuito y los km
+  // reales cuando el recorrido que hizo el chofer no coincide con lo planificado (desvios, esperas, anulaciones). En un viaje compacto
+  // va en el primer servicio del viaje.
+  kmPago           Json?
+
   files        RecordFile[]
   mancatos     MancatoPagamento[]
   combustibles RegistroCombustible[]

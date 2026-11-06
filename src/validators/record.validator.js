@@ -283,6 +283,12 @@ export const anularSchema = z.object({
   nota: z.string().trim().max(300).nullable().optional(),
 });
 
+// Km a pagar al chofer fijados por la oficina (null = volver al calculo normal). Ver kmPago.service.js.
+export const kmPagoSchema = z.object({
+  km: z.coerce.number({ invalid_type_error: "Indica los km a pagar" }).positive("Tienen que ser mayores a 0").max(10000, "Maximo 10000 km").nullable().optional(),
+  nota: z.string().trim().max(300).nullable().optional(),
+});
+
 export const reprogramacionPreviaQuerySchema = z.object({
   eta: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),
   salida: z.preprocess((v) => (v === "" ? undefined : romeWallClock(v)), z.coerce.date().optional()),

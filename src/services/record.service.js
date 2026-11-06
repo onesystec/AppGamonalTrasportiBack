@@ -379,6 +379,8 @@ const toFullResponse = (record) => {
     traspasoHora: record.traspasoHora ?? null,
     reprogramado: toReprogramado(record),
     anulado: toAnulado(record),
+    // En un viaje compacto el dato vive en el primer servicio: los demas lo muestran tambien.
+    kmPago: record.kmPago ?? record.compactadoMembers?.[0]?.kmPago ?? null,
     reprogramadoDe: record.reprogramadoDe
       ? { recordId: record.reprogramadoDe.id, codigo: record.reprogramadoDe.codigo }
       : record.reprogramadoDeId

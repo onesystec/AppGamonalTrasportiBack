@@ -98,6 +98,7 @@ const RECORD_SELECT_LIST = {
   reprogramacion: true,
   anuladoAt: true,
   anulacion: true,
+  kmPago: true,
   reprogramadoDeId: true,
   descripcion: true,
   codigo: true,
