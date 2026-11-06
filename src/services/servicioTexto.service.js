@@ -446,7 +446,6 @@ const parseExtraPiazza = (lines, now) => {
   }
   const eta = findEtaExtra(lines, now, avisos);
 
-  if (!codigos.length) avisos.push("Codice non trovato.");
   if (!ritiro) avisos.push('Luogo di ritiro non trovato (scrivilo come "Ritiro: via ... città").');
   if (!consegna) avisos.push('Luogo di consegna non trovato (scrivilo come "Consegna: via ... città").');
   if (!eta) avisos.push("ETA non trovata.");
@@ -454,8 +453,9 @@ const parseExtraPiazza = (lines, now) => {
   const lugares = [ritiro && { rol: "ritiro", texto: ritiro }, consegna && !giro && { rol: "consegna", texto: consegna }].filter(Boolean);
   return {
     descripcion: lines,
-    shipment: codigos[0] ?? null,
-    orderNumero: codigos.length > 1 ? codigos.slice(1).join(" ") : null,
+    // Extra Piazza (Milano y Roma) no tiene Shipment ni Order: no se devuelven ni se piden.
+    shipment: null,
+    orderNumero: null,
     cliente: null,
     clienteId: null,
     tipoPedido: null,

@@ -157,10 +157,13 @@ const notifyOffice = async (solicitud, user) => {
   }
 };
 
+// Los servicios de Extra Piazza (Milano y Roma) no tienen Shipment ni Order: esos datos no se guardan.
+const sinNumeros = (servicio, data) => (servicio === "EXTRA_PIAZZA" ? { ...data, shipment: null, orderNumero: null } : data);
+
 export const createSolicitudCliente = async (user, data) => {
   requireRegistro(user);
   const solicitud = await prisma.solicitudServicio.create({
-    data: { ...data, zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: user.id, empresaId: user.clienteId ?? null },
+    data: { ...sinNumeros(data.servicio, data), zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: user.id, empresaId: user.clienteId ?? null },
     include: { creadoPor: CREADOR },
   });
   void notifyOffice(solicitud, user);
@@ -174,7 +177,7 @@ export const updateSolicitudCliente = async (user, id, data) => {
   // La zona solo existe en Extra Piazza.
   const servicio = data.servicio ?? current.servicio;
   const zona = servicio === "EXTRA_PIAZZA" ? (data.zona ?? current.zona ?? "MILANO") : null;
-  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data: { ...data, zona }, include: { creadoPor: CREADOR } });
+  const solicitud = await prisma.solicitudServicio.update({ where: { id }, data: { ...sinNumeros(servicio, data), zona }, include: { creadoPor: CREADOR } });
   return toDto(solicitud);
 };
 
@@ -338,7 +341,7 @@ export const leerTextoForActor = async (actor, { servicio, zona, texto }) => {
 export const crearDesdeTextoForActor = async (actor, data) => {
   assertServicioDelActor(actor, data.servicio, data.zona);
   const solicitud = await prisma.solicitudServicio.create({
-    data: { ...data, zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: actor.id, empresaId: null },
+    data: { ...sinNumeros(data.servicio, data), zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: actor.id, empresaId: null },
     include: OFFICE_INCLUDE,
   });
   return toDto(solicitud, { office: true });
@@ -406,8 +409,9 @@ export const registrarDesdeTextoCliente = async (user, { servicio, zona, fecha, 
       etaPendiente: !eta,
       km: parsed.km ?? null,
       descripcion: parsed.descripcion.slice(0, 4000),
-      shipment: parsed.shipment,
-      orderNumero: parsed.orderNumero,
+      // Extra Piazza no tiene Shipment ni Order.
+      shipment: servicio === "EXTRA_PIAZZA" ? null : parsed.shipment,
+      orderNumero: servicio === "EXTRA_PIAZZA" ? null : parsed.orderNumero,
       tipoPedido: parsed.tipoPedido,
       calle: parsed.calle ?? null,
       cap: parsed.cap ?? null,
