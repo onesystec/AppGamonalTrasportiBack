@@ -19,6 +19,8 @@ const HOUR_MS = 60 * MIN_MS;
 const ANTES_DE_SALIR_MS = 20 * MIN_MS;
 const DESPUES_DE_ETA_MS = 3 * HOUR_MS;
 const MAX_VENTANA_MS = 16 * HOUR_MS;
+// Un viaje compactado (varios servicios, a veces con traspaso y espera en la frontera) puede durar mas de un dia: se mira hasta 60 horas.
+const MAX_VENTANA_VIAJE_MS = 60 * HOUR_MS;
 const MIN_PUNTOS = 5;
 // Sin datos o sin llegar: se vuelve a calcular al mirarlo si pasaron mas de estos minutos.
 const REINTENTO_MS = 10 * MIN_MS;
@@ -68,7 +70,8 @@ const ventanaDe = async (record) => {
   const salidas = list.map((m) => new Date(m.fechaRetiro ?? m.fechaServicio).getTime());
   const fines = list.flatMap((m) => [m.eta, m.llegadaGpsAt].filter(Boolean).map((d) => new Date(d).getTime()));
   const from = Math.min(...salidas) - ANTES_DE_SALIR_MS;
-  const to = Math.min(Date.now(), Math.min(Math.max(...fines, from) + DESPUES_DE_ETA_MS, from + MAX_VENTANA_MS));
+  const tope = record.compactadoId && list.length > 1 ? MAX_VENTANA_VIAJE_MS : MAX_VENTANA_MS;
+  const to = Math.min(Date.now(), Math.min(Math.max(...fines, from) + DESPUES_DE_ETA_MS, from + tope));
   return { from, to };
 };
 
