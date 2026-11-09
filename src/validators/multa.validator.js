@@ -135,8 +135,9 @@ const listFilters = {
   descuentoPendiente: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
   // SRL / INDIVIDUAL, o SIN = las que no tienen titular indicado.
   titular: z.preprocess(emptyToUndefined, z.enum([...TITULAR_VALUES, "SIN"]).optional()),
-  // Datos del conductor: PENDIENTE (incluye las vencidas), ENVIADO o NO_REQUERIDO.
-  datiEstado: z.preprocess(emptyToUndefined, datiEstado.optional()),
+  // Datos del conductor: PENDIENTE (incluye las vencidas), ENVIADO o NO_REQUERIDO; ademas, de las pendientes,
+  // VENCIDO (paso el limite legal) o SEMANA (el limite es en los proximos 7 dias).
+  datiEstado: z.preprocess(emptyToUndefined, z.enum([...DATI_ESTADO_VALUES, "VENCIDO", "SEMANA"]).optional()),
 };
 
 export const listMultasQuerySchema = z.object({
@@ -148,6 +149,14 @@ export const listMultasQuerySchema = z.object({
 });
 
 export const summaryMultasQuerySchema = z.object(listFilters);
+
+// Informe de multas en Excel o PDF con los mismos filtros (y orden) de la lista, sin paginar.
+export const exportMultasQuerySchema = z.object({
+  ...listFilters,
+  estado: z.preprocess(emptyToUndefined, z.enum(ESTADO_VALUES).optional()),
+  orden: z.preprocess(emptyToUndefined, z.enum(ORDEN_VALUES).optional()),
+  formato: z.enum(["xlsx", "pdf"], { errorMap: () => ({ message: "Formato invalido (xlsx o pdf)" }) }),
+});
 export const statsMultasQuerySchema = z.object(listFilters);
 
 // Sugerencia de chofer: quien llevaba esa unidad el dia de la infraccion.

@@ -70,7 +70,13 @@ const buildWhere = (actor, filters, today) => {
   if (filters.quienPaga) and.push({ quienPaga: filters.quienPaga });
   if (filters.descuentoPendiente === "true") and.push({ quienPaga: "A_DESCONTAR", descontado: false });
   if (filters.titular) and.push({ titular: filters.titular === "SIN" ? null : filters.titular });
-  if (filters.datiEstado) and.push({ datiEstado: filters.datiEstado });
+  if (filters.datiEstado === "VENCIDO") {
+    and.push({ datiEstado: "PENDIENTE", datiLimite: { lt: dayToDate(today) } });
+  } else if (filters.datiEstado === "SEMANA") {
+    and.push({ datiEstado: "PENDIENTE", datiLimite: { gte: dayToDate(today), lte: dayToDate(addDaysDay(today, 7)) } });
+  } else if (filters.datiEstado) {
+    and.push({ datiEstado: filters.datiEstado });
+  }
   if (filters.q) {
     const q = filters.q;
     and.push({
@@ -384,6 +390,19 @@ export const listMultasForActor = async (actor, query) => {
 
   const items = await Promise.all(rows.map((m) => toActorResponse(actor, m, today)));
   return { items, total, page, pageSize };
+};
+
+// Informe (Excel/PDF): todas las multas que cumplen los filtros de la lista, ya en formato de respuesta. Con el filtro
+// de datos del conductor y sin orden elegido, primero el limite legal mas cercano.
+const EXPORT_MAX = 2000;
+export const exportMultasForActor = async (actor, query) => {
+  assertPrivileged(actor);
+  const today = romeDay();
+  const where = buildWhere(actor, query, today);
+  const orden = query.orden ?? (query.datiEstado ? "datiLimite" : undefined);
+  const rows = await findMultas({ where, orderBy: orderByFor({ ...query, orden }), skip: 0, take: EXPORT_MAX });
+  const items = await Promise.all(rows.map((m) => toActorResponse(actor, m, today)));
+  return { items, today };
 };
 
 // Cantidad y total en plata por estado, respetando los filtros (menos el de estado):

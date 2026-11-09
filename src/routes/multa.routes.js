@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { alerts, create, getById, list, remove, stats, suggestDriver, suggestForMulta, suggestForMultas, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
+import { alerts, create, exportInforme, getById, list, remove, stats, suggestDriver, suggestForMulta, suggestForMultas, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createMultaSchema,
+  exportMultasQuerySchema,
   idParamSchema,
   listMultasQuerySchema,
   statsMultasQuerySchema,
@@ -35,6 +36,7 @@ router.get("/", validate(listMultasQuerySchema, "query"), list);
 // Antes de "/:id" para que Express no lo tome como un id.
 router.get("/summary", validate(summaryMultasQuerySchema, "query"), summary);
 router.get("/stats", validate(statsMultasQuerySchema, "query"), stats);
+router.get("/export", validate(exportMultasQuerySchema, "query"), exportInforme);
 
 // Campanita (OWNER/ADMIN y chofer, cada uno ve lo suyo) y sugerencia de chofer (oficina).
 router.get("/alertas", alerts);
