@@ -4,8 +4,11 @@ import { romeDay } from "../utils/romeTime.js";
 
 const ESTADO_VALUES = ["PENDIENTE", "PAGADO", "VENCIDO"];
 const QUIEN_PAGA_VALUES = ["CHOFER_PAGO", "A_DESCONTAR"];
-const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto"];
+const ORDEN_VALUES = ["urgencia", "recientes", "antiguos", "monto", "datiLimite"];
 const TITULAR_VALUES = ["SRL", "INDIVIDUAL"];
+// Comunicacion de los datos del conductor (art. 126-bis): PENDIENTE, ENVIADO o NO_REQUERIDO.
+const DATI_ESTADO_VALUES = ["PENDIENTE", "ENVIADO", "NO_REQUERIDO"];
+const datiEstado = z.enum(DATI_ESTADO_VALUES, { errorMap: () => ({ message: "Estado de datos del conductor invalido" }) });
 // Titular del verbale: S.R.L. o ditta individuale.
 const titular = z.enum(TITULAR_VALUES, { errorMap: () => ({ message: "Titular invalido (SRL o INDIVIDUAL)" }) });
 
@@ -71,6 +74,15 @@ export const createMultaSchema = z.object({
   area: z.preprocess(emptyToUndefined, z.enum(AREA_KEYS).optional()),
   titular: z.preprocess(emptyToUndefined, titular.optional()),
   comentarios: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
+  // Datos del conductor (art. 126-bis): si quita puntos, plazo legal y si ya se enviaron.
+  puntosPatente: boolString.optional(),
+  datiEstado: z.preprocess(emptyToUndefined, datiEstado.optional()),
+  datiLimite: z.preprocess(emptyToUndefined, dateOnly.optional()),
+  datiEnviadoAt: z.preprocess(
+    emptyToUndefined,
+    dateOnly.refine((value) => value <= romeToday(), "La fecha de envio no puede ser futura").optional()
+  ),
+  datiConductor: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
 });
 
 // "" borra los textos opcionales (null); ausente no toca el campo.
@@ -93,6 +105,15 @@ export const updateMultaSchema = z.object({
   comentarios: z.preprocess(emptyToNull, z.string().trim().max(1000).nullable().optional()),
   pagado: boolString.optional(),
   descontado: boolString.optional(),
+  // Datos del conductor (art. 126-bis); "" borra el estado, las fechas y el conductor declarado.
+  puntosPatente: boolString.optional(),
+  datiEstado: z.preprocess(emptyToNull, datiEstado.nullable().optional()),
+  datiLimite: z.preprocess(emptyToNull, dateOnly.nullable().optional()),
+  datiEnviadoAt: z.preprocess(
+    emptyToNull,
+    dateOnly.refine((value) => value <= romeToday(), "La fecha de envio no puede ser futura").nullable().optional()
+  ),
+  datiConductor: z.preprocess(emptyToNull, z.string().trim().max(120).nullable().optional()),
 });
 
 export const idParamSchema = z.object({
@@ -110,6 +131,8 @@ const listFilters = {
   descuentoPendiente: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
   // SRL / INDIVIDUAL, o SIN = las que no tienen titular indicado.
   titular: z.preprocess(emptyToUndefined, z.enum([...TITULAR_VALUES, "SIN"]).optional()),
+  // Datos del conductor: PENDIENTE (incluye las vencidas), ENVIADO o NO_REQUERIDO.
+  datiEstado: z.preprocess(emptyToUndefined, datiEstado.optional()),
 };
 
 export const listMultasQuerySchema = z.object({

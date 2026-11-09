@@ -84,3 +84,19 @@ export const findOpenMultasDueBefore = (where, take) =>
       driver: { select: { nombre: true, apellido: true } },
     },
   });
+
+// Datos del conductor (art. 126-bis) pendientes, el limite mas cercano primero: alertas.
+export const findDatiPendientesBefore = (where, take) =>
+  prisma.multa.findMany({
+    where,
+    orderBy: [{ datiLimite: "asc" }, { createdAt: "asc" }],
+    take,
+    select: {
+      id: true,
+      numeroVerbale: true,
+      targa: true,
+      datiLimite: true,
+      datiConductor: true,
+      driver: { select: { nombre: true, apellido: true } },
+    },
+  });

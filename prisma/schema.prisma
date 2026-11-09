@@ -959,14 +959,30 @@ model Multa {
   titular              TitularMulta?
   pagado               Boolean        @default(false)
   pagadoAt             DateTime?
+  // Comunicacion de los datos del conductor (art. 126-bis C.d.S.): si la infraccion quita puntos de
+  // la patente, el propietario tiene que decir quien manejaba dentro del plazo legal (notificacion +
+  // 60 dias). datiEstado null = no aplica.
+  puntosPatente        Boolean        @default(false)
+  datiEstado           DatiConducenteEstado?
+  datiLimite           DateTime?      @db.Date
+  datiEnviadoAt        DateTime?      @db.Date
+  // Conductor que se declaro (puede no ser el chofer responsable del cobro).
+  datiConductor        String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
   @@index([pagado, fechaVencimiento])
+  @@index([datiEstado, datiLimite])
   @@index([driverId])
   @@index([fechaRecepcion])
   @@index([quienPaga, descontado])
   @@map("multas")
+}
+
+enum DatiConducenteEstado {
+  PENDIENTE
+  ENVIADO
+  NO_REQUERIDO
 }
 
 enum AreaCombustible {

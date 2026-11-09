@@ -10,6 +10,7 @@ import {
   findMultaByNumero,
   findMultas,
   findMultasForStats,
+  findDatiPendientesBefore,
   findOpenMultasDueBefore,
   findServicesByVehicleInRange,
   findVehicleByTarga,
@@ -69,6 +70,7 @@ const buildWhere = (actor, filters, today) => {
   if (filters.quienPaga) and.push({ quienPaga: filters.quienPaga });
   if (filters.descuentoPendiente === "true") and.push({ quienPaga: "A_DESCONTAR", descontado: false });
   if (filters.titular) and.push({ titular: filters.titular === "SIN" ? null : filters.titular });
+  if (filters.datiEstado) and.push({ datiEstado: filters.datiEstado });
   if (filters.q) {
     const q = filters.q;
     and.push({
@@ -155,6 +157,14 @@ const toResponse = async (m, today) => {
     // Negativo = vencida hace N dias; 0 = vence hoy.
     diasRestantes: dayDiff(today, vencimientoDay),
     pagadoFueraDePlazo: Boolean(m.pagadoAt) && romeDay(m.pagadoAt) > vencimientoDay,
+    // Datos del conductor (art. 126-bis): plazo legal y si ya se comunicaron.
+    puntosPatente: m.puntosPatente,
+    datiEstado: m.datiEstado ?? null,
+    datiLimite: m.datiLimite ?? null,
+    datiEnviadoAt: m.datiEnviadoAt ?? null,
+    datiConductor: m.datiConductor ?? null,
+    // Dias hasta el limite legal para mandar los datos (negativo = ya vencio); null si no aplica.
+    datiDiasRestantes: m.datiLimite ? dayDiff(today, dateOnlyToDay(m.datiLimite)) : null,
     // Fecha y hora reales de carga en el sistema: la pone el servidor, no se edita.
     registradoAt: m.createdAt,
     updatedAt: m.updatedAt,
@@ -176,6 +186,34 @@ const assertInfraccionBeforeRecepcion = (infraccionDay, recepcionDay) => {
       fechaInfraccion: ["No puede ser posterior a la fecha de recepcion"],
     });
   }
+};
+
+// Plazo legal para comunicar los datos del conductor (art. 126-bis): 60 dias desde la notificacion.
+const PLAZO_DATI_DIAS = 60;
+
+// Campos de "datos del conductor" con los valores finales: si la multa quita puntos y no hay estado,
+// queda PENDIENTE; sin limite cargado se usa recepcion + 60; al marcarla ENVIADO sin fecha, hoy.
+const resolveDati = (data, recepcionDay, current) => {
+  const out = {};
+  const puntos = data.puntosPatente ?? current?.puntosPatente ?? false;
+  if (data.puntosPatente !== undefined) out.puntosPatente = data.puntosPatente;
+  let estado = data.datiEstado !== undefined ? data.datiEstado : (current?.datiEstado ?? null);
+  if (puntos && !estado) estado = "PENDIENTE";
+  if (estado !== (current?.datiEstado ?? null) || data.datiEstado !== undefined) out.datiEstado = estado;
+
+  let limiteDay = data.datiLimite !== undefined ? data.datiLimite : current?.datiLimite ? dateOnlyToDay(current.datiLimite) : null;
+  if (!limiteDay && (puntos || estado)) limiteDay = addDaysDay(recepcionDay, PLAZO_DATI_DIAS);
+  const currentLimite = current?.datiLimite ? dateOnlyToDay(current.datiLimite) : null;
+  if (limiteDay !== currentLimite) out.datiLimite = limiteDay ? dayToDate(limiteDay) : null;
+
+  let enviadoDay =
+    data.datiEnviadoAt !== undefined ? data.datiEnviadoAt : current?.datiEnviadoAt ? dateOnlyToDay(current.datiEnviadoAt) : null;
+  if (estado === "ENVIADO" && !enviadoDay) enviadoDay = romeDay();
+  const currentEnviado = current?.datiEnviadoAt ? dateOnlyToDay(current.datiEnviadoAt) : null;
+  if (enviadoDay !== currentEnviado) out.datiEnviadoAt = enviadoDay ? dayToDate(enviadoDay) : null;
+
+  if (data.datiConductor !== undefined) out.datiConductor = data.datiConductor;
+  return out;
 };
 
 const resolveVencimiento = (recepcionDay, vencimientoDay) => {
@@ -247,6 +285,7 @@ export const createMultaForActor = async (actor, data, files) => {
       comentarios: data.comentarios ?? null,
       multaKey,
       comprobanteKey,
+      ...resolveDati(data, data.fechaRecepcion, null),
       // Subir el comprobante de pago al cargarla ya la deja como pagada.
       pagado: Boolean(comprobanteKey),
       pagadoAt: comprobanteKey ? now : null,
@@ -306,6 +345,8 @@ const ORDER_BY_ORDEN = {
   recientes: [{ fechaRecepcion: "desc" }, { createdAt: "desc" }],
   antiguos: [{ fechaRecepcion: "asc" }, { createdAt: "asc" }],
   monto: [{ costo: "desc" }, { createdAt: "desc" }],
+  // Lo mas urgente para mandar los datos del conductor primero; las que no aplican, al final.
+  datiLimite: [{ datiLimite: { sort: "asc", nulls: "last" } }, { createdAt: "asc" }],
 };
 
 // Sin "orden" explicito, cada estado tiene su orden natural (ver ORDER_BY_ESTADO).
@@ -395,6 +436,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
     payload,
     descuentoFields(payload.quienPaga ?? current.quienPaga, data.descontado, current)
   );
+  Object.assign(payload, resolveDati(data, recepcionDay, current));
 
   const oldKeys = [];
   const uploaded = [];
@@ -626,8 +668,10 @@ export const getMultaAlertsForActor = async (actor) => {
   const whereVencidas = { ...base, fechaVencimiento: { lt: todayDate } };
   const wherePorVencer = { ...base, fechaVencimiento: { gte: todayDate, lte: limit } };
   const whereDescuento = { quienPaga: "A_DESCONTAR", descontado: false, ...areaWhere };
+  // Datos del conductor (art. 126-bis) sin mandar con el limite legal dentro de 7 dias o ya pasado.
+  const whereDati = { datiEstado: "PENDIENTE", datiLimite: { lte: limit }, ...areaWhere };
 
-  const [vencidasItems, porVencerItems, vencidasCount, porVencerCount, descuentoCount, descuentoTotal] =
+  const [vencidasItems, porVencerItems, vencidasCount, porVencerCount, descuentoCount, descuentoTotal, datiItems, datiCount] =
     await Promise.all([
       findOpenMultasDueBefore(whereVencidas, ALERT_ITEMS_PER_GROUP),
       findOpenMultasDueBefore(wherePorVencer, ALERT_ITEMS_PER_GROUP),
@@ -635,6 +679,8 @@ export const getMultaAlertsForActor = async (actor) => {
       countMultas(wherePorVencer),
       privileged ? countMultas(whereDescuento) : Promise.resolve(0),
       privileged ? sumMultasCosto(whereDescuento) : Promise.resolve(0),
+      privileged ? findDatiPendientesBefore(whereDati, ALERT_ITEMS_PER_GROUP) : Promise.resolve([]),
+      privileged ? countMultas(whereDati) : Promise.resolve(0),
     ]);
 
   const toItem = (m) => ({
@@ -650,6 +696,16 @@ export const getMultaAlertsForActor = async (actor) => {
     vencidas: { count: vencidasCount, items: vencidasItems.map(toItem) },
     porVencer: { count: porVencerCount, items: porVencerItems.map(toItem) },
     aDescontar: { count: descuentoCount, total: round2(descuentoTotal) },
+    datiConducente: {
+      count: datiCount,
+      items: datiItems.map((m) => ({
+        id: m.id,
+        numeroVerbale: m.numeroVerbale,
+        targa: m.targa,
+        conductor: m.datiConductor ?? (m.driver ? `${m.driver.nombre} ${m.driver.apellido}` : null),
+        diasRestantes: dayDiff(today, dateOnlyToDay(m.datiLimite)),
+      })),
+    },
   };
 };
 
