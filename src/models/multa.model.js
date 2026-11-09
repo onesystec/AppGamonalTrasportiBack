@@ -1,7 +1,9 @@
 import { prisma } from "../config/prisma.js";
 
 const PERSON_SELECT = { select: { id: true, nombre: true, apellido: true } };
-const INCLUDE = { driver: PERSON_SELECT, createdBy: PERSON_SELECT };
+// Sancion por no comunicar los datos del conductor <-> multa original (art. 126-bis c.2).
+const LINK_SELECT = { select: { id: true, numeroVerbale: true, targa: true, fechaInfraccion: true, costo: true } };
+const INCLUDE = { driver: PERSON_SELECT, createdBy: PERSON_SELECT, multaOrigen: LINK_SELECT, sancionesDati: LINK_SELECT };
 
 export const createMulta = (data) => prisma.multa.create({ data, include: INCLUDE });
 

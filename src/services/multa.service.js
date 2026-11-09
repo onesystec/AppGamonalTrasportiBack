@@ -114,6 +114,18 @@ const uploadAttachment = async (id, kind, file) => {
   return key;
 };
 
+const link = (x) =>
+  x ? { id: x.id, numeroVerbale: x.numeroVerbale, targa: x.targa, fechaInfraccion: x.fechaInfraccion, costo: Number(x.costo) } : null;
+
+// La multa original de una sancion por datos del conductor: tiene que existir y no ser ella misma.
+const resolveMultaOrigen = async (id, selfId) => {
+  if (id === undefined) return undefined;
+  if (id === null) return null;
+  if (id === selfId) throw new AppError("Una multa no puede ser su propia multa original", 400, { multaOrigenId: ["Elige otra multa"] });
+  if (!(await findMultaById(id))) throw new AppError("La multa original no existe", 400, { multaOrigenId: ["La multa original no existe"] });
+  return id;
+};
+
 const person = (p) => (p ? { id: p.id, nombre: p.nombre, apellido: p.apellido } : null);
 
 const attachment = async (key) =>
@@ -165,6 +177,9 @@ const toResponse = async (m, today) => {
     datiConductor: m.datiConductor ?? null,
     // Dias hasta el limite legal para mandar los datos (negativo = ya vencio); null si no aplica.
     datiDiasRestantes: m.datiLimite ? dayDiff(today, dateOnlyToDay(m.datiLimite)) : null,
+    // Sancion por no comunicar los datos (art. 126-bis c.2) <-> multa original.
+    multaOrigen: link(m.multaOrigen),
+    sancionesDati: (m.sancionesDati ?? []).map(link),
     // Fecha y hora reales de carga en el sistema: la pone el servidor, no se edita.
     registradoAt: m.createdAt,
     updatedAt: m.updatedAt,
@@ -286,6 +301,7 @@ export const createMultaForActor = async (actor, data, files) => {
       multaKey,
       comprobanteKey,
       ...resolveDati(data, data.fechaRecepcion, null),
+      multaOrigenId: (await resolveMultaOrigen(data.multaOrigenId, id)) ?? null,
       // Subir el comprobante de pago al cargarla ya la deja como pagada.
       pagado: Boolean(comprobanteKey),
       pagadoAt: comprobanteKey ? now : null,
@@ -437,6 +453,8 @@ export const updateMultaForActor = async (actor, id, data, files) => {
     descuentoFields(payload.quienPaga ?? current.quienPaga, data.descontado, current)
   );
   Object.assign(payload, resolveDati(data, recepcionDay, current));
+  const origen = await resolveMultaOrigen(data.multaOrigenId, id);
+  if (origen !== undefined) payload.multaOrigenId = origen;
 
   const oldKeys = [];
   const uploaded = [];

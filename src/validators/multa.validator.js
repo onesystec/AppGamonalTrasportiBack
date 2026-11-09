@@ -83,6 +83,8 @@ export const createMultaSchema = z.object({
     dateOnly.refine((value) => value <= romeToday(), "La fecha de envio no puede ser futura").optional()
   ),
   datiConductor: z.preprocess(emptyToUndefined, z.string().trim().max(120).optional()),
+  // Si es la sancion por no comunicar los datos del conductor: la multa original.
+  multaOrigenId: z.preprocess(emptyToUndefined, z.string().uuid("Multa original invalida").optional()),
 });
 
 // "" borra los textos opcionales (null); ausente no toca el campo.
@@ -114,6 +116,8 @@ export const updateMultaSchema = z.object({
     dateOnly.refine((value) => value <= romeToday(), "La fecha de envio no puede ser futura").nullable().optional()
   ),
   datiConductor: z.preprocess(emptyToNull, z.string().trim().max(120).nullable().optional()),
+  // "" quita el vinculo con la multa original.
+  multaOrigenId: z.preprocess(emptyToNull, z.string().uuid("Multa original invalida").nullable().optional()),
 });
 
 export const idParamSchema = z.object({

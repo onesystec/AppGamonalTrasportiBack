@@ -968,11 +968,17 @@ model Multa {
   datiEnviadoAt        DateTime?      @db.Date
   // Conductor que se declaro (puede no ser el chofer responsable del cobro).
   datiConductor        String?
+  // Si esta multa es la sancion por NO haber comunicado los datos del conductor (art. 126-bis c.2),
+  // la multa original de la que viene.
+  multaOrigenId        String?
+  multaOrigen          Multa?         @relation("MultaSancionDati", fields: [multaOrigenId], references: [id], onDelete: SetNull)
+  sancionesDati        Multa[]        @relation("MultaSancionDati")
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 
   @@index([pagado, fechaVencimiento])
   @@index([datiEstado, datiLimite])
+  @@index([multaOrigenId])
   @@index([driverId])
   @@index([fechaRecepcion])
   @@index([quienPaga, descontado])
