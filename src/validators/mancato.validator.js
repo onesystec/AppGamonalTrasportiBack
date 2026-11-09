@@ -127,5 +127,13 @@ export const listMancatosQuerySchema = z.object({
 
 export const summaryMancatosQuerySchema = z.object(listFilters);
 
+// Informe de mancati en Excel o PDF con los mismos filtros (y orden) de la lista, sin paginar.
+export const exportMancatosQuerySchema = z.object({
+  ...listFilters,
+  estado: z.preprocess(emptyToUndefined, z.enum(ESTADO_VALUES).optional()),
+  orden: z.preprocess(emptyToUndefined, z.enum(ORDEN_VALUES).optional()),
+  formato: z.enum(["xlsx", "pdf"], { errorMap: () => ({ message: "Formato invalido (xlsx o pdf)" }) }),
+});
+
 // Mismos filtros que el resumen: las estadisticas acompanan lo que se esta filtrando.
 export const statsMancatosQuerySchema = z.object(listFilters);

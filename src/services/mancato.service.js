@@ -448,6 +448,17 @@ export const listMancatosForActor = async (actor, query) => {
   return { items, total, page, pageSize };
 };
 
+// Informe (Excel/PDF) de la oficina: todos los mancati que cumplen los filtros de la lista, en formato de respuesta.
+const EXPORT_MAX = 3000;
+export const exportMancatosForActor = async (actor, query) => {
+  if (!isPrivileged(actor)) throw new AppError("Solo la oficina puede descargar el informe", 403);
+  const today = romeDay();
+  const where = buildWhere(actor, query, today);
+  const rows = await findMancatos({ where, orderBy: orderByFor(query), skip: 0, take: EXPORT_MAX });
+  const items = await Promise.all(rows.map((m) => toResponse(m, today)));
+  return { items, today };
+};
+
 // Cantidad y total en plata por estado, respetando los filtros (menos el de estado):
 // encabezado de cada acordeon sin traer las filas.
 export const getMancatoSummaryForActor = async (actor, query) => {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   candidates,
   create,
+  exportInforme,
   getById,
   list,
   rematch,
@@ -17,6 +18,7 @@ import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
 import {
   createMancatoSchema,
+  exportMancatosQuerySchema,
   idParamSchema,
   listMancatosQuerySchema,
   reevaluarMancatosSchema,
@@ -43,6 +45,9 @@ router.get("/", validate(listMancatosQuerySchema, "query"), list);
 router.get("/summary", validate(summaryMancatosQuerySchema, "query"), summary);
 
 router.get("/stats", validate(statsMancatosQuerySchema, "query"), stats);
+
+// Informe en Excel o PDF (solo la oficina) con los filtros de la lista.
+router.get("/export", validate(exportMancatosQuerySchema, "query"), exportInforme);
 
 // Resumen por mes (acordeones por mes): mismos filtros que el resumen, sin el estado.
 router.get("/meses", validate(summaryMancatosQuerySchema, "query"), meses);
