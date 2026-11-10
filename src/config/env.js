@@ -218,6 +218,15 @@ const envSchema = z.object({
     .default("true")
     .transform((value) => value === "true"),
 
+  // Informe diario de vencimientos (ver services/informeDiario.service.js): cada dia a esta hora de Roma manda las multas y los
+  // mancatos sin pagar que vencen hoy y manana, y los datos del conductor por enviar. "false" en INFORME_DIARIO_ENABLED lo apaga.
+  INFORME_DIARIO_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
+  INFORME_DIARIO_HORA: z.coerce.number().int().min(0).max(23).default(7),
+  INFORME_DIARIO_DESTINATARIOS: z.string().default("yan.gs@gamonaltrasporti.com"),
+
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando
   // igual (la campanita web sigue mostrando las mismas alertas), solo que sin avisar
