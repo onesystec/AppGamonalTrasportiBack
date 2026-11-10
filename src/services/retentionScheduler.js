@@ -10,6 +10,7 @@ import { runAreaCMonitor } from "./vehicle.service.js";
 import { syncAllVehiclesKm } from "./vehicleKm.service.js";
 import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
 import { tickInformeSemanal } from "./informeSemanal.service.js";
+import { tickInformeDiario } from "./informeDiario.service.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
 // Antes los jobs de limpieza dependian de un scheduler externo porque Render free se
@@ -165,6 +166,15 @@ export const startInformeSemanal = () => {
   if (env.NODE_ENV !== "production" || !env.INFORME_SEMANAL_ENABLED) return;
   const tick = () => void tickInformeSemanal().catch((err) => console.error("[informe-semanal] fallo el envio:", err.message));
   setTimeout(tick, 2 * 60 * 1000).unref();
+  setInterval(tick, 10 * 60 * 1000).unref();
+};
+
+// Informe diario de vencimientos (ver informeDiario.service.js): cada 10 minutos mira si ya paso la hora configurada (hora de Roma)
+// y si el informe de hoy no salio todavia; la marca vive en la base, asi que un reinicio no lo repite. Solo en produccion.
+export const startInformeDiario = () => {
+  if (env.NODE_ENV !== "production" || !env.INFORME_DIARIO_ENABLED) return;
+  const tick = () => void tickInformeDiario().catch((err) => console.error("[informe-diario] fallo el envio:", err.message));
+  setTimeout(tick, 3 * 60 * 1000).unref();
   setInterval(tick, 10 * 60 * 1000).unref();
 };
 

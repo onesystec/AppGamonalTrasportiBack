@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { choferes, usos } from "../controllers/integracionOnesystec.controller.js";
+import { choferes, resumenDiario, usos } from "../controllers/integracionOnesystec.controller.js";
 import { requireIntegrationKey } from "../middlewares/integrationKey.js";
 import { validate } from "../middlewares/validate.js";
 import { usosQuerySchema } from "../validators/integracionOnesystec.validator.js";
@@ -11,6 +11,7 @@ const router = Router();
 router.use(requireIntegrationKey);
 
 router.get("/choferes", choferes);
+router.get("/resumen-diario", resumenDiario);
 router.get("/usos", validate(usosQuerySchema, "query"), usos);
 
 export default router;
