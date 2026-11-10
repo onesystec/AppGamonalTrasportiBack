@@ -9,6 +9,7 @@ import { loadPendingMemorandums, processMemorandumReminders } from "./memorandum
 import { runAreaCMonitor } from "./vehicle.service.js";
 import { syncAllVehiclesKm } from "./vehicleKm.service.js";
 import { enPausa, parsePausa } from "../utils/pausaNocturna.js";
+import { tickInformeSemanal } from "./informeSemanal.service.js";
 
 // Limpieza diaria de fotos de comprobante vencidas (ver RECORD_FILE_RETENTION_DAYS).
 // Antes los jobs de limpieza dependian de un scheduler externo porque Render free se
@@ -155,6 +156,16 @@ export const startAreaCAvisos = () => {
   setInterval(() => void processAreaCReminders().catch((err) => console.error("[area-c] fallo el recordatorio:", err.message)), 5 * 60 * 1000).unref();
   if (!env.AREA_C_MONITOR_ENABLED) return;
   setInterval(() => void runAreaCMonitor().catch((err) => console.error("[area-c] fallo la deteccion:", err.message)), 3 * 60 * 1000).unref();
+};
+
+// Informe semanal de flota por correo (ver informeSemanal.service.js): cada 10 minutos mira si ya es sabado a la hora configurada
+// (hora de Roma) y si el informe de la semana cerrada no salio todavia; la marca de enviado vive en la base, asi que un reinicio no
+// lo repite. Fuera del sabado/domingo no consulta la base. Solo en produccion, como los demas.
+export const startInformeSemanal = () => {
+  if (env.NODE_ENV !== "production" || !env.INFORME_SEMANAL_ENABLED) return;
+  const tick = () => void tickInformeSemanal().catch((err) => console.error("[informe-semanal] fallo el envio:", err.message));
+  setTimeout(tick, 2 * 60 * 1000).unref();
+  setInterval(tick, 10 * 60 * 1000).unref();
 };
 
 // Recordatorios de memorandums sin confirmar (ver memorandumAvisos.service.js): cada 10 minutos revisa en memoria si toca insistir con alguien;
