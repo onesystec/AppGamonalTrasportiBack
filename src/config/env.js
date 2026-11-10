@@ -205,7 +205,7 @@ const envSchema = z.object({
   INFORME_SEMANAL_HORA: z.coerce.number().int().min(0).max(23).default(6),
   INFORME_SEMANAL_DESTINATARIOS: z
     .string()
-    .default("yan.gs@gamonaltrasporti.com,emerson.gs@gamonaltrasporti.com,n.plua@gamonaltrasporti.com,j.bolanos@gamonaltrasporti.com"),
+    .default("yan.gs@gamonaltrasporti.com,emerson.gs@gamonaltrasporti.com,n.plua@gamonaltrasporti.com,j.bolanos@gamonaltrasporti.it,m.agos@gamonaltrasporti.it"),
   INFORME_SEMANAL_PRUEBA_A: z.string().email().optional().default("yan.gs@gamonaltrasporti.com"),
   // Periodo de la prueba (AAAA-MM-DD, inclusive, hora de Roma). Sin las dos, la prueba es la ultima semana cerrada. Cambiarlo
   // vuelve a mandar una prueba con el periodo nuevo. Por defecto, lo que va de noviembre 2026 hasta el lunes 9 (primera prueba pedida).
