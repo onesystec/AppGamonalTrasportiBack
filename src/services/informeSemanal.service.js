@@ -371,10 +371,10 @@ export const destinatariosInforme = () =>
     .filter(Boolean);
 
 // Genera y envia el informe de una semana. "prueba" marca el asunto para que se note que no es el envio oficial.
-export const enviarInformeSemanal = async ({ semana = semanaCerrada(), destinatarios = destinatariosInforme(), prueba = false } = {}) => {
+export const enviarInformeSemanal = async ({ semana = semanaCerrada(), destinatarios = destinatariosInforme(), prueba = false, presentacion = false } = {}) => {
   if (destinatarios.length === 0) throw new Error("No hay destinatarios para el informe semanal");
   const informe = await generarInforme(semana);
-  const { subject, html, text } = buildInformeSemanalEmail(informe, { prueba });
+  const { subject, html, text } = buildInformeSemanalEmail(informe, { prueba, presentacion });
   const xlsx = await buildInformeXlsx(informe);
   const result = await resend.emails.send({
     from: env.RESEND_FROM_EMAIL,
@@ -391,6 +391,7 @@ export const enviarInformeSemanal = async ({ semana = semanaCerrada(), destinata
 // Marca de "ya enviado" (en Configuracion) para no repetir el envio aunque el servidor se reinicie.
 const CLAVE_ULTIMO_ENVIO = "informeSemanal.ultimaSemanaEnviada";
 const CLAVE_PRUEBA = "informeSemanal.pruebaEnviada";
+const CLAVE_PRESENTACION = "informeSemanal.presentacionEnviada";
 
 const leerClave = async (clave) => (await prisma.configuracion.findUnique({ where: { clave } }))?.valor ?? null;
 const guardarClave = (clave, valor) => prisma.configuracion.upsert({ where: { clave }, create: { clave, valor }, update: { valor } });
@@ -414,6 +415,18 @@ export const tickInformeSemanal = async (now = new Date()) => {
       await guardarClave(CLAVE_PRUEBA, { desdeDia: periodo.desdeDia, hastaDia: periodo.hastaDia, at: now.toISOString() });
       const r = await enviarInformeSemanal({ semana: periodo, destinatarios: [env.INFORME_SEMANAL_PRUEBA_A], prueba: true });
       console.log(`[informe-semanal] prueba enviada a ${env.INFORME_SEMANAL_PRUEBA_A} (periodo ${r.semana.desdeDia} a ${r.semana.hastaDia})`);
+    }
+  }
+
+  // Envio de presentacion (una sola vez): el mismo informe del periodo de prueba a todos los destinatarios, avisando que desde
+  // ahora les llegara cada sabado.
+  if (env.INFORME_SEMANAL_PRESENTACION) {
+    const ya = await leerClave(CLAVE_PRESENTACION);
+    if (!ya) {
+      const periodo = periodoPrueba(now);
+      await guardarClave(CLAVE_PRESENTACION, { desdeDia: periodo.desdeDia, hastaDia: periodo.hastaDia, at: now.toISOString() });
+      const r = await enviarInformeSemanal({ semana: periodo, presentacion: true });
+      console.log(`[informe-semanal] presentacion enviada a ${r.destinatarios.length} destinatario(s) (periodo ${r.semana.desdeDia} a ${r.semana.hastaDia})`);
     }
   }
 
