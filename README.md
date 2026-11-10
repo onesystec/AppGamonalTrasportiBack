@@ -37,6 +37,10 @@ cp .env.example .env
 | `R2_BUCKET_NAME` | Nombre del bucket privado donde se guardan los documentos |
 | `R2_SIGNED_URL_EXPIRES_SECONDS` | Minutos (en segundos) de validez de cada URL firmada, default 900 (15 min) |
 | `GOOGLE_MAPS_API_KEY` | API key de Google Cloud con "Geocoding API" habilitada |
+| `INFORME_SEMANAL_DESTINATARIOS` | Opcional. Correos (separados por coma) que reciben cada sabado el informe semanal de flota (peajes, combustible, entregas DHL y km por chofer, de sabado a viernes). Por defecto, los de la oficina |
+| `INFORME_SEMANAL_HORA` | Opcional. Hora de Roma del envio del sabado (default 6) |
+| `INFORME_SEMANAL_PRUEBA_A` | Opcional. Correo que recibe una unica prueba del informe la primera vez que arranca con esta funcion |
+| `INFORME_SEMANAL_ENABLED` | Opcional. `false` apaga el informe semanal |
 | `VELOCITY_FLEET_REFRESH_TOKEN` | Opcional. Refresh Token de la cuenta de Velocity Fleet (GPS de vehiculo, seccion Mapa) - sin esto el Mapa sigue andando igual, solo con la ubicacion del celular del chofer |
 | `PHONE_LOCATION_ENABLED` | `false` por defecto: el backend ignora (sin error) la ubicacion que mande el celular del chofer y no lista ubicaciones de celulares; los ETA en vivo usan el GPS del vehiculo (Velocity Fleet). `true` para volver a usar el GPS del celular |
 | `LOCATION_PING_RETENTION_DAYS` | Dias de historial de `LocationPing` que se conservan, default 90 - ver seccion "Monitoreo y costos" |
