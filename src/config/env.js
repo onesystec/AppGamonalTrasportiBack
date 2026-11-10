@@ -211,6 +211,12 @@ const envSchema = z.object({
   // vuelve a mandar una prueba con el periodo nuevo. Por defecto, lo que va de noviembre 2026 hasta el lunes 9 (primera prueba pedida).
   INFORME_SEMANAL_PRUEBA_DESDE: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default("2026-11-01"),
   INFORME_SEMANAL_PRUEBA_HASTA: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default("2026-11-09"),
+  // Envio de presentacion: una sola vez, el informe del periodo de prueba a todos los destinatarios con el aviso de que llegara
+  // cada sabado. "false" lo desactiva.
+  INFORME_SEMANAL_PRESENTACION: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
 
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando

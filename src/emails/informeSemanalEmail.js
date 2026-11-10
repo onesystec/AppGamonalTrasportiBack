@@ -43,7 +43,7 @@ const nota = (text) => `<p style="margin:6px 0 0;font-size:12px;line-height:18px
 const subtitulo = (text, total) =>
   `<p style="margin:16px 0 2px;font-size:14px;color:#1f2933;font-weight:700;">${esc(text)}<span style="float:right;">${total}</span></p>`;
 
-export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
+export const buildInformeSemanalEmail = (informe, { prueba = false, presentacion = false } = {}) => {
   const { semana, choferes, vehiculos, totales } = informe;
   const periodo = `del ${diaConSemana(semana.desdeDia)} al ${diaConSemana(semana.hastaDia)}`;
   const dias = Math.round((Date.parse(`${semana.hastaDia}T00:00:00Z`) - Date.parse(`${semana.desdeDia}T00:00:00Z`)) / 86400000) + 1;
@@ -150,6 +150,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
   </td></tr>
   <tr><td style="padding:22px 28px 30px;">
     ${prueba ? `<p style="margin:0 0 14px;padding:10px 12px;background:#fff6e0;border:1px solid #f2b84b;border-radius:6px;font-size:13px;color:#7a5200;"><b>Envío de prueba.</b> Solo lo recibes tú para revisarlo; el envío oficial sale cada sábado a primera hora a la oficina.</p>` : ""}
+    ${presentacion ? `<p style="margin:0 0 14px;padding:10px 12px;background:#eaf2ff;border:1px solid #9cbcf0;border-radius:6px;font-size:13px;color:#123a75;"><b>Aviso:</b> a partir de este sábado recibirán este informe <b>todos los sábados a primera hora</b>, con la actividad de la semana anterior (de sábado a viernes).</p>` : ""}
     <p style="margin:0;font-size:14px;line-height:21px;color:#33414f;">Buenos días,</p>
     <p style="margin:8px 0 0;font-size:14px;line-height:21px;color:#33414f;">a continuación el resumen de la actividad de la flota <b>${periodo}</b>: peajes, combustible, entregas DHL y kilómetros por chofer. El detalle completo va en el Excel adjunto.</p>
 
@@ -198,6 +199,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
   const text = [
     `${prueba ? "[PRUEBA] " : ""}${nombreInforme} - Gamonal Trasporti S.R.L.`,
     `Período: ${periodo}`,
+    ...(presentacion ? ["", "Aviso: a partir de este sábado recibirán este informe todos los sábados a primera hora, con la actividad de la semana anterior (de sábado a viernes)."] : []),
     "",
     `Totales: peajes ${euro(totales.peajes)} · combustible ${euro(totales.combustible)} · entregas DHL ${totales.dhl} (${totales.dhlEntregados} entregadas) · ${km(totales.km)}`,
     "",
