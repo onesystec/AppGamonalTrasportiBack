@@ -42,10 +42,18 @@ export const semanaCerrada = (now = new Date()) => {
 // Semana que empieza el sabado "desdeDia" ("AAAA-MM-DD").
 export const semanaDesde = (desdeDia) => {
   if (weekdayOf(desdeDia) !== 6) throw new Error(`La semana del informe empieza en sabado (${desdeDia} no lo es)`);
-  const finExclusivoDia = addDays(desdeDia, 7);
+  return periodoEntre(desdeDia, addDays(desdeDia, 6));
+};
+
+// Periodo cualquiera de "desdeDia" a "hastaDia" inclusive (hora de Roma); lo usan las pruebas con otras fechas.
+export const periodoEntre = (desdeDia, hastaDia) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desdeDia) || !/^\d{4}-\d{2}-\d{2}$/.test(hastaDia) || hastaDia < desdeDia) {
+    throw new Error(`Periodo del informe invalido: ${desdeDia} a ${hastaDia}`);
+  }
+  const finExclusivoDia = addDays(hastaDia, 1);
   return {
     desdeDia,
-    hastaDia: addDays(desdeDia, 6),
+    hastaDia,
     // Instantes reales (hora de Roma) para los campos con hora y limites de fecha para las columnas @db.Date.
     desde: romeLocalToDate(desdeDia, "00:00"),
     hasta: romeLocalToDate(finExclusivoDia, "00:00"),
@@ -374,7 +382,7 @@ export const enviarInformeSemanal = async ({ semana = semanaCerrada(), destinata
     subject,
     html,
     text,
-    attachments: [{ filename: `Informe semanal ${informe.semana.desdeDia} a ${informe.semana.hastaDia}.xlsx`, content: xlsx }],
+    attachments: [{ filename: `Informe flota ${informe.semana.desdeDia} a ${informe.semana.hastaDia}.xlsx`, content: xlsx }],
   });
   if (result?.error) throw new Error(result.error.message ?? "Resend no acepto el correo");
   return { semana: informe.semana, destinatarios, choferes: informe.choferes.length };
@@ -387,14 +395,26 @@ const CLAVE_PRUEBA = "informeSemanal.pruebaEnviada";
 const leerClave = async (clave) => (await prisma.configuracion.findUnique({ where: { clave } }))?.valor ?? null;
 const guardarClave = (clave, valor) => prisma.configuracion.upsert({ where: { clave }, create: { clave, valor }, update: { valor } });
 
+// Periodo de la prueba: INFORME_SEMANAL_PRUEBA_DESDE / _HASTA si estan las dos; si no, la ultima semana cerrada.
+const periodoPrueba = (now) =>
+  env.INFORME_SEMANAL_PRUEBA_DESDE && env.INFORME_SEMANAL_PRUEBA_HASTA
+    ? periodoEntre(env.INFORME_SEMANAL_PRUEBA_DESDE, env.INFORME_SEMANAL_PRUEBA_HASTA)
+    : semanaCerrada(now);
+
 // Lo llama el scheduler cada pocos minutos. Envia el informe oficial el sabado a partir de la hora configurada (hora de Roma) y, si
-// el servidor estuvo caido a esa hora, se pone al dia hasta el domingo. Ademas, la primera vez que arranca con esta funcion manda un
-// informe de PRUEBA de la ultima semana cerrada solo a INFORME_SEMANAL_PRUEBA_A, para revisarlo antes del primer envio oficial.
+// el servidor estuvo caido a esa hora, se pone al dia hasta el domingo. Ademas manda un informe de PRUEBA solo a
+// INFORME_SEMANAL_PRUEBA_A una vez por cada periodo de prueba distinto (la primera vez que arranca con esta funcion, y otra vez
+// solo si se cambia el periodo de prueba), para revisarlo antes de los envios oficiales.
 export const tickInformeSemanal = async (now = new Date()) => {
-  if (env.INFORME_SEMANAL_PRUEBA_A && !(await leerClave(CLAVE_PRUEBA))) {
-    await guardarClave(CLAVE_PRUEBA, { at: now.toISOString() });
-    const r = await enviarInformeSemanal({ destinatarios: [env.INFORME_SEMANAL_PRUEBA_A], prueba: true });
-    console.log(`[informe-semanal] prueba enviada a ${env.INFORME_SEMANAL_PRUEBA_A} (semana ${r.semana.desdeDia} a ${r.semana.hastaDia})`);
+  if (env.INFORME_SEMANAL_PRUEBA_A) {
+    const periodo = periodoPrueba(now);
+    const enviada = await leerClave(CLAVE_PRUEBA);
+    const yaEnviada = enviada && (!env.INFORME_SEMANAL_PRUEBA_DESDE || (enviada.desdeDia === periodo.desdeDia && enviada.hastaDia === periodo.hastaDia));
+    if (!yaEnviada) {
+      await guardarClave(CLAVE_PRUEBA, { desdeDia: periodo.desdeDia, hastaDia: periodo.hastaDia, at: now.toISOString() });
+      const r = await enviarInformeSemanal({ semana: periodo, destinatarios: [env.INFORME_SEMANAL_PRUEBA_A], prueba: true });
+      console.log(`[informe-semanal] prueba enviada a ${env.INFORME_SEMANAL_PRUEBA_A} (periodo ${r.semana.desdeDia} a ${r.semana.hastaDia})`);
+    }
   }
 
   const hoy = romeDay(now);

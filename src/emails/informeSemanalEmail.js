@@ -22,7 +22,10 @@ const KM = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 1 });
 const euro = (n) => EUR.format(n ?? 0);
 const km = (n) => `${KM.format(n ?? 0)} km`;
 const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const diaLargo = (day) => `${Number(day.slice(8, 10))} de ${MESES[Number(day.slice(5, 7)) - 1]} de ${day.slice(0, 4)}`;
+const diaConSemana = (day) => `${DIAS[new Date(`${day}T00:00:00Z`).getUTCDay()]} ${diaLargo(day)}`;
+const ddmm = (day) => `${day.slice(8, 10)}/${day.slice(5, 7)}`;
 const diaCorto = (date) => {
   const d = romeDay(date);
   return `${d.slice(8, 10)}/${d.slice(5, 7)}`;
@@ -42,8 +45,10 @@ const subtitulo = (text, total) =>
 
 export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
   const { semana, choferes, vehiculos, totales } = informe;
-  const periodo = `del sábado ${diaLargo(semana.desdeDia)} al viernes ${diaLargo(semana.hastaDia)}`;
-  const subject = `${prueba ? "[PRUEBA] " : ""}Informe semanal de flota · ${semana.desdeDia.slice(8, 10)}/${semana.desdeDia.slice(5, 7)} al ${semana.hastaDia.slice(8, 10)}/${semana.hastaDia.slice(5, 7)}/${semana.hastaDia.slice(0, 4)}`;
+  const periodo = `del ${diaConSemana(semana.desdeDia)} al ${diaConSemana(semana.hastaDia)}`;
+  const dias = Math.round((Date.parse(`${semana.hastaDia}T00:00:00Z`) - Date.parse(`${semana.desdeDia}T00:00:00Z`)) / 86400000) + 1;
+  const nombreInforme = dias === 7 ? "Informe semanal de flota" : "Informe de flota";
+  const subject = `${prueba ? "[PRUEBA] " : ""}${nombreInforme} · ${ddmm(semana.desdeDia)} al ${ddmm(semana.hastaDia)}/${semana.hastaDia.slice(0, 4)}`;
   const logoUrl = `${env.APP_URL.replace(/\/$/, "")}/apple-touch-icon.png`;
 
   // Resumen
@@ -83,7 +88,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
             )
         )
         .join("")
-    : nota("No hay peajes registrados en esta semana.");
+    : nota("No hay peajes registrados en este periodo.");
 
   // Combustible
   const conCombustible = choferes.filter((c) => c.combustible.items.length > 0);
@@ -100,7 +105,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
             )
         )
         .join("")
-    : nota("No hay cargas de combustible registradas en esta semana.");
+    : nota("No hay cargas de combustible registradas en este periodo.");
 
   // Entregas DHL (en el correo, cantidad por chofer; la lista completa va en el Excel)
   const conDhl = choferes.filter((c) => c.dhl.total > 0);
@@ -112,7 +117,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
           .join("") +
           `<tr>${td("TOTAL", { bold: true, bg: "#e9edf3" })}${td(totales.dhl, { align: "right", bold: true, bg: "#e9edf3" })}${td(totales.dhlEntregados, { align: "right", bold: true, bg: "#e9edf3" })}${td("", { bg: "#e9edf3" })}</tr>`
       ) + nota("La lista de cada entrega (servicio, shipment, destino y estado) está en la hoja «Entregas DHL» del Excel adjunto.")
-    : nota("No hubo entregas DHL en esta semana.");
+    : nota("No hubo entregas DHL en este periodo.");
 
   // Km
   const kmChoferes = tabla(
@@ -139,7 +144,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
       <td style="width:48px;"><img src="${logoUrl}" width="40" height="40" alt="Gamonal Trasporti" style="display:block;border-radius:8px;"></td>
       <td style="padding-left:12px;color:#ffffff;">
         <div style="font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.8;">Gamonal Trasporti S.R.L.</div>
-        <div style="font-size:20px;font-weight:700;margin-top:2px;">Informe semanal de flota</div>
+        <div style="font-size:20px;font-weight:700;margin-top:2px;">${nombreInforme}</div>
       </td>
     </tr></table>
   </td></tr>
@@ -167,16 +172,16 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
 
     ${titulo(2, "Peajes por chofer")}
     ${peajes}
-    ${nota("Se cuentan los mancatos asignados a cada servicio o, si no hay, el importe cargado en el servicio, más los mancatos de la semana que todavía no tienen servicio. Los avisos de mancato llegan con días de retraso: este total puede aumentar en las próximas semanas.")}
+    ${nota("Se cuentan los mancatos asignados a cada servicio o, si no hay, el importe cargado en el servicio, más los mancatos del periodo que todavía no tienen servicio. Los avisos de mancato llegan con días de retraso: este total puede aumentar en las próximas semanas.")}
 
     ${titulo(3, "Combustible por chofer")}
     ${combustible}
-    ${nota("Se cuentan los comprobantes subidos con fecha de esta semana y, en los servicios sin comprobantes, el importe cargado en el servicio.")}
+    ${nota("Se cuentan los comprobantes subidos con fecha dentro del periodo y, en los servicios sin comprobantes, el importe cargado en el servicio.")}
 
-    ${titulo(4, "Entregas DHL de la semana")}
+    ${titulo(4, "Entregas DHL del periodo")}
     ${dhl}
 
-    ${titulo(5, "Kilómetros de la semana")}
+    ${titulo(5, "Kilómetros del periodo")}
     ${kmChoferes}
     ${nota("Km recorridos de los servicios trabajados (los km reales cargados por el chofer o, si faltan, los del servicio).")}
     ${kmVehiculos}
@@ -191,7 +196,7 @@ export const buildInformeSemanalEmail = (informe, { prueba = false } = {}) => {
 </body></html>`;
 
   const text = [
-    `${prueba ? "[PRUEBA] " : ""}Informe semanal de flota - Gamonal Trasporti S.R.L.`,
+    `${prueba ? "[PRUEBA] " : ""}${nombreInforme} - Gamonal Trasporti S.R.L.`,
     `Período: ${periodo}`,
     "",
     `Totales: peajes ${euro(totales.peajes)} · combustible ${euro(totales.combustible)} · entregas DHL ${totales.dhl} (${totales.dhlEntregados} entregadas) · ${km(totales.km)}`,

@@ -207,6 +207,10 @@ const envSchema = z.object({
     .string()
     .default("yan.gs@gamonaltrasporti.com,emerson.gs@gamonaltrasporti.com,n.plua@gamonaltrasporti.com,j.bolanos@gamonaltrasporti.com"),
   INFORME_SEMANAL_PRUEBA_A: z.string().email().optional().default("yan.gs@gamonaltrasporti.com"),
+  // Periodo de la prueba (AAAA-MM-DD, inclusive, hora de Roma). Sin las dos, la prueba es la ultima semana cerrada. Cambiarlo
+  // vuelve a mandar una prueba con el periodo nuevo. Por defecto, lo que va de noviembre 2026 hasta el lunes 9 (primera prueba pedida).
+  INFORME_SEMANAL_PRUEBA_DESDE: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default("2026-11-01"),
+  INFORME_SEMANAL_PRUEBA_HASTA: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().default("2026-11-09"),
 
   // Notificaciones push al celular (Area C sin autorizacion, exceso de velocidad) via
   // Firebase Cloud Messaging - opcional a proposito: sin esto la app sigue funcionando
