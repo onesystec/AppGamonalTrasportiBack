@@ -174,7 +174,7 @@ export const startInformeSemanal = () => {
 export const startInformeDiario = () => {
   if (env.NODE_ENV !== "production" || !env.INFORME_DIARIO_ENABLED) return;
   const tick = () => void tickInformeDiario().catch((err) => console.error("[informe-diario] fallo el envio:", err.message));
-  setTimeout(tick, 3 * 60 * 1000).unref();
+  setTimeout(tick, 60 * 1000).unref();
   setInterval(tick, 10 * 60 * 1000).unref();
 };
 

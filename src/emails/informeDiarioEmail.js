@@ -38,9 +38,10 @@ const tabla = (headers, rows) =>
     : `<p style="font-size:14px;color:${MUTED};margin:8px 0 0">Nada que vence.</p>`;
 
 export const buildInformeDiarioEmail = (r) => {
-  const { hoy, manana } = r;
-  const subject = `Vencimientos ${ddmm(hoy)}: ${r.multas.hoy.cantidad} multa(s) y ${r.mancatos.hoy.cantidad} mancato(s) vencen hoy`;
-  const venceTxt = (d) => (d === hoy ? "Hoy" : "Mañana");
+  const { hoy, manana, pasado } = r;
+  const subject = `Vencimientos ${ddmm(hoy)}: ${r.multas.hoy.cantidad} multa(s) hoy, ${r.datosConductor.hoy + r.datosConductor.proximos} dato(s) del conductor por enviar`;
+  const venceTxt = (d) => (d === hoy ? "Hoy" : d === manana ? "Mañana" : "Pasado mañana");
+  const prox = `Próximos 2 días (${ddmm(manana)}–${ddmm(pasado)})`;
 
   const multasRows = r.multas.items.map((m) =>
     `<tr>${td(venceTxt(m.vence), false, m.vence === hoy)}${td(esc(m.verbale))}${td(esc(m.targa))}${td(esc(m.chofer ?? "Sin chofer"))}${td(esc(TITULAR[m.titular] ?? "—"))}${td(euro(m.costo), true, true)}</tr>`
@@ -59,16 +60,16 @@ export const buildInformeDiarioEmail = (r) => {
 <tr><td style="font-size:22px;font-weight:700;color:${NAVY};padding:4px 0 16px">Vencimientos del ${diaLargo(hoy)}</td></tr>
 
 <tr><td style="font-size:16px;font-weight:700;color:${NAVY};padding-top:8px">Multas</td></tr>
-<tr><td><table role="presentation" width="100%" cellspacing="8" cellpadding="0"><tr>${kpi("Vencen hoy", r.multas.hoy.cantidad, r.multas.hoy.total, true)}${kpi(`Vencen mañana (${ddmm(manana)})`, r.multas.manana.cantidad, r.multas.manana.total)}</tr></table></td></tr>
+<tr><td><table role="presentation" width="100%" cellspacing="8" cellpadding="0"><tr>${kpi("Vencen hoy", r.multas.hoy.cantidad, r.multas.hoy.total, true)}${kpi(prox, r.multas.proximos.cantidad, r.multas.proximos.total)}</tr></table></td></tr>
 <tr><td>${tabla([th("Vence"), th("Verbale"), th("Targa"), th("Chofer"), th("Titular"), th("Importe", true)], multasRows)}</td></tr>
 ${r.multas.vencidasSinPagar ? `<tr><td style="font-size:13px;color:${RED};padding-top:6px">Además hay ${r.multas.vencidasSinPagar} multa(s) ya vencida(s) sin pagar.</td></tr>` : ""}
 
 <tr><td style="font-size:16px;font-weight:700;color:${NAVY};padding-top:22px">Datos del conductor por enviar</td></tr>
-<tr><td style="font-size:13px;color:${MUTED}">Hoy: ${r.datosConductor.hoy} · Mañana: ${r.datosConductor.manana}</td></tr>
+<tr><td style="font-size:13px;color:${MUTED}">Hoy: ${r.datosConductor.hoy} · Próximos 2 días: ${r.datosConductor.proximos} · hay que hacerlos firmar antes del plazo</td></tr>
 <tr><td>${tabla([th("Plazo"), th("Verbale"), th("Targa"), th("Chofer"), th("Titular")], datosRows)}</td></tr>
 
 <tr><td style="font-size:16px;font-weight:700;color:${NAVY};padding-top:22px">Mancatos y peajes</td></tr>
-<tr><td><table role="presentation" width="100%" cellspacing="8" cellpadding="0"><tr>${kpi("Vencen hoy", r.mancatos.hoy.cantidad, r.mancatos.hoy.total, true)}${kpi(`Vencen mañana (${ddmm(manana)})`, r.mancatos.manana.cantidad, r.mancatos.manana.total)}</tr></table></td></tr>
+<tr><td><table role="presentation" width="100%" cellspacing="8" cellpadding="0"><tr>${kpi("Vencen hoy", r.mancatos.hoy.cantidad, r.mancatos.hoy.total, true)}${kpi(prox, r.mancatos.proximos.cantidad, r.mancatos.proximos.total)}</tr></table></td></tr>
 <tr><td>${tabla([th("Vence"), th("Número"), th("Targa"), th("Chofer"), th("Autopista"), th("Importe", true)], mancatosRows)}</td></tr>
 ${r.mancatos.vencidosSinPagar ? `<tr><td style="font-size:13px;color:${RED};padding-top:6px">Además hay ${r.mancatos.vencidosSinPagar} mancato(s) ya vencido(s) sin pagar.</td></tr>` : ""}
 
@@ -78,13 +79,13 @@ ${r.mancatos.vencidosSinPagar ? `<tr><td style="font-size:13px;color:${RED};padd
   const lineas = [
     `Vencimientos del ${diaLargo(hoy)}`,
     "",
-    `MULTAS · hoy: ${r.multas.hoy.cantidad} (${euro(r.multas.hoy.total)}) · mañana: ${r.multas.manana.cantidad} (${euro(r.multas.manana.total)})`,
+    `MULTAS · hoy: ${r.multas.hoy.cantidad} (${euro(r.multas.hoy.total)}) · próximos 2 días: ${r.multas.proximos.cantidad} (${euro(r.multas.proximos.total)})`,
     ...r.multas.items.map((m) => `- ${venceTxt(m.vence)} · ${m.verbale} · ${m.targa} · ${m.chofer ?? "Sin chofer"} · ${euro(m.costo)}`),
     "",
-    `DATOS DEL CONDUCTOR · hoy: ${r.datosConductor.hoy} · mañana: ${r.datosConductor.manana}`,
+    `DATOS DEL CONDUCTOR · hoy: ${r.datosConductor.hoy} · próximos 2 días: ${r.datosConductor.proximos}`,
     ...r.datosConductor.items.map((d) => `- ${venceTxt(d.limite)} · ${d.verbale} · ${d.targa} · ${d.chofer ?? "Sin chofer"}`),
     "",
-    `MANCATOS · hoy: ${r.mancatos.hoy.cantidad} (${euro(r.mancatos.hoy.total)}) · mañana: ${r.mancatos.manana.cantidad} (${euro(r.mancatos.manana.total)})`,
+    `MANCATOS · hoy: ${r.mancatos.hoy.cantidad} (${euro(r.mancatos.hoy.total)}) · próximos 2 días: ${r.mancatos.proximos.cantidad} (${euro(r.mancatos.proximos.total)})`,
     ...r.mancatos.items.map((m) => `- ${venceTxt(m.vence)} · ${m.numero} · ${m.targa} · ${m.chofer ?? "Sin chofer"} · ${euro(m.costo)}`),
   ];
   return { subject, html, text: lineas.join("\n") };
