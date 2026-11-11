@@ -6,7 +6,8 @@ import { addDays } from "./informeSemanal.service.js";
 import { buildInformeDiarioEmail } from "../emails/informeDiarioEmail.js";
 
 // Informe diario de vencimientos (Oficina Virtual OneSystec): cada manana dice que multas y que mancatos sin pagar vencen
-// hoy y manana, y que comunicaciones de datos del conductor (art. 126-bis) tienen el plazo hoy o manana. No usa IA: son
+// hoy y en los proximos 2 dias, y que comunicaciones de datos del conductor (art. 126-bis) tienen el plazo en ese margen,
+// para tener tiempo de hacerlas firmar. No usa IA: son
 // consultas a la base. Lo usan el correo diario y el endpoint de solo lectura /integraciones/onesystec/resumen-diario.
 
 const asDate = (day) => new Date(`${day}T00:00:00Z`);
@@ -14,15 +15,16 @@ const num = (value) => Number(value ?? 0);
 const nombre = (u) => (u ? `${u.nombre} ${u.apellido}`.trim() : null);
 const DRIVER = { select: { nombre: true, apellido: true } };
 
-const totales = (items, dia) => {
-  const delDia = items.filter((i) => i.vence === dia);
+const totales = (items, desde, hasta = desde) => {
+  const delDia = items.filter((i) => i.vence >= desde && i.vence <= hasta);
   return { cantidad: delDia.length, total: Math.round(delDia.reduce((s, i) => s + i.costo, 0) * 100) / 100 };
 };
 
 export const resumenDiario = async (now = new Date()) => {
   const hoy = romeDay(now);
   const manana = addDays(hoy, 1);
-  const rango = { gte: asDate(hoy), lte: asDate(manana) };
+  const pasado = addDays(hoy, 2);
+  const rango = { gte: asDate(hoy), lte: asDate(pasado) };
 
   const [multasRaw, datosRaw, mancatosRaw, multasVencidas, mancatosVencidos] = await Promise.all([
     prisma.multa.findMany({
@@ -73,20 +75,21 @@ export const resumenDiario = async (now = new Date()) => {
     generadoAt: now.toISOString(),
     hoy,
     manana,
+    pasado,
     multas: {
       hoy: totales(multas, hoy),
-      manana: totales(multas, manana),
+      proximos: totales(multas, manana, pasado),
       vencidasSinPagar: multasVencidas,
       items: multas,
     },
     datosConductor: {
       hoy: datosConductor.filter((d) => d.limite === hoy).length,
-      manana: datosConductor.filter((d) => d.limite === manana).length,
+      proximos: datosConductor.filter((d) => d.limite > hoy).length,
       items: datosConductor,
     },
     mancatos: {
       hoy: totales(mancatos, hoy),
-      manana: totales(mancatos, manana),
+      proximos: totales(mancatos, manana, pasado),
       vencidosSinPagar: mancatosVencidos,
       items: mancatos,
     },

@@ -1,0 +1,20 @@
+# Render (plan free) duerme el servidor tras 15 minutos sin visitas, y mientras duerme no corren los envíos programados
+# (informe diario de vencimientos a las 07:00 de Italia, informe semanal del sábado). Este workflow lo despierta un poco
+# después de esas horas; al despertar, el servidor revisa si le toca enviar algo y lo envía (sin duplicar).
+name: Despertar el servidor para los informes
+on:
+  schedule:
+    - cron: "10 6 * * *"   # 07:10 Italia en invierno (08:10 en verano)
+    - cron: "10 5 * * *"   # 07:10 Italia en verano (en invierno es 06:10 y no envía nada)
+    - cron: "40 6 * * *"   # segundo intento por si GitHub se retrasa
+  workflow_dispatch:
+jobs:
+  despertar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Despertar y mantener despierto 6 minutos
+        run: |
+          for i in 1 2 3 4; do
+            curl -fsS --max-time 90 https://appgamonaltrasportiback-vv19.onrender.com/api/health && echo || echo "intento $i sin respuesta"
+            sleep 100
+          done
