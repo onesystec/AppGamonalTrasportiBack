@@ -12,6 +12,7 @@ import {
   getLiveEtaForRecord,
   getRecordByIdForActor,
   listPendingRecordsForActor,
+  listSinAsignarForActor,
   listRecordsForActor,
   listRecordsResumenForActor,
   listRecordsSummaryForActor,
@@ -96,6 +97,11 @@ export const exportRecords = asyncHandler(async (req, res) => {
 });
 
 // Panel de "Pendientes" de Registros: acotado a +/-3 dias, no el historico completo.
+export const listSinAsignar = asyncHandler(async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  res.status(200).json({ success: true, data: { records: await listSinAsignarForActor(req.user) } });
+});
+
 export const listPending = asyncHandler(async (req, res) => {
   const records = await listPendingRecordsForActor(req.user);
   res.status(200).json({ success: true, data: { records } });

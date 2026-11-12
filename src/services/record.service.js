@@ -9,6 +9,7 @@ import {
   findRecordIdsForExport,
   findRecordsForExportByIds,
   findRecordsPending,
+  findRecordsSinAsignar,
   findRecordsSummary,
   releaseCombustiblesOfRecord,
   releaseMancatosOfRecord,
@@ -673,6 +674,13 @@ export const listPendingRecordsForActor = async (actor) => {
   const { gte, lt } = buildLocalDateRange(year, month, day, "Europe/Rome");
   const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFaltantes(await attachFuel(await findRecordsPending({ driverId, gte, lt, spedizzioneFilter })));
+  return records.map((record) => toResponse(record, actor));
+};
+
+// Servicios por asignar (sin chofer o sin vehiculo) de cualquier fecha, para el panel de arriba del Registro de la oficina. Cada Responsable ve solo los de sus areas.
+export const listSinAsignarForActor = async (actor) => {
+  if (!isPrivileged(actor)) return [];
+  const records = await attachFaltantes(await attachFuel(await findRecordsSinAsignar({ spedizzioneFilter: listFilterForActor(actor) })));
   return records.map((record) => toResponse(record, actor));
 };
 

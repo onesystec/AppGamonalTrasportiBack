@@ -10,6 +10,7 @@ import {
   listByDay,
   listByMonth,
   listPending,
+  listSinAsignar,
   listSummaryByMonth,
   recordChanges,
   recorridoReal,
@@ -66,6 +67,8 @@ router.get("/", list);
 // "pending"/"search" no matchean el constraint numerico de las rutas de abajo, pero
 // igual deben registrarse antes de "/:id" (mas abajo) para no chocar con el UUID.
 router.get("/pending", listPending);
+// Servicios sin chofer o sin vehiculo, de cualquier fecha (panel "Por asignar" del Registro de la oficina).
+router.get("/sin-asignar", authorize("OWNER", "ADMIN"), listSinAsignar);
 router.get("/search", search);
 router.get("/sin-sustentar", sinSustentar);
 // Servicios compactados (varios servicios de un chofer en un solo viaje): solo Admin/Responsable.

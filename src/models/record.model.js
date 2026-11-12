@@ -1,5 +1,6 @@
 import { prisma } from "../config/prisma.js";
 import { romeDay } from "../utils/romeTime.js";
+import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
 
 const PERSON = { select: { id: true, nombre: true, apellido: true } };
 
@@ -410,6 +411,20 @@ export const findRecordsPending = ({ driverId, gte, lt, spedizzioneFilter } = {}
     },
     select: RECORD_SELECT_LIST,
     orderBy: { eta: "asc" },
+  });
+
+// Servicios todavia sin chofer o sin vehiculo (los que entran directo desde el portal del cliente llevan las fichas internas "Sin asignar"): de cualquier fecha, los
+// mas proximos primero. Solo los que siguen en curso (un servicio anulado, entregado o reprogramado ya no hay que asignarlo).
+export const findRecordsSinAsignar = ({ spedizzioneFilter } = {}) =>
+  prisma.record.findMany({
+    where: {
+      estado: { in: EN_PROCESO_ESTADOS },
+      OR: [{ driver: { correoElectronico: SIN_ASIGNAR_CORREO } }, { vehicle: { targa: SIN_ASIGNAR_TARGA } }],
+      ...(spedizzioneFilter ?? {}),
+    },
+    select: RECORD_SELECT_LIST,
+    orderBy: { eta: "asc" },
+    take: 200,
   });
 
 // Version liviana de findRecords: solo lo necesario para armar un acordeon de dias
