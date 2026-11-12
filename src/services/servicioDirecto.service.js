@@ -3,6 +3,7 @@ import { SOLICITUD_SERVICIOS } from "../constants/solicitudes.js";
 import { createRecord } from "./record.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { getSinAsignar } from "./sinAsignar.service.js";
+import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 
 // Servicios directos: las empresas cliente con Client.serviciosDirectos (Piazza Spedizioni) no pasan por la solicitud pendiente. Al enviar el servicio desde el
 // portal, el servicio aparece de una vez en el Registro, con chofer y vehiculo "Sin asignar" (ver sinAsignar.service.js) hasta que la oficina elija los reales.
@@ -101,7 +102,22 @@ export const crearServicioDirecto = async (solicitud) => {
     ...(solicitud.aplicativo?.startsWith(`${zona}_`) ? { aplicativo: solicitud.aplicativo } : {}),
   };
   // actor = null: proceso de confianza (no es una persona de la oficina creando un servicio, no hay area que validar).
-  return createRecord(data, { skipDriverCheck: true });
+  try {
+    return await createRecord(data, { skipDriverCheck: true });
+  } catch (err) {
+    // Ultimo recurso: lo que envia el cliente tiene que llegar siempre al Registro. Si la direccion no se puede ubicar en el mapa, el servicio se crea igual con la
+    // direccion escrita y el punto de salida como ubicacion, y una nota para que la oficina la revise.
+    console.warn("[servicio-directo] se crea sin ubicar la direccion:", err.message);
+    const salida = defaultSalidaFor({ spedizzione: tipo.spedizzione, extrasPiazzaZona: zona });
+    return createRecord(
+      {
+        ...data,
+        stops: [{ direccion, lat: salida.lat, lng: salida.lng }],
+        descripcion: `${data.descripcion}\nATENCION: la direccion no se pudo ubicar en el mapa (se uso el punto de salida): revisarla.`,
+      },
+      { skipDriverCheck: true }
+    );
+  }
 };
 
 // Intenta registrar la solicitud recien creada como servicio. Devuelve { solicitud, record }: con record = null la solicitud sigue pendiente.
@@ -119,6 +135,28 @@ export const intentarServicioDirecto = async (solicitud, user, include) => {
     console.error("[servicio-directo] no se pudo crear el servicio, queda como solicitud pendiente:", err.message);
     return { solicitud, record: null };
   }
+};
+
+// Solicitudes que quedaron PENDIENTES de empresas con servicios directos (por ejemplo, las enviadas mientras se publicaba esta funcion): se pasan al Registro.
+// Se llama una vez al arrancar el servidor; lo que no se pueda crear sigue pendiente y se vuelve a intentar en el proximo arranque.
+export const convertirPendientesDirectos = async () => {
+  const pendientes = await prisma.solicitudServicio.findMany({
+    where: { estado: "PENDIENTE", empresa: { serviciosDirectos: true } },
+    orderBy: { createdAt: "asc" },
+    take: 200,
+  });
+  let convertidas = 0;
+  for (const solicitud of pendientes) {
+    try {
+      const record = await crearServicioDirecto(solicitud);
+      await prisma.solicitudServicio.update({ where: { id: solicitud.id }, data: { estado: "ACEPTADA", recordId: record.id, revisadoAt: new Date(), motivoRechazo: null } });
+      convertidas += 1;
+    } catch (err) {
+      console.error(`[servicio-directo] no se pudo pasar la solicitud ${solicitud.id} al Registro:`, err.message);
+    }
+  }
+  if (convertidas > 0) console.log(`[servicio-directo] ${convertidas} solicitud(es) pendiente(s) pasaron al Registro`);
+  return convertidas;
 };
 
 // Aviso a la oficina: ya no hay nada que aceptar, pero hay un servicio nuevo sin chofer ni vehiculo.
