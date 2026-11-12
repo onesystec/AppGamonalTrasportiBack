@@ -36,15 +36,16 @@ const sello = () => {
 
 // Ficha de Client que se factura: la que se llama como el cliente escrito (sin importar mayusculas ni acentos); en AB Service el cliente del servicio es siempre
 // AB (lo escrito es el cliente final). Si no existe se crea con ese nombre (queda a la vista en Clientes para que la oficina la revise); sin nombre, "Por completar".
-const resolverCliente = async (solicitud) => {
+export const resolverClientePorNombre = async (nombreCrudo, { abService = false } = {}) => {
   const clients = await prisma.client.findMany({ select: { id: true, nombre: true } });
   const buscar = (nombre) => clients.find((c) => normalizar(c.nombre) === normalizar(nombre));
-  const nombre = (solicitud.cliente ?? "").trim();
-  const hit = (nombre && buscar(nombre)) || (solicitud.servicio === "AB_SERVICE" ? buscar("AB") : null);
+  const nombre = (nombreCrudo ?? "").trim();
+  const hit = (nombre && buscar(nombre)) || (abService ? buscar("AB") : null) || (!nombre ? buscar(SIN_CLIENTE) : null);
   if (hit) return hit.id;
   const creado = await prisma.client.create({ data: { nombre: nombre || SIN_CLIENTE }, select: { id: true } });
   return creado.id;
 };
+const resolverCliente = (solicitud) => resolverClientePorNombre(solicitud.cliente, { abService: solicitud.servicio === "AB_SERVICE" });
 
 const nombrePais = (codigo) => {
   try {

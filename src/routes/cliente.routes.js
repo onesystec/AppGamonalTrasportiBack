@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { actividad, cambios, disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { actividad, anularServicio, cambios, disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
 import { createCliente, detalleCliente, leerTextoDelCliente, listCliente, registrarDesdeTextoDelCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
@@ -24,6 +24,8 @@ router.get("/actividad", actividad);
 router.get("/exportar", validate(clienteMesQuerySchema, "query"), exportar);
 // Editar una celda de la hoja tipo Excel (modulo REGISTRO): solicitud pendiente o servicio ya creado (con limites; ver cambioCelda.service.js).
 router.patch("/celda", validate(editarCeldaSchema), editarCelda);
+// Anular un servicio que todavia no salio (Pendiente); la oficina recibe un aviso.
+router.post("/servicios/:id/anular", validate(clienteServicioIdSchema, "params"), anularServicio);
 // Ancho de las columnas de las hojas tipo Excel (se guarda para todos los usuarios de la empresa).
 router.get("/hoja-anchos", hojaAnchos);
 router.put("/hoja-anchos/:hoja", validate(hojaAnchosParamsSchema, "params"), validate(hojaAnchosBodySchema), guardarHojaAnchos);
