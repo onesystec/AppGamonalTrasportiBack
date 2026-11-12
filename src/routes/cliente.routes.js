@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { cambios, disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
+import { actividad, cambios, disponibilidad, editarCelda, enVivo, exportar, fotos, guardarHojaAnchos, hojaAnchos, me, ruta, seguimiento, servicios } from "../controllers/cliente.controller.js";
 import { createCliente, detalleCliente, leerTextoDelCliente, listCliente, registrarDesdeTextoDelCliente, removeCliente, updateCliente } from "../controllers/solicitud.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
@@ -19,6 +19,8 @@ router.get("/en-vivo", enVivo);
 router.get("/disponibilidad", validate(disponibilidadQuerySchema, "query"), disponibilidad);
 router.get("/seguimiento/:id/ruta", validate(clienteServicioIdSchema, "params"), ruta);
 router.get("/servicios", validate(clienteMesQuerySchema, "query"), servicios);
+// Actividad reciente del Dashboard (modulo DASHBOARD).
+router.get("/actividad", actividad);
 router.get("/exportar", validate(clienteMesQuerySchema, "query"), exportar);
 // Editar una celda de la hoja tipo Excel (modulo REGISTRO): solicitud pendiente o servicio ya creado (con limites; ver cambioCelda.service.js).
 router.patch("/celda", validate(editarCeldaSchema), editarCelda);

@@ -280,6 +280,39 @@ export const getCambiosCliente = async (user, recordId) => {
   return { cambios: filas.map((f) => ({ id: f.id, campo: f.campo, anterior: f.anterior, nuevo: f.nuevo, editor: f.editorNombre, fecha: f.createdAt.toISOString() })) };
 };
 
+// Actividad reciente de los servicios del cliente (Dashboard): servicios nuevos, entregas y cambios (de la oficina o de la propia empresa) de los ultimos 14 dias,
+// lo ultimo primero. Sin nombres de personas: del cambio solo se dice quien lo hizo en general ("Ufficio" o el nombre de la empresa).
+const ACTIVIDAD_DIAS = 14;
+const ACTIVIDAD_MAX = 15;
+export const getActividadCliente = async (user) => {
+  requireModulo(user, "DASHBOARD");
+  const desde = new Date(Date.now() - ACTIVIDAD_DIAS * DAY_MS);
+  const scope = clienteScopeWhere(user);
+  const SELECT = { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true, client: { select: { nombre: true } } };
+  const [nuevos, entregados, cambiosRecientes] = await Promise.all([
+    prisma.record.findMany({ where: { AND: [scope, { createdAt: { gte: desde } }] }, select: { ...SELECT, createdAt: true }, orderBy: { createdAt: "desc" }, take: ACTIVIDAD_MAX }),
+    prisma.record.findMany({ where: { AND: [scope, { estado: "CONSEGNATO" }, { updatedAt: { gte: desde } }] }, select: { ...SELECT, updatedAt: true }, orderBy: { updatedAt: "desc" }, take: ACTIVIDAD_MAX }),
+    prisma.cambioServicio.findMany({ where: { createdAt: { gte: desde }, recordId: { not: null } }, orderBy: { createdAt: "desc" }, take: 100 }),
+  ]);
+  // Los cambios no tienen relacion con el servicio: se queda con los de servicios que estan en el alcance del cliente.
+  const idsCambios = [...new Set(cambiosRecientes.map((c) => c.recordId))];
+  const deAlcance = idsCambios.length ? await prisma.record.findMany({ where: { AND: [scope, { id: { in: idsCambios } }] }, select: SELECT }) : [];
+  const porId = new Map(deAlcance.map((r) => [r.id, r]));
+
+  const base = (r) => ({ recordId: r.id, codigo: r.shipment || r.codigo, cliente: r.client?.nombre ?? null, spedizzione: r.spedizzione ?? null, zona: r.extrasPiazzaZona ?? null });
+  const eventos = [
+    ...nuevos.map((r) => ({ tipo: "NUEVO", ...base(r), fecha: r.createdAt.toISOString() })),
+    ...entregados.map((r) => ({ tipo: "CONSEGNADO", ...base(r), fecha: r.updatedAt.toISOString() })),
+    ...cambiosRecientes
+      .filter((c) => porId.has(c.recordId))
+      .map((c) => {
+        const ocultar = c.campo === "chofer" && !user.clienteModulos?.includes("CHOFER");
+        return { tipo: "CAMBIO", ...base(porId.get(c.recordId)), campo: c.campo, anterior: ocultar ? null : c.anterior, nuevo: ocultar ? null : c.nuevo, editor: c.editorNombre, fecha: c.createdAt.toISOString() };
+      }),
+  ];
+  return { eventos: eventos.sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, ACTIVIDAD_MAX) };
+};
+
 // Fotos de entrega y bolla de un servicio de la empresa (URL firmada, valida un rato).
 export const getFotosCliente = async (user, recordId) => {
   const record = await prisma.record.findFirst({
