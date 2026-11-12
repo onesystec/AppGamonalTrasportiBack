@@ -521,7 +521,8 @@ export const toResponse = (record, actor) => (isPrivileged(actor) ? toFullRespon
 // registros son historicos (servicios que ya pasaron), no una asignacion nueva, asi
 // que no tiene sentido bloquear la carga porque el chofer hoy este INACTIVO. La API
 // normal de creacion de registros sigue exigiendo chofer activo.
-export const createRecord = async (data, { skipActiveCheck = false, actor = null } = {}) => {
+// skipDriverCheck: solo para los servicios directos del portal del cliente, que entran con el chofer "Sin asignar" (INACTIVO a proposito, ver sinAsignar.service.js).
+export const createRecord = async (data, { skipActiveCheck = false, skipDriverCheck = false, actor = null } = {}) => {
   // actor=null (sync de AppSheet) no valida area: es un proceso de confianza que
   // importa historico de todas las areas, no una creacion manual desde la UI.
   if (actor && !canAccessRecordArea(actor, { spedizzione: data.spedizzione ?? null, extrasPiazzaZona: data.extrasPiazzaZona ?? null })) {
@@ -545,7 +546,7 @@ export const createRecord = async (data, { skipActiveCheck = false, actor = null
     if (precio != null) rest.precioKm = precio;
   };
   const [, , salida, geocoded] = await Promise.all([
-    skipActiveCheck ? null : assertDriverActivo(data.driverId),
+    skipActiveCheck || skipDriverCheck ? null : assertDriverActivo(data.driverId),
     autoPrice(),
     resolveSalida(salidaInput),
     geocodeStops(direcciones, data.ciudad),

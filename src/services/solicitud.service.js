@@ -9,6 +9,8 @@ import { geocodeAddress, geocodePreview } from "./geocoding.service.js";
 import { calculateRoute } from "./routing.service.js";
 import { verificarDestino } from "./destinoVerificacion.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
+import { avisarServicioDirecto, intentarServicioDirecto } from "./servicioDirecto.service.js";
+import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
 //  - El cliente carga la solicitud con pocos datos (cliente, destinazione, fecha y hora, km, pagado, varie) y ve su estado.
@@ -23,7 +25,7 @@ const RECORD_ASIGNADO = {
   select: {
     aplicativo: true,
     vehicle: { select: { targa: true } },
-    driver: { select: { nombre: true, apellido: true } },
+    driver: { select: { nombre: true, apellido: true, correoElectronico: true } },
     files: { where: { tipoArchivo: "BOLLA" }, orderBy: { createdAt: "asc" }, select: { id: true, archivoKey: true } },
   },
 };
@@ -40,8 +42,9 @@ const asignadoDto = (record, { verFotos = false } = {}) =>
   record
     ? {
         aplicativo: record.aplicativo ?? null,
-        targa: record.vehicle?.targa ?? null,
-        chofer: record.driver ? personName(record.driver) : null,
+        // Un servicio directo que la oficina todavia no asigno lleva las fichas internas "Sin asignar": el cliente lo ve como sin chofer ni targa.
+        targa: record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
+        chofer: record.driver && record.driver.correoElectronico !== SIN_ASIGNAR_CORREO ? personName(record.driver) : null,
         bollas: verFotos ? (record.files?.length ?? 0) : 0,
       }
     : null;
@@ -160,14 +163,26 @@ const notifyOffice = async (solicitud, user) => {
 // Los servicios de Extra Piazza (Milano y Roma) no tienen Shipment ni Order: esos datos no se guardan.
 const sinNumeros = (servicio, data) => (servicio === "EXTRA_PIAZZA" ? { ...data, shipment: null, orderNumero: null } : data);
 
+// Empresas con servicios directos (Client.serviciosDirectos): el servicio entra de una vez al Registro y la solicitud queda aceptada; el aviso a la oficina es de
+// "servicio sin asignar". Las demas (o si el servicio no se pudo crear) siguen el camino de siempre: solicitud pendiente y aviso de solicitud nueva.
+const despuesDeCrear = async (solicitud, user) => {
+  const { solicitud: final, record } = await intentarServicioDirecto(solicitud, user, { creadoPor: CREADOR, record: RECORD_ASIGNADO });
+  if (record) {
+    void ownerAndResponsableIds(final.servicio, final.zona).then((ids) => avisarServicioDirecto(final, record, user, ids));
+  } else {
+    void notifyOffice(final, user);
+  }
+  // "directo" avisa al portal de que el servicio ya esta en el Registro de la oficina.
+  return { ...toDto(final, { verFotos: Boolean(user.clienteModulos?.includes("FOTOS")) }), directo: Boolean(record) };
+};
+
 export const createSolicitudCliente = async (user, data) => {
   requireRegistro(user);
   const solicitud = await prisma.solicitudServicio.create({
     data: { ...sinNumeros(data.servicio, data), zona: data.servicio === "EXTRA_PIAZZA" ? (data.zona ?? "MILANO") : null, creadoPorId: user.id, empresaId: user.clienteId ?? null },
     include: { creadoPor: CREADOR },
   });
-  void notifyOffice(solicitud, user);
-  return toDto(solicitud);
+  return despuesDeCrear(solicitud, user);
 };
 
 export const updateSolicitudCliente = async (user, id, data) => {
@@ -423,8 +438,7 @@ export const registrarDesdeTextoCliente = async (user, { servicio, zona, fecha, 
     },
     include: { creadoPor: CREADOR },
   });
-  void notifyOffice(solicitud, user);
-  return { creada: true, solicitud: toDto(solicitud), avisos: parsed.avisos };
+  return { creada: true, solicitud: await despuesDeCrear(solicitud, user), avisos: parsed.avisos };
 };
 
 // Ruta estimada ritiro -> consegna de una solicitud de Extra Piazza: solo una pista para quien escribe el KM a mano (nunca se guarda sola).

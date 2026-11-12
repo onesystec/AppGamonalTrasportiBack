@@ -1,15 +1,20 @@
 import { prisma } from "../config/prisma.js";
+import { SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+
+// La ficha interna "Sin asignar" no es un vehiculo real: no sale en las listas ni para elegir.
+const SOLO_REALES = { NOT: { targa: SIN_ASIGNAR_TARGA } };
 
 export const createVehicle = (data) => prisma.vehiculo.create({ data });
 
 export const findVehicleById = (id) => prisma.vehiculo.findUnique({ where: { id } });
 
-export const findVehicles = () => prisma.vehiculo.findMany({ orderBy: { createdAt: "desc" } });
+export const findVehicles = () => prisma.vehiculo.findMany({ where: SOLO_REALES, orderBy: { createdAt: "desc" } });
 
 // Igual que findVehicles pero con los choferes asignados (solo id y nombre) - para la
 // columna "Conductor" de la lista de Vehiculos del front, en la misma consulta.
 export const findVehiclesWithDrivers = () =>
   prisma.vehiculo.findMany({
+    where: SOLO_REALES,
     orderBy: { createdAt: "desc" },
     include: { choferesAsignados: { select: { id: true, nombre: true, apellido: true } } },
   });

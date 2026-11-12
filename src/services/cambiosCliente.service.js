@@ -1,4 +1,5 @@
 import { prisma } from "../config/prisma.js";
+import { SIN_ASIGNAR_NOMBRE, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
 
 // Historial de cambios de un servicio que ve el cliente (Piazza): lo que cambio la oficina (aqui, sin dar el nombre de nadie: "Ufficio") y lo que cambio la propia empresa
 // desde el portal (ver cambioCelda.service.js, que guarda sus cambios en la misma tabla).
@@ -8,6 +9,12 @@ const fechaCorta = (date) => {
   const p = Object.fromEntries(FECHA.formatToParts(date).map((x) => [x.type, x.value]));
   return `${p.day}/${p.month} ${p.hour}:${p.minute}`;
 };
+
+// Las fichas internas "Sin asignar" (servicios directos, ver sinAsignar.service.js) cuentan como "todavia sin chofer / targa": el cliente ve que se asigno por
+// primera vez, no un cambio desde "Sin asignar".
+// (El servicio llega sin el correo del chofer: la ficha interna se reconoce por su nombre.)
+const choferPrevio = (driver) => (driver && !(driver.nombre === SIN_ASIGNAR_NOMBRE && !driver.apellido) ? `${driver.nombre} ${driver.apellido}`.trim() : null);
+const targaPrevia = (vehicle) => (vehicle?.targa && vehicle.targa !== SIN_ASIGNAR_TARGA ? vehicle.targa : null);
 
 const mismo = (a, b) => (a instanceof Date || b instanceof Date ? new Date(a ?? 0).getTime() === new Date(b ?? 0).getTime() : (a ?? null) === (b ?? null));
 
@@ -27,11 +34,11 @@ export const registrarCambiosOficina = async ({ before, after, actor }) => {
     comparar("eta", before.eta, after.eta, fechaCorta);
     if (before.driverId !== after.driverId) {
       const nuevo = after.driverId ? await prisma.user.findUnique({ where: { id: after.driverId }, select: { nombre: true, apellido: true } }) : null;
-      comparar("chofer", before.driver ? `${before.driver.nombre} ${before.driver.apellido}`.trim() : null, nuevo ? `${nuevo.nombre} ${nuevo.apellido}`.trim() : null);
+      comparar("chofer", choferPrevio(before.driver), nuevo ? `${nuevo.nombre} ${nuevo.apellido}`.trim() : null);
     }
     if (before.vehicleId !== after.vehicleId) {
-      const nuevo = after.vehicleId ? await prisma.vehicle.findUnique({ where: { id: after.vehicleId }, select: { targa: true } }) : null;
-      comparar("targa", before.vehicle?.targa ?? null, nuevo?.targa ?? null);
+      const nuevo = after.vehicleId ? await prisma.vehiculo.findUnique({ where: { id: after.vehicleId }, select: { targa: true } }) : null;
+      comparar("targa", targaPrevia(before.vehicle), nuevo?.targa ?? null);
     }
     if (cambios.length === 0) return;
     await prisma.cambioServicio.createMany({

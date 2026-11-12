@@ -493,6 +493,9 @@ enum TipoArchivoRecord {
 model Client {
   id        String   @id @default(uuid())
   nombre    String
+  // true = lo que carguen sus usuarios (portal del cliente, modulo REGISTRO) entra directo al Registro como servicio, con chofer y vehiculo
+  // "Sin asignar" hasta que la oficina los asigne. false = entra como solicitud pendiente y la oficina la completa (ver servicioDirecto.service.js).
+  serviciosDirectos Boolean @default(false)
   createdAt DateTime @default(now())
 
   records  Record[]

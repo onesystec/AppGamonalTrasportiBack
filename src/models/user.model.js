@@ -1,3 +1,4 @@
+import { SIN_ASIGNAR_CORREO } from "../constants/sinAsignar.js";
 import { prisma } from "../config/prisma.js";
 
 // Campos seguros para devolver en respuestas HTTP - nunca incluir password ni tokens de reset.
@@ -88,7 +89,8 @@ export const findUserByIdForAuth = async (id) => {
 // con cargo "CLIENTE").
 export const findAllUsers = (cargo) =>
   prisma.user.findMany({
-    where: cargo ? { cargo } : { cargo: { not: "CLIENTE" } },
+    // Sin la ficha interna "Sin asignar" (ver services/sinAsignar.service.js).
+    where: { ...(cargo ? { cargo } : { cargo: { not: "CLIENTE" } }), NOT: { correoElectronico: SIN_ASIGNAR_CORREO } },
     select: SAFE_USER_SELECT,
     orderBy: { createdAt: "desc" },
   });

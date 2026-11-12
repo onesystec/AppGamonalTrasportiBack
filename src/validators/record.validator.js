@@ -131,14 +131,6 @@ export const createRecordSchema = z.object({
   pasaPorFrejus: z.boolean().optional(),
   ...operationalFields,
   ...economicFields,
-  // Al crear un servicio los km son obligatorios (mayores a 0). Se declara despues de economicFields para sobrescribir su
-  // version opcional. La edicion sigue aceptando km vacios (servicios historicos).
-  kilometros: z.preprocess(
-    (v) => (v === "" || v === null ? undefined : v),
-    z.coerce
-      .number({ required_error: "Los kilometros son obligatorios", invalid_type_error: "Los kilometros son obligatorios" })
-      .positive("Los kilometros son obligatorios (deben ser mayores a 0)")
-  ),
 });
 
 export const updateRecordSchema = z.object({

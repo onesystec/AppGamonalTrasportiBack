@@ -1,3 +1,4 @@
+import { SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/AppError.js";
 import { recordAreaWhere } from "../utils/areaAccess.js";
@@ -47,6 +48,7 @@ export const getDisponibilidadForActor = async (actor, { desde, hasta } = {}) =>
     }),
     // Los que no se ven en el Mapa son los que se importaron solos del GPS (de otras empresas): aparecen solo si tienen servicios.
     prisma.vehiculo.findMany({
+      where: { NOT: { targa: SIN_ASIGNAR_TARGA } },
       select: { id: true, targa: true, modelo: true, estado: true, mostrarEnMapa: true },
       orderBy: { targa: "asc" },
     }),

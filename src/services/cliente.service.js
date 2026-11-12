@@ -1,3 +1,4 @@
+import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
 import { prisma } from "../config/prisma.js";
 import { CLIENTE_RETRASO_MAX_MIN } from "../constants/clientes.js";
 import { env } from "../config/env.js";
@@ -11,6 +12,10 @@ import { getSignedUrlForKey } from "./storage.service.js";
 import { listVehicleLivePositionsForActor } from "./vehicle.service.js";
 import { getDisponibilidadForActor } from "./disponibilidad.service.js";
 import { esMedtronic } from "../utils/aortic.js";
+
+// Un servicio directo que la oficina todavia no asigno lleva las fichas internas "Sin asignar": el cliente lo ve sin chofer ni targa.
+const targaVisible = (targa) => (targa && targa !== SIN_ASIGNAR_TARGA ? targa : null);
+const choferVisible = (driver) => Boolean(driver) && driver.correoElectronico !== SIN_ASIGNAR_CORREO;
 
 // Lo que ve un usuario CLIENTE: solo lectura y SIEMPRE los servicios de su alcance: los de su empresa (User.clienteId) y/o los de las
 // spedizioni (areas de servicio) que el Admin le marco (User.clienteAreas). Ve todos los servicios de ese alcance, no uno solo.
@@ -171,7 +176,7 @@ export const getSeguimientoCliente = async (user) => {
       eta: true,
       destinazione: true,
       vehicle: { select: { targa: true } },
-      ...(conChofer ? { driver: { select: { nombre: true, apellido: true } } } : {}),
+      ...(conChofer ? { driver: { select: { nombre: true, apellido: true, correoElectronico: true } } } : {}),
     },
     orderBy: { eta: "asc" },
     take: 50,
@@ -183,8 +188,8 @@ export const getSeguimientoCliente = async (user) => {
     programados: programados.map((r) => ({
       id: r.id,
       codigo: r.codigo,
-      targa: r.vehicle?.targa ?? null,
-      chofer: conChofer ? (r.driver ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null) : undefined,
+      targa: targaVisible(r.vehicle?.targa),
+      chofer: conChofer ? (choferVisible(r.driver) ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null) : undefined,
       destino: r.destinazione,
       etaPlan: r.eta.toISOString(),
     })),
@@ -220,7 +225,7 @@ export const listServiciosCliente = async (user, { month } = {}) => {
       extrasPiazzaZona: true,
       client: { select: { nombre: true } },
       vehicle: { select: { targa: true } },
-      driver: { select: { nombre: true, apellido: true } },
+      driver: { select: { nombre: true, apellido: true, correoElectronico: true } },
       stops: { orderBy: { orden: "asc" }, select: { direccion: true } },
       files: { where: { tipoArchivo: { in: FOTO_TIPOS } }, select: { id: true, tipoArchivo: true } },
     },
@@ -238,8 +243,8 @@ export const listServiciosCliente = async (user, { month } = {}) => {
         fecha: r.fechaServicio.toISOString(),
         estado: r.estado,
         estadoLabel: ESTADO_LABEL[r.estado] ?? r.estado,
-        targa: r.vehicle?.targa ?? null,
-        chofer: r.driver ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null,
+        targa: targaVisible(r.vehicle?.targa),
+        chofer: choferVisible(r.driver) ? `${r.driver.nombre} ${r.driver.apellido}`.trim() : null,
         aplicativo: r.aplicativo ?? null,
         shipment: r.shipment ?? null,
         orderNumero: r.orderNumero ?? null,
