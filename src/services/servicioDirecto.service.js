@@ -5,16 +5,17 @@ import { sendPushToUserIds } from "./pushNotification.service.js";
 import { getSinAsignar } from "./sinAsignar.service.js";
 import { defaultSalidaFor } from "../constants/salidaPorDefecto.js";
 
-// Servicios directos: las empresas cliente con Client.serviciosDirectos (Piazza Spedizioni) no pasan por la solicitud pendiente. Al enviar el servicio desde el
+// Servicios directos: los usuarios cliente con User.serviciosDirectos (o de una empresa con Client.serviciosDirectos), como Piazza Spedizioni, no pasan por la solicitud pendiente. Al enviar el servicio desde el
 // portal, el servicio aparece de una vez en el Registro, con chofer y vehiculo "Sin asignar" (ver sinAsignar.service.js) hasta que la oficina elija los reales.
 // La solicitud se conserva, ya ACEPTADA y enlazada al servicio, porque es lo que alimenta la hoja y el historial del cliente (y sus ediciones de celda).
 // Si el servicio no se puede crear (la direccion no se ubica en el mapa, falla algun servicio externo...), la solicitud queda PENDIENTE como siempre y la
 // oficina la completa a mano: el cliente nunca pierde lo que envio.
 
+// El interruptor es del usuario (Acceso de clientes); el de su empresa, si la tiene, tambien vale para todos sus usuarios.
 export const usaServiciosDirectos = async (user) => {
-  if (!user?.clienteId) return false;
-  const client = await prisma.client.findUnique({ where: { id: user.clienteId }, select: { serviciosDirectos: true } });
-  return Boolean(client?.serviciosDirectos);
+  if (!user?.id) return false;
+  const fila = await prisma.user.findUnique({ where: { id: user.id }, select: { serviciosDirectos: true, cliente: { select: { serviciosDirectos: true } } } });
+  return Boolean(fila?.serviciosDirectos || fila?.cliente?.serviciosDirectos);
 };
 
 const normalizar = (valor) =>
@@ -141,7 +142,7 @@ export const intentarServicioDirecto = async (solicitud, user, include) => {
 // Se llama una vez al arrancar el servidor; lo que no se pueda crear sigue pendiente y se vuelve a intentar en el proximo arranque.
 export const convertirPendientesDirectos = async () => {
   const pendientes = await prisma.solicitudServicio.findMany({
-    where: { estado: "PENDIENTE", empresa: { serviciosDirectos: true } },
+    where: { estado: "PENDIENTE", OR: [{ creadoPor: { serviciosDirectos: true } }, { empresa: { serviciosDirectos: true } }] },
     orderBy: { createdAt: "asc" },
     take: 200,
   });

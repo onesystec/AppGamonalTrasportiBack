@@ -47,7 +47,7 @@ const assertCanAssignCargo = (actor, cargo) => {
 const normalizeClienteFields = async (data, target) => {
   const finalCargo = data.cargo ?? target?.cargo;
   if (finalCargo !== "CLIENTE") {
-    if (target?.cargo === "CLIENTE" || !target) return { ...data, clienteId: null, clienteAreas: [], clienteModulos: [] };
+    if (target?.cargo === "CLIENTE" || !target) return { ...data, clienteId: null, clienteAreas: [], clienteModulos: [], serviciosDirectos: false };
     return data;
   }
   // Alcance: su empresa y/o las spedizioni (areas) que puede seguir; tiene que tener al menos una de las dos.
@@ -214,7 +214,7 @@ export const updateUser = async (actor, targetId, data) => {
   if (isPrivileged) {
     payload = normalizeResponsableFields(actor, payload, target);
     // La empresa y los modulos de un usuario cliente solo los toca un Admin.
-    if ((payload.clienteId !== undefined || payload.clienteAreas !== undefined || payload.clienteModulos !== undefined) && actor.cargo !== "OWNER") {
+    if ((payload.clienteId !== undefined || payload.clienteAreas !== undefined || payload.clienteModulos !== undefined || payload.serviciosDirectos !== undefined) && actor.cargo !== "OWNER") {
       throw new AppError("Solo un Admin puede definir el acceso de un usuario cliente", 403);
     }
     payload = await normalizeClienteFields(payload, target);
