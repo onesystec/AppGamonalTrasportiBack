@@ -11,6 +11,7 @@ export const CLIENTE_MODULOS = {
   EN_VIVO: "Mapa En Vivo: posicion de los vehiculos en tiempo real",
   DISPONIBILIDAD: "Disponibilitá: que vehiculos y cuantos choferes estan libres cada dia",
   CHOFER: "Nombre del chofer en el seguimiento (lista de servicios en camino y programados)",
+  DASHBOARD: "Dashboard: resumen del mes y servicios pendientes de hoy (usa los datos del Registro)",
 };
 export const CLIENTE_MODULOS_KEYS = Object.keys(CLIENTE_MODULOS);
 
