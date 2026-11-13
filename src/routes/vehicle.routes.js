@@ -10,6 +10,7 @@ import {
   getMeetingRoutes,
   getMeetingSuggestions,
   getPushStatus,
+  sendPushTest,
   getSpeedingSummary,
   getVelocityFleetUsage,
   list,
@@ -74,6 +75,8 @@ router.get("/velocity-fleet-usage", authorize("OWNER", "ADMIN"), getVelocityFlee
 // Diagnostico de notificaciones push: confirma si FIREBASE_SERVICE_ACCOUNT_JSON quedo
 // bien configurado en Render sin tener que buscar en los logs.
 router.get("/push-status", authorize("OWNER", "ADMIN"), getPushStatus);
+// Prueba de notificaciones: el aviso llega solo a los dispositivos de quien lo pide.
+router.post("/push-test", authorize("OWNER", "ADMIN"), sendPushTest);
 // Buscador de targa del Mapa: ETA a un destino escrito a mano. OWNER/ADMIN (mismo
 // publico que ve el Mapa completo).
 router.post(

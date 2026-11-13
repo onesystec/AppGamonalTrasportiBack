@@ -106,8 +106,11 @@ const enviarLote = async (origen, tokens, cuerpo) => {
 // Devuelve los tokens que Apple dio por invalidos para borrarlos. Los de una compilacion de
 // desarrollo (instalada desde Xcode) solo existen en el servidor de pruebas: si el de produccion
 // dice BadDeviceToken se reintenta ahi antes de darlos por perdidos.
-export const sendApnsToTokens = async (tokens, { title, body, data } = {}, { origenProduccion = ORIGEN_PRODUCCION, origenPruebas = ORIGEN_PRUEBAS } = {}) => {
-  if (!tokens?.length || !apnsConfigurado()) return [];
+export const sendApnsToTokens = async (tokens, aviso = {}, opciones = {}) => (await sendApnsDetallado(tokens, aviso, opciones)).invalidos;
+
+// Igual que sendApnsToTokens pero con el resultado de cada envio (para la prueba de notificaciones).
+export const sendApnsDetallado = async (tokens, { title, body, data } = {}, { origenProduccion = ORIGEN_PRODUCCION, origenPruebas = ORIGEN_PRUEBAS } = {}) => {
+  if (!tokens?.length || !apnsConfigurado()) return { invalidos: [], enviados: 0, fallos: [] };
 
   const cuerpo = JSON.stringify({
     ...Object.fromEntries(Object.entries(data ?? {}).map(([k, v]) => [k, String(v)])),
@@ -119,14 +122,23 @@ export const sendApnsToTokens = async (tokens, { title, body, data } = {}, { ori
   const sandbox = dudosos.length ? await enviarLote(origenPruebas, dudosos, cuerpo) : [];
 
   const invalidos = [];
+  const fallos = [];
+  let enviados = 0;
   tokens.forEach((token, i) => {
     const r = resultados[i];
-    if (r.ok) return;
+    if (r.ok) {
+      enviados += 1;
+      return;
+    }
     const reintento = sandbox[dudosos.indexOf(token)];
-    if (reintento?.ok) return;
+    if (reintento?.ok) {
+      enviados += 1;
+      return;
+    }
     const motivo = reintento ? reintento.motivo : r.motivo;
+    fallos.push(motivo ?? `HTTP ${r.status}`);
     if (MOTIVOS_TOKEN_INVALIDO.has(motivo)) invalidos.push(token);
     else console.error(`APNs rechazo un aviso (${r.status} ${motivo ?? "sin motivo"})`);
   });
-  return invalidos;
+  return { invalidos, enviados, fallos };
 };

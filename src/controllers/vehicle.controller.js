@@ -1,5 +1,5 @@
 import { findMeetingPointForActor, findMeetingSuggestionsForActor, getMeetingRoutesForActor } from "../services/puntoEncuentro.service.js";
-import { getPushDiagnostics } from "../services/pushNotification.service.js";
+import { getPushDiagnostics, sendTestPushToUser } from "../services/pushNotification.service.js";
 import { getVelocityFleetUsageStats } from "../services/velocityFleet.service.js";
 import {
   cleanupOldAreaCEntries,
@@ -71,6 +71,13 @@ export const getVelocityFleetUsage = asyncHandler(async (req, res) => {
 // tener que buscar en los logs.
 export const getPushStatus = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: getPushDiagnostics() });
+});
+
+// Prueba de notificaciones: manda un aviso SOLO a los dispositivos de quien lo pide y
+// devuelve cuantos dispositivos tiene registrados y si Apple/Firebase aceptaron el aviso.
+export const sendPushTest = asyncHandler(async (req, res) => {
+  const resultado = await sendTestPushToUser(req.user.id);
+  res.status(200).json({ success: true, data: resultado });
 });
 
 // ETA a un destino escrito a mano desde la posicion actual de un vehiculo/chofer (ver
