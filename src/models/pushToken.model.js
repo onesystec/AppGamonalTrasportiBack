@@ -21,5 +21,5 @@ export const deletePushTokensByToken = (tokens) =>
 export const findPushTokensForUserIds = (userIds) =>
   prisma.pushToken.findMany({
     where: { userId: { in: userIds } },
-    select: { token: true },
+    select: { token: true, platform: true },
   });

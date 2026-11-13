@@ -118,9 +118,8 @@ export const updateReperibilidadSchema = z.object({
   noDisponible: z.boolean(),
 });
 
-// Token de dispositivo (Firebase Cloud Messaging, ver pushNotification.service.js) -
-// platform solo informativo por ahora (siempre "android", la app todavia no se
-// distribuye para iOS).
+// Token de dispositivo: en Android el de Firebase Cloud Messaging y en iPhone el de APNs
+// (ver pushNotification.service.js); platform decide por cual de los dos se envia el aviso.
 export const registerPushTokenSchema = z.object({
   token: z.string().min(1, "El token es obligatorio"),
   platform: z.enum(["android", "ios"]).default("android"),

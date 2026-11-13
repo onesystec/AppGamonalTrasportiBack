@@ -235,6 +235,15 @@ const envSchema = z.object({
   // Cuentas de servicio > Generar nueva clave privada), ver README.
   FIREBASE_SERVICE_ACCOUNT_JSON: z.string().optional(),
 
+  // Notificaciones push al iPhone directo por APNs (ver apns.service.js). Opcionales:
+  // sin la clave .p8 el envio a iPhone queda apagado. APNS_KEY es el contenido completo
+  // del archivo AuthKey_XXXX.p8 (los saltos de linea pueden ir como \n), APNS_KEY_ID
+  // sus 10 caracteres y APNS_TEAM_ID el Team ID de la cuenta de desarrollador.
+  APNS_KEY: z.string().optional(),
+  APNS_KEY_ID: z.string().optional(),
+  APNS_TEAM_ID: z.string().optional(),
+  APNS_BUNDLE_ID: z.string().default("com.gamonaltrasporti.app"),
+
   // Carga de servicios por chat (ver telegramAssistant.service.js) - bot privado de
   // Telegram + Claude para interpretar el mensaje en lenguaje natural. Los 3 son
   // opcionales a proposito: sin ellos, ese endpoint solo ignora los webhooks entrantes,
