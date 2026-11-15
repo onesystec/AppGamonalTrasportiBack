@@ -7,6 +7,7 @@ import { AppError } from "../utils/AppError.js";
 import { assertAccess, toResponse } from "./record.service.js";
 import { attachFaltantes } from "./faltantes.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
+import { sincronizzaSicuro } from "./collegamentoInvio.service.js";
 
 // Anulacion de un servicio (solo Admin y Responsable). Si el chofer ya habia manejado antes de que se anulara, la oficina anota los
 // km totales que hizo: el servicio queda "Anulado" pero esos km pasan a ser los del servicio (se facturan y se pagan, igual que en una
@@ -80,6 +81,7 @@ export const anularRecordForActor = async (actor, id, { kmRecorridos = 0, soloId
   }
 
   await prisma.record.update({ where: { id }, data, select: { id: true } });
+  void sincronizzaSicuro({ recordId: id });
   // Cambia si el servicio cuenta como trabajado: los peajes que le tocan se revisan en segundo plano.
   void rematchAssignmentsForVehicle(record.vehicleId);
 

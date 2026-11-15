@@ -181,6 +181,7 @@ model User {
   permisosRevisados         Permiso[]               @relation("PermisoRevisadoPor")
   solicitudesServicio       SolicitudServicio[]     @relation("SolicitudCreadaPor")
   solicitudesRevisadas      SolicitudServicio[]     @relation("SolicitudRevisadaPor")
+  collegamentiCreados       Collegamento[]          @relation("CollegamentoCreadoDa")
 
   @@map("users")
 }
@@ -504,6 +505,8 @@ model Client {
   records  Record[]
   usuarios User[]   @relation("ClienteUsuarios")
   solicitudes SolicitudServicio[]
+  // App One Driver de esta empresa conectada por "App collegate" (ver Collegamento): sus servicios llegan a la bandeja de solicitudes.
+  collegamento Collegamento?
 
   @@map("clients")
 }
@@ -1514,12 +1517,21 @@ model SolicitudServicio {
   recordId      String?         @unique
   record        Record?         @relation(fields: [recordId], references: [id], onDelete: SetNull)
 
+  // Solicitud que llego por una app One Driver conectada (ver Collegamento): id del servicio en la app de origen. Con ambos, la solicitud es unica por servicio.
+  collegamentoId String?
+  collegamento   Collegamento? @relation(fields: [collegamentoId], references: [id], onDelete: SetNull)
+  recordRemotoId String?
+  // Ultimo estado / chofer / targa que se aviso a la app de origen ({ estado, autista, targa }): solo se vuelve a avisar si cambia.
+  ultimoEnviado  Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([collegamentoId, recordRemotoId])
   @@index([estado, fechaHora])
   @@index([creadoPorId])
   @@index([empresaId])
+  @@index([collegamentoId])
   @@map("solicitudes_servicio")
 }
 
@@ -1573,4 +1585,53 @@ model AlertaCambio {
   @@index([recordId, editorId, updatedAt])
   @@index([areaKey, updatedAt])
   @@map("alertas_cambio")
+}
+
+// ---- App collegate: conexion segura entre apps One Driver (App Piazza asigna servicios a Gamonal y Gamonal le responde) ----
+
+enum CollegamentoRuolo {
+  FORNITORE
+  CLIENTE
+}
+
+enum CollegamentoStato {
+  // Lo pedi yo: espero que la otra empresa acepte.
+  IN_ATTESA
+  // Lo pidio la otra empresa: lo tengo que aceptar yo.
+  DA_APPROVARE
+  ATTIVO
+  RIFIUTATO
+  SCOLLEGATO
+}
+
+// En Gamonal la fila siempre es de ruolo CLIENTE (la otra app asigna servicios a Gamonal). Dos tokens, uno por sentido:
+//  - tokenUscente: el que creo la otra app; Gamonal lo usa para llamarla. Se guarda CIFRADO (AES-256-GCM).
+//  - tokenEntranteHash: el que crea Gamonal al aceptar; la otra app lo usa para llamar a Gamonal. Solo se guarda su SHA-256.
+model Collegamento {
+  id                String            @id @default(uuid())
+  ruolo             CollegamentoRuolo
+  stato             CollegamentoStato
+  // Direccion de la API de la otra app (https://...) y el id de SU fila de collegamento.
+  remotoUrl         String
+  remotoId          String?
+  remotoNome        String
+  remotoPartitaIva  String?
+  tokenEntranteHash String?
+  tokenUscente      String?
+  // Ficha de Anagrafica (Client) que corresponde a la otra empresa.
+  clientId          String?           @unique
+  client            Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  // Quien lo acepto: las entregas que llegan se registran a su nombre.
+  creadoDaId        String?
+  creadoDa          User?             @relation("CollegamentoCreadoDa", fields: [creadoDaId], references: [id], onDelete: SetNull)
+  // Ultimo problema de comunicacion con la otra app (null = todo bien).
+  ultimoErrore      String?
+  ultimoErroreAt    DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  solicitudes SolicitudServicio[]
+
+  @@index([stato])
+  @@map("collegamenti")
 }

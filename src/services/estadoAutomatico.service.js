@@ -1,5 +1,6 @@
 import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
+import { sincronizzaAperti } from "./collegamentoInvio.service.js";
 
 // Un servicio "Pendiente" (IN_SOSPESO) pasa solo a "En camino" (IN_CONSEGNA) cuando su hora de retiro (fechaRetiro, la salida del
 // vehiculo) ya paso hace AUTO_EN_CAMINO_MIN minutos. Solo mira los ultimos dias: no toca servicios viejos que nunca se cerraron, y si
@@ -26,5 +27,7 @@ export const advancePendingToEnCamino = async (now = Date.now()) => {
     where: { id: { in: due.map((r) => r.id) }, estado: "IN_SOSPESO" },
     data: { estado: "IN_CONSEGNA" },
   });
+  // App conectada (App Piazza): los servicios que pasaron a "En camino" se le avisan.
+  if (count > 0) void sincronizzaAperti();
   return count;
 };

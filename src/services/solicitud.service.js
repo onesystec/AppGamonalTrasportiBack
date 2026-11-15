@@ -11,6 +11,7 @@ import { verificarDestino } from "./destinoVerificacion.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 import { avisarServicioDirecto, intentarServicioDirecto } from "./servicioDirecto.service.js";
 import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+import { notificaEsitoSolicitud } from "./collegamentoInvio.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
 //  - El cliente carga la solicitud con pocos datos (cliente, destinazione, fecha y hora, km, pagado, varie) y ve su estado.
@@ -83,6 +84,8 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   recordId: s.recordId ?? null,
   ...(s.creadoPor ? { creadoPor: personName(s.creadoPor), creadoPorRol: rolDe(s.creadoPor) } : {}),
   ...(office ? { empresa: s.empresa?.nombre ?? null } : {}),
+  // Llego por una app One Driver conectada (App Piazza): nombre de la empresa y ultimo problema al avisarle (para el boton "Reinvia").
+  ...(s.collegamentoId && office ? { origen: { empresa: s.collegamento?.remotoNome ?? null, errore: office ? (s.collegamento?.ultimoErrore ?? null) : null } } : {}),
 });
 
 // --- Usuario cliente ---
@@ -138,7 +141,7 @@ export const getDetalleSolicitudCliente = async (user, id) => {
   return { asignado, bollas };
 };
 
-const ownerAndResponsableIds = async (servicio, zona) => {
+export const ownerAndResponsableIds = async (servicio, zona) => {
   const areaKeys = areaKeysDeSolicitud(servicio, zona);
   const users = await prisma.user.findMany({
     where: { estado: "ACTIVO", OR: [{ cargo: "OWNER" }, { cargo: "ADMIN", areasPermitidas: { hasSome: areaKeys } }] },
@@ -221,7 +224,7 @@ const officeWhere = (actor) => {
   return { OR: condiciones };
 };
 
-const OFFICE_INCLUDE = { creadoPor: CREADOR, empresa: { select: { nombre: true } } };
+const OFFICE_INCLUDE = { creadoPor: CREADOR, empresa: { select: { nombre: true } }, collegamento: { select: { remotoNome: true, ultimoErrore: true } } };
 
 export const listSolicitudesForActor = async (actor, { estado = "PENDIENTE" } = {}) => {
   const rows = await prisma.solicitudServicio.findMany({
@@ -255,6 +258,8 @@ export const rechazarSolicitudForActor = async (actor, id, { motivo }) => {
     include: OFFICE_INCLUDE,
   });
   const detalle = `${solicitud.cliente} - ${solicitud.destinazione}${motivo ? `: ${motivo}` : ""}`;
+  // Si vino de una app conectada, se le avisa que se rechazo (con el motivo).
+  void notificaEsitoSolicitud(solicitud, "RIFIUTATO", motivo);
   void notifyCreator(solicitud, { title: "Solicitud rechazada", body: detalle }, { title: "Richiesta rifiutata", body: detalle }, actor.id);
   return toDto(solicitud, { office: true });
 };
@@ -270,6 +275,8 @@ export const linkSolicitudToRecord = async (actor, solicitudId, recordId) => {
       data: { estado: "ACEPTADA", recordId, revisadoPorId: actor.id, revisadoAt: new Date(), motivoRechazo: null },
     });
     if (count) {
+      // Si vino de una app conectada, se le avisa que se acepto (y quien es el chofer y la targa, si ya estan).
+      void notificaEsitoSolicitud({ ...current, id: solicitudId }, "ACCETTATO");
       const dato = `${current.cliente} - ${current.destinazione}`;
       void notifyCreator(current, { title: "Solicitud aceptada", body: `${dato} ya esta en el registro` }, { title: "Richiesta accettata", body: `${dato} è già nel registro` }, actor.id);
     }
@@ -456,4 +463,9 @@ export const rutaEstimadaForActor = async (actor, id) => {
 };
 
 // Al borrar un servicio de la oficina, la solicitud del cliente que lo origino se borra tambien (si no, el cliente seguiria viendo una fila fantasma).
-export const deleteSolicitudesOfRecord = (recordId) => prisma.solicitudServicio.deleteMany({ where: { recordId } });
+export const deleteSolicitudesOfRecord = async (recordId) => {
+  // Si el servicio vino de una app conectada, se le avisa que ya no se va a hacer (antes de borrar la solicitud).
+  const conectadas = await prisma.solicitudServicio.findMany({ where: { recordId, collegamentoId: { not: null } }, select: { id: true, collegamentoId: true, recordRemotoId: true } });
+  for (const c of conectadas) void notificaEsitoSolicitud(c, "RIFIUTATO", "Servizio eliminato");
+  return prisma.solicitudServicio.deleteMany({ where: { recordId } });
+};

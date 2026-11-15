@@ -9,7 +9,7 @@ const USER_LIMIT_PER_MIN = 600;
 const ANON_LIMIT_PER_MIN = 120;
 
 // Rutas con su propia autenticacion o que reciben rafagas legitimas de servicios externos.
-const EXEMPT_PREFIXES = ["/api/health", "/api/telegram/", "/api/integraciones/", "/api/app/android/publicar"];
+const EXEMPT_PREFIXES = ["/api/health", "/api/telegram/", "/api/integraciones/", "/api/collegamenti/pubblico/", "/api/app/android/publicar"];
 
 const identify = (req) => {
   const header = req.headers.authorization;

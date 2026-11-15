@@ -7,6 +7,7 @@ import { rrhhGate } from "../middlewares/rrhhGate.js";
 import { clienteGate } from "../middlewares/clienteGate.js";
 import clienteRoutes from "./cliente.routes.js";
 import clientRoutes from "./client.routes.js";
+import collegamentoRoutes, { pubblico as collegamentoPubblico } from "./collegamento.routes.js";
 import combustibleRoutes from "./combustible.routes.js";
 import documentRoutes from "./document.routes.js";
 import fileRoutes from "./file.routes.js";
@@ -36,12 +37,16 @@ import vencimientosRoutes from "./vencimientos.routes.js";
 
 const router = Router();
 
+// API publica de las apps conectadas (App Piazza): servidor a servidor, con su propio token y limitador. Va antes de cualquier puerta o sesion.
+router.use("/collegamenti/pubblico", collegamentoPubblico);
+
 // Recursos Humanos solo entra a lo suyo, decidido aca y no ruta por ruta (ver middlewares/rrhhGate.js).
 router.use(rrhhGate);
 // Lo mismo para los usuarios de empresas cliente (ver middlewares/clienteGate.js).
 router.use(clienteGate);
 
 router.use("/app", appRoutes);
+router.use("/collegamenti", collegamentoRoutes);
 router.use("/notificaciones", notificacionRoutes);
 router.use("/auth", authRoutes);
 router.use("/users", userRoutes);

@@ -142,7 +142,8 @@ export const intentarServicioDirecto = async (solicitud, user, include) => {
 // Se llama una vez al arrancar el servidor; lo que no se pueda crear sigue pendiente y se vuelve a intentar en el proximo arranque.
 export const convertirPendientesDirectos = async () => {
   const pendientes = await prisma.solicitudServicio.findMany({
-    where: { estado: "PENDIENTE", OR: [{ creadoPor: { serviciosDirectos: true } }, { empresa: { serviciosDirectos: true } }] },
+    // Las que llegaron por una app conectada (collegamentoId) nunca pasan solas: las acepta una persona.
+    where: { estado: "PENDIENTE", collegamentoId: null, OR: [{ creadoPor: { serviciosDirectos: true } }, { empresa: { serviciosDirectos: true } }] },
     orderBy: { createdAt: "asc" },
     take: 200,
   });

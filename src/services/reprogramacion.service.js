@@ -11,6 +11,7 @@ import { ensureCircuitSafe, planTiming } from "./rutaEstimada.service.js";
 import { precioKmAutomatico } from "./tarifas.service.js";
 import { findOnesystecVehicleIdByPlate, getVehicleDrivingStyle, isOnesystecConfigured } from "./onesystec.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { sincronizzaSicuro } from "./collegamentoInvio.service.js";
 
 // Reprogramacion de un servicio (solo Admin y Responsable). El servicio original queda "Reprogramado" con los km que el chofer
 // hizo hasta ahi (se facturan y se pagan) y se crea uno nuevo, igual al original: mismas paradas ya ubicadas en el mapa y mismo
@@ -317,6 +318,8 @@ export const reprogramarRecordForActor = async (actor, id, body) => {
     notify([nuevoChoferId], "Servicio reprogramado", `${record.codigo} se reprogramo: ${codigo}, ETA ${when}.`, nuevo.id);
   }
 
+  // App conectada (App Piazza): el servicio original quedo reprogramado.
+  void sincronizzaSicuro({ recordId: original.id });
   const [full, fullOriginal] = await Promise.all([findRecordById(nuevo.id), findRecordById(original.id)]);
   await attachFaltantes([full, fullOriginal]);
   return { original: toResponse(fullOriginal, actor), nuevo: toResponse(full, actor) };
@@ -360,6 +363,7 @@ export const deshacerReprogramacionForActor = async (actor, id) => {
     });
   });
   void rematchAssignmentsForVehicle(original.vehicleId);
+  void sincronizzaSicuro({ recordId: id });
   const fresh = await findRecordById(id);
   await attachFaltantes([fresh]);
   return toResponse(fresh, actor);

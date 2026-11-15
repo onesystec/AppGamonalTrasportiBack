@@ -17,6 +17,7 @@ import { recordAreaKey } from "../utils/areaAccess.js";
 import { attachCompactados } from "./compactadoView.service.js";
 import { computeEstimacionForRecord, ensureCircuitSafe } from "./rutaEstimada.service.js";
 import { refreshEstiloInBackground } from "./drivingStyle.service.js";
+import { sincronizzaAperti, sincronizzaSicuro } from "./collegamentoInvio.service.js";
 import { computeParadasForRecord, loadParadasForRecords, refreshParadasInBackground } from "./vehicleStops.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
@@ -197,6 +198,8 @@ export const submitHoursForActor = async (actor, id, body) => {
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   // Terminar el viaje compacto entrega todos sus servicios.
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
+  // App conectada (App Piazza): se le avisa el nuevo estado del servicio (y de los del viaje, si se entregaron juntos).
+  void (updated.compactadoId && updated.estado === "CONSEGNATO" ? sincronizzaAperti() : sincronizzaSicuro({ recordId: id }));
   // Las paradas del vehiculo durante la jornada se calculan aparte, sin hacer esperar al chofer.
   const paradas = refreshParadasInBackground(id);
   refreshEstiloInBackground(id, { force: true });
@@ -249,6 +252,7 @@ export const closeServiceForActor = async (actor, id, body) => {
   if (aprobacion.horasEstado === "PENDIENTE") void notifyReviewers(updated, `${actor.nombre} ${actor.apellido}`.trim(), body.esperaMin);
   if (markDelivered) await rematchAssignmentsForVehicle(record.vehicleId);
   if (updated.compactadoId && updated.estado === "CONSEGNATO") await markGroupDelivered(updated.compactadoId);
+  void (updated.compactadoId && updated.estado === "CONSEGNATO" ? sincronizzaAperti() : sincronizzaSicuro({ recordId: id }));
   // El pago usa los km del circuito: se asegura que este servicio lo tenga calculado.
   const circuito = await ensureCircuitSafe(updated.compactadoId ? ((await findGroupMembers(updated.compactadoId))[0]?.id ?? id) : id);
   const paid = circuito?.km && !updated.compactadoId ? { ...updated, circuitoKm: circuito.km, circuitoMin: circuito.idaMin + circuito.vueltaMin, circuitoKmBase: circuito.base?.km ?? circuito.km, circuitoMinBase: circuito.base?.min ?? null } : updated;

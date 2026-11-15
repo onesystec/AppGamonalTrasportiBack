@@ -244,6 +244,24 @@ const envSchema = z.object({
   APNS_TEAM_ID: z.string().optional(),
   APNS_BUNDLE_ID: z.string().default("com.gamonaltrasporti.app"),
 
+  // App collegate (ver collegamento.service.js): conexion segura con otras apps One Driver (App Piazza le asigna servicios a Gamonal).
+  //  - EMPRESA_NOMBRE / EMPRESA_RAZON_SOCIAL / EMPRESA_PARTITA_IVA: como se presenta esta empresa ante la otra app.
+  //  - PUBLIC_API_URL: direccion publica de ESTA API, sin /api (https://appgamonaltrasportiback-vv19.onrender.com). Sin ella se ve por la peticion.
+  //  - COLLEGAMENTI_HOST_PERMESSI: hosts (solo el nombre, separados por coma) de las apps que pueden conectarse en produccion. Vacio = cualquiera publica.
+  //  - COLLEGAMENTI_CODICE_ORE: horas que vale el codigo de collegamento.
+  //  - COLLEGAMENTI_ENCRYPTION_KEY: clave (32+ caracteres, aleatoria) que cifra en la base el token con el que Gamonal llama a la otra app.
+  //    Sin ella la pantalla se ve pero aceptar una conexion responde 503. Nunca va en el repo.
+  EMPRESA_NOMBRE: z.string().trim().min(1).default("Gamonal Trasporti"),
+  EMPRESA_RAZON_SOCIAL: z.string().trim().default(""),
+  EMPRESA_PARTITA_IVA: z.string().trim().default(""),
+  PUBLIC_API_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
+  COLLEGAMENTI_HOST_PERMESSI: z
+    .string()
+    .default("")
+    .transform((v) => v.split(",").map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/:].*$/, "")).filter(Boolean)),
+  COLLEGAMENTI_CODICE_ORE: z.coerce.number().int().min(1).max(168).default(24),
+  COLLEGAMENTI_ENCRYPTION_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32, "COLLEGAMENTI_ENCRYPTION_KEY debe tener al menos 32 caracteres").optional()),
+
   // Carga de servicios por chat (ver telegramAssistant.service.js) - bot privado de
   // Telegram + Claude para interpretar el mensaje en lenguaje natural. Los 3 son
   // opcionales a proposito: sin ellos, ese endpoint solo ignora los webhooks entrantes,
@@ -275,7 +293,7 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+export const env = { ...parsed.data, EMPRESA_RAZON_SOCIAL: parsed.data.EMPRESA_RAZON_SOCIAL || parsed.data.EMPRESA_NOMBRE };
 
 // Avisos (no cortan el arranque, para no tumbar la app si hoy esta asi): configuracion floja en produccion.
 if (env.NODE_ENV === "production") {

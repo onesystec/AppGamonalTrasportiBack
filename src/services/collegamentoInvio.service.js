@@ -1,0 +1,174 @@
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { env } from "../config/env.js";
+import { prisma } from "../config/prisma.js";
+import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+import { AppError } from "../utils/AppError.js";
+import { hostPrivato } from "../utils/codiceCollegamento.js";
+import { decryptSecret } from "../utils/secretBox.js";
+
+// Llamadas SALIENTES de Gamonal a la otra app One Driver (App Piazza) y utilidades comunes (ver model Collegamento).
+// Gamonal solo manda a Piazza: aceptado / rechazado de un servicio, y su estado, nombre del chofer y targa. Nada de precios, pagos,
+// documentos, ubicaciones ni datos personales del chofer. Nunca bloquea ni rompe la operacion que lo origina (ver "seguro").
+
+export const sha256 = (testo) => createHash("sha256").update(String(testo)).digest("hex");
+export const nuovoToken = () => randomBytes(32).toString("base64url");
+
+// Comparacion en tiempo constante del token recibido contra el hash guardado.
+export const stessoHash = (token, hash) => {
+  if (typeof token !== "string" || !token || !hash) return false;
+  const a = Buffer.from(sha256(token));
+  const b = Buffer.from(hash);
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
+export const nomeAzienda = () => env.EMPRESA_RAZON_SOCIAL || env.EMPRESA_NOMBRE;
+
+const TIMEOUT_MS = 10_000;
+
+// En produccion la direccion debe resolver SOLO a IP publicas (un nombre que apunte a 127.0.0.1 o a una red interna se rechaza: DNS rebinding / SSRF).
+export const controllaDestinazione = async (baseUrl) => {
+  if (env.NODE_ENV !== "production") return;
+  let indirizzi;
+  try {
+    indirizzi = await lookup(new URL(baseUrl).hostname, { all: true });
+  } catch {
+    throw new AppError("L'altra app non risponde (irraggiungibile)", 502);
+  }
+  if (!indirizzi.length || indirizzi.some((i) => hostPrivato(i.address))) throw new AppError("Indirizzo dell'altra app non ammesso", 400);
+};
+
+// Llamada POST al API publico de collegamenti de la otra app. Lanza AppError 502; err.riprova = true si vale la pena reintentar (no responde / error 5xx / 429).
+export const chiamaRemoto = async (baseUrl, percorso, { token, body } = {}) => {
+  await controllaDestinazione(baseUrl);
+  let res;
+  try {
+    res = await fetch(`${baseUrl}/api/collegamenti/pubblico${percorso}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body ?? {}),
+      redirect: "error",
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+  } catch (err) {
+    const e = new AppError(`L'altra app non risponde (${err.name === "TimeoutError" ? "tempo scaduto" : "irraggiungibile"})`, 502);
+    e.riprova = true;
+    throw e;
+  }
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const e = new AppError(json?.message ? `L'altra app: ${json.message}` : `L'altra app ha risposto ${res.status}`, 502);
+    e.riprova = res.status >= 500 || res.status === 429;
+    throw e;
+  }
+  return json?.data ?? {};
+};
+
+export const chiamaCollegamento = (collegamento, percorso, body) => {
+  if (!collegamento.tokenUscente || !collegamento.remotoId) throw new AppError("Collegamento non ancora attivo", 409);
+  return chiamaRemoto(collegamento.remotoUrl, `/${collegamento.remotoId}${percorso}`, { token: decryptSecret(collegamento.tokenUscente), body });
+};
+
+// Render duerme las apps gratuitas: se reintenta con espera creciente (2 s, 8 s, 30 s) solo si el fallo es transitorio.
+export const ESPERAS_MS = [2000, 8000, 30000];
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+export const chiamaConRiprova = async (collegamento, percorso, body, { esperas = ESPERAS_MS, chiama = chiamaCollegamento } = {}) => {
+  for (let intento = 0; ; intento += 1) {
+    try {
+      return await chiama(collegamento, percorso, body);
+    } catch (err) {
+      if (!err.riprova || intento >= esperas.length) throw err;
+      await dormir(esperas[intento]);
+    }
+  }
+};
+
+// Recuerda el ultimo problema (se ve en la lista de conexiones) o lo borra cuando vuelve a funcionar.
+export const segnaEsito = (collegamentoId, err) =>
+  prisma.collegamento
+    .update({ where: { id: collegamentoId }, data: err ? { ultimoErrore: String(err.message ?? err).slice(0, 300), ultimoErroreAt: new Date() } : { ultimoErrore: null, ultimoErroreAt: null } })
+    .catch(() => {});
+
+const seguro = (nome, promesa) => promesa.catch((err) => console.error(`[collegamenti] ${nome}:`, err.message));
+
+// ---- Estado que se avisa a la otra app ----
+
+const ORDINE = ["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA", "CONSEGNATO"];
+const nomePersona = (p) => (p && p.correoElectronico !== SIN_ASIGNAR_CORREO ? `${p.nombre} ${p.apellido}`.trim() : null);
+
+// { estado, autista, targa } de un servicio (las fichas internas "Sin asignar" cuentan como vacio). El estado solo avanza hacia adelante
+// (IN_SOSPESO < RITIRATO < IN_CONSEGNA < CONSEGNATO): si el servicio retrocede, se sigue mandando el que ya se aviso. ANNULLATO y RISCHEDULATO se mandan tal cual.
+export const datiAggiornamento = (record, ultimo = null) => {
+  let estado = record.estado;
+  const prima = ORDINE.indexOf(ultimo?.estado);
+  const ora = ORDINE.indexOf(estado);
+  if (prima !== -1 && ora !== -1 && ora < prima) estado = ultimo.estado;
+  return { estado, autista: nomePersona(record.driver), targa: record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null };
+};
+
+// Campo por campo (Postgres guarda el JSON con otro orden de claves, asi que no sirve comparar el texto).
+export const stessiDati = (a, b) => Boolean(a && b) && a.estado === b.estado && (a.autista ?? null) === (b.autista ?? null) && (a.targa ?? null) === (b.targa ?? null);
+
+const INCLUDE_SYNC = {
+  collegamento: true,
+  record: { select: { id: true, estado: true, driver: { select: { nombre: true, apellido: true, correoElectronico: true } }, vehicle: { select: { targa: true } } } },
+};
+
+// Avisa a la otra app el estado, chofer y targa actuales de un servicio que vino por una conexion. Solo manda si algo cambio desde el ultimo aviso
+// (se puede llamar las veces que haga falta). forzar = true manda de nuevo igual ("Reinvia"). Lanza el error (para el boton); los disparos
+// automaticos usan sincronizzaSicuro.
+export const sincronizza = async ({ solicitudId, recordId }, { forzar = false, esperas } = {}) => {
+  const solicitud = await prisma.solicitudServicio.findFirst({
+    where: { ...(solicitudId ? { id: solicitudId } : { recordId }), collegamentoId: { not: null }, estado: "ACEPTADA", recordId: { not: null } },
+    include: INCLUDE_SYNC,
+  });
+  const collegamento = solicitud?.collegamento;
+  if (!solicitud?.record || !solicitud.recordRemotoId || collegamento?.stato !== "ATTIVO" || collegamento.ruolo !== "CLIENTE") return { inviato: false };
+  const dati = datiAggiornamento(solicitud.record, solicitud.ultimoEnviado);
+  if (!forzar && stessiDati(dati, solicitud.ultimoEnviado)) return { inviato: false };
+  try {
+    await chiamaConRiprova(collegamento, "/aggiornamenti", { recordId: solicitud.recordRemotoId, tipo: "AGGIORNAMENTO", ...dati }, esperas ? { esperas } : undefined);
+    await prisma.solicitudServicio.update({ where: { id: solicitud.id }, data: { ultimoEnviado: dati } });
+    void segnaEsito(collegamento.id, null);
+    return { inviato: true };
+  } catch (err) {
+    void segnaEsito(collegamento.id, err);
+    throw err;
+  }
+};
+
+export const sincronizzaSicuro = (ref) => seguro("aggiornamento", sincronizza(ref));
+
+// Despues de un cambio masivo (estado automatico, viaje compactado...): revisa los servicios abiertos que vinieron por una conexion.
+export const sincronizzaAperti = () =>
+  seguro(
+    "aggiornamenti",
+    (async () => {
+      const aperti = await prisma.solicitudServicio.findMany({
+        where: { collegamentoId: { not: null }, estado: "ACEPTADA", recordId: { not: null }, record: { estado: { notIn: ["ANNULLATO"] } } },
+        select: { id: true },
+        take: 200,
+      });
+      for (const s of aperti) await sincronizza({ solicitudId: s.id }).catch((err) => console.error("[collegamenti] aggiornamento:", err.message));
+    })()
+  );
+
+// ACCETTATO / RIFIUTATO de una solicitud que vino por una conexion. Nunca rompe la operacion que lo origina.
+export const notificaEsitoSolicitud = (solicitud, tipo, motivo) =>
+  seguro(
+    `esito ${tipo}`,
+    (async () => {
+      if (!solicitud?.collegamentoId || !solicitud.recordRemotoId) return;
+      const collegamento = await prisma.collegamento.findUnique({ where: { id: solicitud.collegamentoId } });
+      if (!collegamento || collegamento.stato !== "ATTIVO") return;
+      try {
+        await chiamaConRiprova(collegamento, "/aggiornamenti", { recordId: solicitud.recordRemotoId, tipo, ...(motivo ? { motivo: String(motivo).slice(0, 500) } : {}) });
+        void segnaEsito(collegamento.id, null);
+      } catch (err) {
+        void segnaEsito(collegamento.id, err);
+        throw err;
+      }
+      // Aceptado: tambien se avisa ya quien es el chofer y la targa (si la oficina ya los eligio).
+      if (tipo === "ACCETTATO") await sincronizza({ solicitudId: solicitud.id }, { forzar: true }).catch((err) => console.error("[collegamenti] aggiornamento:", err.message));
+    })()
+  );

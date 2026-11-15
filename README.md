@@ -347,6 +347,33 @@ URL firmada de 30 minutos.
 - **Exceso de velocidad:** se guarda con el chofer que manejaba (el del servicio que tenia el vehiculo a esa hora) y el push le llega solo a el. La oficina no recibe notificacion: lo consulta en Vehiculos > Avisos de velocidad (se carga al abrirlo). Sin servicio en ese momento, queda registrado pero no se avisa a nadie.
 - **Area C y solicitudes de permiso:** el push va al Admin y a los Responsables del vehiculo / chofer. **GPS de la flota:** al Admin y a todos los Responsables.
 
+## Conexiones entre apps (App collegate)
+
+Gamonal puede recibir los servicios que **App Piazza** le asigna como proveedor y responderle (aceptado, rechazado, chofer, targa, estado). Es una conexion servidor a servidor: sin usuario ni contrasena de Piazza en esta app.
+
+**Como se conecta (solo el Owner, menu "App collegate")**
+1. Gamonal muestra su codigo `XXXX-XXXX@host` (vale `COLLEGAMENTI_CODICE_ORE` horas y se usa una sola vez). Se pega en la ficha del proveedor dentro de App Piazza.
+2. La solicitud llega a Gamonal como "por aprobar". El Owner elige (o crea) la ficha de cliente y acepta: Gamonal genera su token y se lo manda a Piazza. Solo si Piazza responde OK queda activa.
+3. Desde ahi, los servicios asignados a Gamonal aparecen en **Solicitudes** (con la insignia "Da App Piazza"). La oficina los acepta (crea el servicio y elige chofer y vehiculo) o los rechaza con un motivo. **Nunca se crea un servicio solo.**
+4. Al aceptar o rechazar, y cada vez que cambia el estado, el chofer o el vehiculo del servicio, Gamonal avisa a Piazza. Solo se manda: estado, nombre del chofer y targa (nunca precios, pagos, documentos, ubicaciones ni datos personales).
+
+**API publica** (`/api/collegamenti/pubblico`, sin JWT; se monta antes de las puertas de sesion y no pasa por el limite general):
+
+| Ruta | Quien la llama | Que hace |
+|---|---|---|
+| `POST /richiesta` | Piazza (sin token, con el segreto del codigo) | Pide la conexion; idempotente por (url, id) |
+| `POST /:id/servizi` | Piazza (Bearer) | Deja un servicio en Solicitudes (actualiza si ya existe) |
+| `POST /:id/servizi/:recordId/annulla` | Piazza (Bearer) | Anula la solicitud si esta pendiente; si ya se acepto solo avisa a la oficina |
+| `POST /:id/scollega` | Piazza (Bearer) | Desconecta; el historial se conserva |
+
+No hay ningun GET: Piazza solo puede dejar solicitudes, no leer, editar ni borrar nada. Gamonal llama a Piazza en `/esito`, `/aggiornamenti` y `/scollega` (con reintentos de 2 s, 8 s y 30 s porque Render duerme las apps; si todo falla, el error queda visible en la solicitud y en App collegate, con un boton para reenviar).
+
+**Seguridad:** tokens de 256 bits; el que recibe Gamonal solo se guarda como SHA-256 y el que usa para llamar a Piazza va cifrado en la base (AES-256-GCM, clave `COLLEGAMENTI_ENCRYPTION_KEY`); comparaciones en tiempo constante; mismo 401 si el id no existe o el token es malo; 10 intentos por IP cada 15 min en `/richiesta` y 30 fallos por IP cada 15 min en el resto; en produccion solo direcciones https publicas (DNS no privado) y, si se define, solo los hosts de `COLLEGAMENTI_HOST_PERMESSI`; los tokens y codigos no se escriben en los logs.
+
+**Variables en Render:** `COLLEGAMENTI_ENCRYPTION_KEY` (obligatoria para aceptar conexiones: `openssl rand -base64 48`), `PUBLIC_API_URL` (`https://appgamonaltrasportiback-vv19.onrender.com`, sin `/api`), `COLLEGAMENTI_HOST_PERMESSI` (el host de Piazza, solo el nombre), `COLLEGAMENTI_CODICE_ORE` (24) y, opcionales, `EMPRESA_NOMBRE`, `EMPRESA_RAZON_SOCIAL`, `EMPRESA_PARTITA_IVA`.
+
+**Pruebas:** `npm test` (las del protocolo con base necesitan `GAMONAL_TEST_DATABASE_URL` apuntando a una base **local**; sin ella se saltan).
+
 ## Estructura del proyecto
 
 ```

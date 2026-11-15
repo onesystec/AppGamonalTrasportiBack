@@ -48,6 +48,7 @@ import { chunk, EXPORT_CHUNK_SIZE } from "../utils/chunk.js";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 import { romeDay, romeLocalToDate } from "../utils/romeTime.js";
 import { deleteSolicitudesOfRecord } from "./solicitud.service.js";
+import { sincronizzaAperti, sincronizzaSicuro } from "./collegamentoInvio.service.js";
 import { codigoDesdeShipment } from "./codigoDhl.service.js";
 import { registrarCambiosOficina } from "./cambiosCliente.service.js";
 
@@ -339,6 +340,7 @@ const toFullResponse = (record) => {
     driver: record.driver,
     vehicle: record.vehicle,
     client: record.client,
+    origenApp: record.solicitud?.collegamento?.remotoNome ?? null,
     fechaServicio: record.fechaServicio,
     eta: record.eta,
     fechaRetiro: record.fechaRetiro,
@@ -1031,6 +1033,9 @@ export const updateRecordForActor = async (actor, id, data) => {
 
   const updated = await updateRecordById(id, payload);
   if (viaje.estadoViaje) await setGroupOpenEstado(record.compactadoId, viaje.estadoViaje);
+  // Si el servicio vino de una app conectada (App Piazza), se le avisa el cambio de estado, chofer o vehiculo (solo manda si algo cambio).
+  if (updated.estado !== record.estado || updated.driverId !== record.driverId || updated.vehicleId !== record.vehicleId) void sincronizzaSicuro({ recordId: id });
+  if (viaje.estadoViaje) void sincronizzaAperti();
 
   // Al cerrar el servicio (Entregado) se compara el recorrido real del vehiculo con el plan y se guarda el resumen (en segundo plano).
   if (payload.estado === "CONSEGNATO" && record.estado !== "CONSEGNATO") void computeRecorridoSafe(id);

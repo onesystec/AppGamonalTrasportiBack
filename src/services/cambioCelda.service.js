@@ -8,6 +8,7 @@ import { idsDeLaOficina } from "./oficinaAvisos.service.js";
 import { requireRegistro, scopeWhere } from "./solicitud.service.js";
 import { codigoDesdeShipment } from "./codigoDhl.service.js";
 import { resolverClientePorNombre } from "./servicioDirecto.service.js";
+import { sincronizzaSicuro } from "./collegamentoInvio.service.js";
 
 // Edicion de celdas de la hoja tipo Excel del portal de clientes (los mensajes de error van en italiano, como esa pantalla).
 //  - Solicitud pendiente: el cliente puede cambiar todo lo que cargo.
@@ -312,6 +313,7 @@ export const anularServicioCliente = async (user, recordId) => {
   // El estado se vuelve a exigir al escribir: si la oficina o el chofer lo movieron entre las dos consultas, no se pisa.
   const { count } = await prisma.record.updateMany({ where: { id: record.id, estado: "IN_SOSPESO" }, data: { estado: "ANNULLATO" } });
   if (count === 0) throw new AppError("Il servizio è appena cambiato di stato: contatta l'ufficio per annullarlo", 409);
+  void sincronizzaSicuro({ recordId: record.id });
   await prisma.cambioServicio.create({ data: filaHistorial(cambio, user, { recordId: record.id, solicitudId: record.solicitud?.id ?? null }) });
   await registrarAlerta(user, record, [cambio], "Servicio anulado por el cliente");
   return { ok: true };
