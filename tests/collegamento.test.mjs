@@ -422,6 +422,66 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     assert.equal(await prisma.alertaCambio.count({ where: { recordId: nueva.body.data.id } }), 0, "sin servicio todavia no hay alerta de 'Cambios'");
   });
 
+  test("km: alta con km, alta sin km (Piazza antiguo), y km invalido -> 400", async () => {
+    const con = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km", destinazione: "Via Km 1", km: 30 }) });
+    assert.equal(con.status, 200, con.text);
+    assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: con.body.data.id } })).km, 30);
+    const sin = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-sin-km", destinazione: "Via Sin 2" }) });
+    assert.equal(sin.status, 200, sin.text);
+    assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sin.body.data.id } })).km, null);
+    const nulo = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km-null", destinazione: "Via Null 3", km: null }) });
+    assert.equal(nulo.status, 200, nulo.text);
+    const cero = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km-cero", destinazione: "Via Cero 4", km: 0 }) });
+    assert.equal(cero.status, 200, cero.text);
+    const cuenta = await prisma.solicitudServicio.count();
+    for (const km of [-5, "abc", "30", 100001, {}]) {
+      const r = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km-mal", destinazione: "Via Mal 5", km }) });
+      assert.equal(r.status, 400, `km ${JSON.stringify(km)} -> ${r.status}`);
+    }
+    assert.equal(await prisma.solicitudServicio.count(), cuenta, "un km invalido no crea nada");
+    // La oficina lo ve en la bandeja.
+    const lista = await oficina("GET", "/solicitudes");
+    assert.equal(lista.body.data.items.find((i) => i.id === con.body.data.id).km, 30);
+  });
+
+  test("km: actualizacion en un servicio PENDIENTE (se guarda y queda en la linea de tiempo)", async () => {
+    const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "rec-km" } });
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km", destinazione: "Via Km 1", km: 45.5 }) });
+    const despues = await prisma.solicitudServicio.findUnique({ where: { id: sol.id } });
+    assert.equal(despues.km, 45.5);
+    assert.equal(despues.estado, "PENDIENTE");
+    const fila = await prisma.cambioServicio.findFirst({ where: { solicitudId: sol.id, campo: "app_km" } });
+    assert.equal(fila.anterior, "30 km");
+    assert.equal(fila.nuevo, "45.5 km");
+    // Si Piazza deja de mandar km, queda vacio (no se inventa).
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-km", destinazione: "Via Km 1" }) });
+    assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).km, null);
+  });
+
+  test("km: con el servicio ya aceptado NO se sobrescribe el Record; se avisa (alerta + linea de tiempo) y los datos nuevos quedan en la fila", async () => {
+    const record = await prisma.record.findFirst({ where: { codigo: "GT-1" } });
+    const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "rec-1" } });
+    const igual = { destinazione: "Via Verdi 9, Milano", eta: "2026-11-20T13:00:00Z", note: "Llamar antes" };
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ ...igual, km: 25 }) });
+    const alertasAntes = await prisma.alertaCambio.findFirst({ where: { recordId: record.id }, orderBy: { updatedAt: "desc" } });
+    const r = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ ...igual, km: 31 }) });
+    assert.equal(r.status, 200, r.text);
+    const fila = await prisma.cambioServicio.findFirst({ where: { solicitudId: sol.id, campo: "app_km" }, orderBy: { createdAt: "desc" } });
+    assert.equal(fila.anterior, "25 km");
+    assert.equal(fila.nuevo, "31 km");
+    assert.equal(fila.recordId, record.id);
+    const alerta = await prisma.alertaCambio.findFirst({ where: { recordId: record.id }, orderBy: { updatedAt: "desc" } });
+    assert.ok(alerta.cambios.some((c) => c.label === "Km pianificati" && c.nuevo === "31 km"));
+    assert.ok(alerta.updatedAt >= alertasAntes.updatedAt);
+    const despues = await prisma.record.findUnique({ where: { id: record.id } });
+    assert.equal(despues.kilometros, record.kilometros, "el Record de Gamonal no se toca");
+    const datos = (await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).datosRemotos;
+    assert.equal(datos.app_km, "31");
+    const hist = await oficina("GET", `/cambios?recordId=${record.id}`);
+    const km = hist.body.data.items.find((i) => i.label === "Km pianificati");
+    assert.equal(km.remoto, true);
+  });
+
   test("annulla de Piazza con el servicio ya aceptado: queda en la linea de tiempo y hay alerta", async () => {
     const record = await prisma.record.findFirst({ where: { codigo: "GT-1" } });
     const antes = await prisma.alertaCambio.count();

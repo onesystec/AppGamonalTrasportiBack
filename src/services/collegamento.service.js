@@ -234,6 +234,8 @@ export const datiSolicitud = (s, riga) => {
     pais: s.pais ?? null,
     shipment: s.shipment ?? s.codigo ?? null,
     orderNumero: s.orderNumero ?? null,
+    // "Km pianificati" de la otra app: va a la columna km de la solicitud, de donde "Completar y aceptar" lo precarga (editable) en los km del servicio.
+    km: s.km ?? null,
     descripcion: descripcion || null,
   };
 };

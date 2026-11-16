@@ -12,7 +12,7 @@ import { ownerAndResponsableIds } from "./solicitud.service.js";
 // campo -> nombre del dato (ver labelDeCampo en cambioCelda.service.js). "Recibido" y "Anulado" son los hitos de la linea de tiempo.
 export const CAMPOS_REMOTOS = [
   "app_codice", "app_cliente", "app_destinazione", "app_ritiro", "app_tappe", "app_ciudad", "app_pais", "app_fecha",
-  "app_shipment", "app_order", "app_peso", "app_misure", "app_colli", "app_mittente", "app_note",
+  "app_shipment", "app_order", "app_km", "app_peso", "app_misure", "app_colli", "app_mittente", "app_note",
 ];
 
 const texto = (v) => {
@@ -32,6 +32,7 @@ export const normalizzaDati = (s) => ({
   app_fecha: s.eta || s.fechaServicio ? new Date(s.eta ?? s.fechaServicio).toISOString() : null,
   app_shipment: texto(s.shipment),
   app_order: texto(s.orderNumero),
+  app_km: s.km == null ? null : String(s.km),
   app_peso: s.pesoKg == null ? null : String(s.pesoKg),
   app_misure: texto(s.dimensioni),
   app_colli: s.colli == null ? null : String(s.colli),
@@ -49,6 +50,7 @@ const visible = (campo, valor) => {
   if (valor == null || (Array.isArray(valor) && valor.length === 0)) return null;
   if (campo === "app_fecha") return fechaCorta(valor);
   if (campo === "app_peso") return `${valor} kg`;
+  if (campo === "app_km") return `${valor} km`;
   if (Array.isArray(valor)) return valor.join(" → ");
   const t = String(valor);
   return t.length > 300 ? `${t.slice(0, 297)}…` : t;

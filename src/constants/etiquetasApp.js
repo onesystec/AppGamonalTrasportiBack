@@ -10,6 +10,7 @@ export const ETIQUETAS_APP = {
   app_fecha: "Data / ETA",
   app_shipment: "Shipment",
   app_order: "Order",
+  app_km: "Km pianificati",
   app_peso: "Peso",
   app_misure: "Misure",
   app_colli: "Colli",

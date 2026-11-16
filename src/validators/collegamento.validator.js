@@ -33,6 +33,8 @@ export const servizioRemotoSchema = z
     fechaServicio: z.coerce.date().nullish(),
     shipment: opz(100),
     orderNumero: opz(100),
+    // Km planificados del servicio, tal cual los manda la otra app (en DHL y AB Service son los de ida del cliente): se muestran sin interpretar.
+    km: z.number().nonnegative().max(100000).nullish(),
     pesoKg: z.number().nonnegative().max(100000).nullish(),
     dimensioni: opz(200),
     colli: z.number().int().nonnegative().max(100000).nullish(),

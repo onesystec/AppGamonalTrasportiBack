@@ -380,5 +380,5 @@ export const historialCambiosServicio = async (actor, recordId) => {
     take: 200,
   });
   // hito = recibido / anulado por una app conectada: una linea de la linea de tiempo, no un dato que cambio de valor.
-  return rows.map((c) => ({ id: c.id, campo: c.campo, label: labelDeCampo(c.campo, areaKey), anterior: c.anterior, nuevo: c.nuevo, editor: c.editorNombre, createdAt: c.createdAt, hito: c.campo === "app_ricevuto" || c.campo === "app_annullata" }));
+  return rows.map((c) => ({ id: c.id, campo: c.campo, label: labelDeCampo(c.campo, areaKey), anterior: c.anterior, nuevo: c.nuevo, editor: c.editorNombre, createdAt: c.createdAt, hito: c.campo === "app_ricevuto" || c.campo === "app_annullata", remoto: c.campo.startsWith("app_") }));
 };
