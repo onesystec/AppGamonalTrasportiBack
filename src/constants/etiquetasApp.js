@@ -1,0 +1,20 @@
+// Nombre de cada dato en la linea de tiempo y las alertas cuando el cambio lo hizo una app conectada (App Piazza). Ver collegamentoCambi.service.js.
+export const ETIQUETAS_APP = {
+  app_codice: "Codice",
+  app_cliente: "Cliente finale",
+  app_destinazione: "Indirizzo di consegna",
+  app_ritiro: "Ritiro",
+  app_tappe: "Tappe",
+  app_ciudad: "Città",
+  app_pais: "Paese",
+  app_fecha: "Data / ETA",
+  app_shipment: "Shipment",
+  app_order: "Order",
+  app_peso: "Peso",
+  app_misure: "Misure",
+  app_colli: "Colli",
+  app_mittente: "Mittente",
+  app_note: "Note",
+  app_ricevuto: "Recibido",
+  app_annullata: "Servicio",
+};

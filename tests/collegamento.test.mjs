@@ -26,6 +26,7 @@ Object.assign(process.env, {
 
 const { datiAggiornamento, ESPERAS_MS, chiamaConRiprova, stessiDati, stessoHash, sha256 } = await import("../src/services/collegamentoInvio.service.js");
 const { datiSolicitud, stessoSegreto } = await import("../src/services/collegamento.service.js");
+const { confronta, normalizzaDati } = await import("../src/services/collegamentoCambi.service.js");
 const { decryptSecret, encryptSecret } = await import("../src/utils/secretBox.js");
 
 describe("collegamento: piezas puras", () => {
@@ -60,6 +61,25 @@ describe("collegamento: piezas puras", () => {
     assert.equal(stessiDati(a, { targa: "X2", estado: "RITIRATO", autista: "Ana" }), false);
     assert.equal(stessiDati({ estado: "IN_SOSPESO", autista: null, targa: null }, { estado: "IN_SOSPESO" }), true);
     assert.equal(stessiDati(a, null), false);
+  });
+
+  test("cambios de la otra app: solo lo que cambio, con valores legibles", () => {
+    const base = { recordId: "r", codigo: "P-1", cliente: "Farmacia", destinazione: "Via Roma 1", ritiro: "Via A", tappe: ["a", "b"], eta: "2026-11-20T10:00:00Z", pesoKg: 5, colli: 2, note: "x" };
+    const antes = normalizzaDati(base);
+    assert.deepEqual(confronta(antes, normalizzaDati(base)), [], "igual = sin cambios");
+    assert.deepEqual(confronta(null, normalizzaDati(base)), [], "sin antes no hay nada que comparar");
+    const c = confronta(antes, normalizzaDati({ ...base, destinazione: "Via Dante 5", eta: "2026-11-20T12:30:00Z", pesoKg: 7, note: null, tappe: ["a", "b", "c"] }));
+    const por = Object.fromEntries(c.map((x) => [x.campo, x]));
+    assert.deepEqual(Object.keys(por).sort(), ["app_destinazione", "app_fecha", "app_note", "app_peso", "app_tappe"]);
+    assert.deepEqual(confronta(normalizzaDati({ ...base, tappe: ["a"] }), normalizzaDati({ ...base, tappe: ["b"] })), [], "con una parada no duplica la direccion de entrega");
+    assert.equal(por.app_destinazione.anteriorVisible, "Via Roma 1");
+    assert.equal(por.app_destinazione.nuevoVisible, "Via Dante 5");
+    assert.equal(por.app_peso.nuevoVisible, "7 kg");
+    assert.equal(por.app_note.nuevoVisible, null);
+    assert.equal(por.app_tappe.nuevoVisible, "a → b → c");
+    assert.match(por.app_fecha.anteriorVisible, /^20\/11 11:00$/, "hora de Roma");
+    // espacios y vacios no cuentan como cambio
+    assert.deepEqual(confronta(antes, normalizzaDati({ ...base, destinazione: "  Via Roma 1  ", ritiro: "Via A", tappe: ["a", "b", ""] })), []);
   });
 
   test("segreto: comparacion exacta; hash en tiempo constante", () => {
@@ -349,6 +369,69 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     await prisma.record.update({ where: { id: record.id }, data: { estado: "CONSEGNATO" } });
     await sincronizza({ recordId: record.id });
     assert.equal(recibido.at(-1).body.estado, "CONSEGNATO");
+  });
+
+  test("cambios de Piazza con el servicio ya aceptado: linea de tiempo + alerta en 'Cambios'; el Record no se toca", async () => {
+    const record = await prisma.record.findFirst({ where: { codigo: "GT-1" } });
+    const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "rec-1" } });
+    // Lo ultimo que mando Piazza antes del cambio (la solicitud ya estaba aceptada).
+    const antes = (await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).datosRemotos;
+    assert.ok(antes, "se guarda lo que mando Piazza");
+    // Sin cambios: nada.
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio() });
+    const sinCambio = await prisma.cambioServicio.count({ where: { solicitudId: sol.id, campo: { startsWith: "app_" } } });
+    const alertasAntes = await prisma.alertaCambio.count();
+    // Piazza edita destino, hora y nota.
+    const r = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ destinazione: "Via Verdi 9, Milano", eta: "2026-11-20T13:00:00Z", note: "Llamar antes" }) });
+    assert.equal(r.status, 200, r.text);
+    const filas = await prisma.cambioServicio.findMany({ where: { solicitudId: sol.id, campo: { startsWith: "app_" } }, orderBy: { createdAt: "asc" } });
+    const nuevas = filas.slice(sinCambio);
+    assert.deepEqual(nuevas.map((f) => f.campo).sort(), ["app_destinazione", "app_fecha", "app_note"]);
+    assert.ok(nuevas.every((f) => f.editorNombre === "App Piazza" && f.recordId === record.id));
+    assert.equal(nuevas.find((f) => f.campo === "app_destinazione").anterior, "Via Roma 1, Milano");
+    assert.equal(nuevas.find((f) => f.campo === "app_destinazione").nuevo, "Via Verdi 9, Milano");
+    // Alerta en "Cambios" para la oficina.
+    assert.equal(await prisma.alertaCambio.count(), alertasAntes + 1);
+    const alerta = await prisma.alertaCambio.findFirst({ orderBy: { createdAt: "desc" } });
+    assert.equal(alerta.recordId, record.id);
+    assert.equal(alerta.editorNombre, "App Piazza");
+    assert.deepEqual(alerta.cambios.map((c) => c.label).sort(), ["Data / ETA", "Indirizzo di consegna", "Note"]);
+    const lista = await oficina("GET", "/cambios");
+    assert.equal(lista.body.data.items.some((a) => a.editor === "App Piazza"), true);
+    // La linea de tiempo del servicio la trae (con el hito "Recibido") y el Record sigue igual.
+    const hist = await oficina("GET", `/cambios?recordId=${record.id}`);
+    const labels = hist.body.data.items.map((i) => i.label);
+    assert.ok(labels.includes("Indirizzo di consegna") && labels.includes("Recibido"));
+    assert.equal(hist.body.data.items.find((i) => i.label === "Recibido").hito, true);
+    assert.equal((await prisma.record.findUnique({ where: { id: record.id } })).destinazione, record.destinazione);
+    // Reenviar lo mismo (Reinvia de Piazza): no duplica nada.
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ destinazione: "Via Verdi 9, Milano", eta: "2026-11-20T13:00:00Z", note: "Llamar antes" }) });
+    assert.equal(await prisma.cambioServicio.count({ where: { solicitudId: sol.id, campo: { startsWith: "app_" } } }), filas.length);
+  });
+
+  test("cambios de Piazza con el servicio todavia por aceptar: linea de tiempo en la solicitud (y la solicitud se actualiza)", async () => {
+    const nueva = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-cambio", destinazione: "Via Uno 1" }) });
+    await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi`, { token: T2, body: servizio({ recordId: "rec-cambio", destinazione: "Via Due 2", ritiro: "Deposito Nord" }) });
+    const lista = await oficina("GET", "/solicitudes");
+    const item = lista.body.data.items.find((i) => i.id === nueva.body.data.id);
+    assert.equal(item.destinazione, "Via Due 2");
+    const campos = item.cambios.map((c) => c.label);
+    assert.deepEqual(campos, ["Recibido", "Indirizzo di consegna", "Ritiro"].filter((l) => campos.includes(l)).length === 3 ? campos : ["?"]);
+    assert.equal(item.cambios[0].hito, true);
+    assert.equal(item.cambios.at(-1).editor, "App Piazza");
+    assert.equal(await prisma.alertaCambio.count({ where: { recordId: nueva.body.data.id } }), 0, "sin servicio todavia no hay alerta de 'Cambios'");
+  });
+
+  test("annulla de Piazza con el servicio ya aceptado: queda en la linea de tiempo y hay alerta", async () => {
+    const record = await prisma.record.findFirst({ where: { codigo: "GT-1" } });
+    const antes = await prisma.alertaCambio.count();
+    const a = await api("POST", `/collegamenti/pubblico/${collegamentoId}/servizi/rec-1/annulla`, { token: T2, body: { motivo: "cliente cancelo" } });
+    assert.equal(a.status, 200);
+    const fila = await prisma.cambioServicio.findFirst({ where: { recordId: record.id, campo: "app_annullata" } });
+    assert.match(fila.nuevo, /^Anulado por App Piazza: cliente cancelo/);
+    assert.ok((await prisma.alertaCambio.count()) >= antes, "alerta nueva o unida a la abierta");
+    const alerta = await prisma.alertaCambio.findFirst({ where: { recordId: record.id }, orderBy: { updatedAt: "desc" } });
+    assert.ok(alerta.cambios.some((c) => c.campo === "app_annullata"));
   });
 
   test("annulla con el servicio ya aceptado: NO se borra ni se anula el Record", async () => {

@@ -11,6 +11,7 @@ import { verificarDestino } from "./destinoVerificacion.service.js";
 import { parseServicioTexto } from "./servicioTexto.service.js";
 import { avisarServicioDirecto, intentarServicioDirecto } from "./servicioDirecto.service.js";
 import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+import { ETIQUETAS_APP } from "../constants/etiquetasApp.js";
 import { notificaEsitoSolicitud } from "./collegamentoInvio.service.js";
 
 // Registros limitados de un usuario CLIENTE (Piazza Spedizioni) y su paso a servicio real.
@@ -233,7 +234,21 @@ export const listSolicitudesForActor = async (actor, { estado = "PENDIENTE" } = 
     orderBy: estado === "PENDIENTE" ? { fechaHora: "asc" } : { updatedAt: "desc" },
     take: estado === "PENDIENTE" ? 300 : 100,
   });
-  return rows.map((s) => toDto(s, { office: true }));
+  // Las que llegaron por una app conectada llevan su linea de tiempo (recibido, cambios que hizo la otra app, anulacion).
+  const conectadas = rows.filter((s) => s.collegamentoId).map((s) => s.id);
+  const cambios = conectadas.length
+    ? await prisma.cambioServicio.findMany({ where: { solicitudId: { in: conectadas } }, orderBy: { createdAt: "asc" }, take: 500 })
+    : [];
+  return rows.map((s) => ({
+    ...toDto(s, { office: true }),
+    ...(s.collegamentoId
+      ? {
+          cambios: cambios
+            .filter((c) => c.solicitudId === s.id)
+            .map((c) => ({ id: c.id, label: ETIQUETAS_APP[c.campo] ?? c.campo, anterior: c.anterior, nuevo: c.nuevo, editor: c.editorNombre, createdAt: c.createdAt, hito: c.campo === "app_ricevuto" || c.campo === "app_annullata" })),
+        }
+      : {}),
+  }));
 };
 
 const findForActor = async (actor, id) => {

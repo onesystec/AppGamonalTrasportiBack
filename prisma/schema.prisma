@@ -1523,6 +1523,8 @@ model SolicitudServicio {
   recordRemotoId String?
   // Ultimo estado / chofer / targa que se aviso a la app de origen ({ estado, autista, targa }): solo se vuelve a avisar si cambia.
   ultimoEnviado  Json?
+  // Ultimo servicio tal como lo mando la app de origen (el cuerpo de /servizi sin recordId): sirve para saber que cambio cuando lo vuelve a mandar.
+  datosRemotos   Json?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -5,6 +5,7 @@ import { AppError } from "../utils/AppError.js";
 import { CodiceNonValido, codiceScaduto, formatoCodice, leggiCodice as leggiCodiceBase, urlValida } from "../utils/codiceCollegamento.js";
 import { encryptSecret } from "../utils/secretBox.js";
 import { createClient } from "./client.service.js";
+import { confronta, normalizzaDati, registraCambi, registraHito } from "./collegamentoCambi.service.js";
 import {
   chiamaCollegamento,
   controllaDestinazione,
@@ -244,12 +245,27 @@ const zonaDe = (s) => (/\broma\b/i.test(s.ciudad ?? "") ? "ROMA" : "MILANO");
 export const riceviServizio = async (riga, s) => {
   richiedeAttivo(riga);
   const dati = datiSolicitud(s, riga);
-  const esistente = await prisma.solicitudServicio.findUnique({ where: { collegamentoId_recordRemotoId: { collegamentoId: riga.id, recordRemotoId: s.recordId } } });
+  const datosRemotos = normalizzaDati(s);
+  const esistente = await prisma.solicitudServicio.findUnique({
+    where: { collegamentoId_recordRemotoId: { collegamentoId: riga.id, recordRemotoId: s.recordId } },
+    include: { record: { select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true } } },
+  });
   if (esistente) {
-    if (esistente.estado === "PENDIENTE") await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: dati });
-    else if (esistente.estado === "RECHAZADA" && esistente.motivoRechazo?.startsWith("Annullata")) {
+    // Cambios respecto de lo ultimo que mando la otra app (linea de tiempo del servicio + aviso a la oficina).
+    const cambi = confronta(esistente.datosRemotos, datosRemotos);
+    if (esistente.estado === "PENDIENTE") {
+      await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { ...dati, datosRemotos } });
+      await registraCambi({ riga, solicitud: esistente, cambi, tituloSolicitud: "Solicitud modificada por la app conectada" });
+    } else if (esistente.estado === "ACEPTADA") {
+      // Ya esta en el registro: el servicio de Gamonal NO se toca; se anota que cambio y se avisa a la oficina.
+      await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { datosRemotos } });
+      await registraCambi({ riga, solicitud: esistente, record: esistente.record, cambi, tituloPush: "Servicio modificado por la app conectada" });
+    } else if (esistente.estado === "RECHAZADA" && esistente.motivoRechazo?.startsWith("Annullata")) {
       // Quitado y luego reasignado a Gamonal: vuelve a "pendiente".
-      await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { ...dati, estado: "PENDIENTE", motivoRechazo: null, revisadoPorId: null, revisadoAt: null } });
+      await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { ...dati, datosRemotos, estado: "PENDIENTE", motivoRechazo: null, revisadoPorId: null, revisadoAt: null } });
+      await registraHito(riga, esistente.id, null, "app_ricevuto", `Reasignado por ${riga.remotoNome}`);
+    } else if (!esistente.datosRemotos) {
+      await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { datosRemotos } });
     }
     return { id: esistente.id };
   }
@@ -257,6 +273,7 @@ export const riceviServizio = async (riga, s) => {
   const solicitud = await prisma.solicitudServicio.create({
     data: {
       ...dati,
+      datosRemotos,
       servicio: "EXTRA_PIAZZA",
       zona,
       fornitore: env.EMPRESA_NOMBRE,
@@ -266,6 +283,7 @@ export const riceviServizio = async (riga, s) => {
       recordRemotoId: s.recordId,
     },
   });
+  await registraHito(riga, solicitud.id, null, "app_ricevuto", `Recibido de ${riga.remotoNome}`);
   void ownerAndResponsableIds(solicitud.servicio, solicitud.zona)
     .then((ids) =>
       sendPushToUserIds(ids, { title: "Nueva entrega de app conectada", body: `${riga.remotoNome}: ${solicitud.cliente} - ${solicitud.destinazione}`, data: { type: "solicitud", solicitudId: solicitud.id } })
@@ -284,14 +302,19 @@ export const riceviAnnullo = async (riga, recordRemotoId, { motivo } = {}) => {
       where: { id: solicitud.id },
       data: { estado: "RECHAZADA", motivoRechazo: `Annullata da ${nome}${motivo ? `: ${motivo}` : ""}`, revisadoAt: new Date() },
     });
+    await registraHito(riga, solicitud.id, null, "app_annullata", `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}`);
   } else if (solicitud.estado === "ACEPTADA" && solicitud.recordId) {
-    // El servicio ya esta en el registro: NO se borra ni se anula solo; se avisa a la oficina.
-    const ids = await ownerAndResponsableIds(solicitud.servicio, solicitud.zona);
-    void sendPushToUserIds(ids, {
-      title: "Servicio anulado por el cliente",
-      body: `${nome} quito ${solicitud.destinazione}: revisa el servicio en el registro.`,
-      data: { type: "solicitud", solicitudId: solicitud.id },
-    }).catch(() => {});
+    // El servicio ya esta en el registro: NO se borra ni se anula solo; queda en la linea de tiempo y se avisa a la oficina (alerta + push).
+    const record = await prisma.record.findUnique({ where: { id: solicitud.recordId }, select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true } });
+    if (record) {
+      await registraCambi({
+        riga,
+        solicitud,
+        record,
+        cambi: [{ campo: "app_annullata", anteriorVisible: null, nuevoVisible: `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}` }],
+        tituloPush: "Servicio anulado por la app conectada",
+      });
+    }
   }
   return { ok: true };
 };

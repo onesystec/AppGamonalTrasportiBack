@@ -4,6 +4,7 @@ import { actorAreaKeys, canAccessAreaKey, recordAreaKey } from "../utils/areaAcc
 import { romeLocalToDate } from "../utils/romeTime.js";
 import { clienteScopeWhere } from "./cliente.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
+import { ETIQUETAS_APP } from "../constants/etiquetasApp.js";
 import { idsDeLaOficina } from "./oficinaAvisos.service.js";
 import { requireRegistro, scopeWhere } from "./solicitud.service.js";
 import { codigoDesdeShipment } from "./codigoDhl.service.js";
@@ -50,7 +51,7 @@ export const labelDeCampo = (campo, areaKey) => {
     ritiro: "Ritiro",
     estado: "Estado",
   };
-  return base[campo] ?? campo;
+  return base[campo] ?? ETIQUETAS_APP[campo] ?? campo;
 };
 
 const FECHA_CORTA = new Intl.DateTimeFormat("it-IT", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
@@ -160,7 +161,7 @@ const textoAlerta = (editor, titulo, cambios) => {
   return cuerpo.length > 220 ? `${cuerpo.slice(0, 217)}…` : cuerpo;
 };
 
-const registrarAlerta = async (user, record, cambios, tituloPush = "Servicio editado en camino") => {
+export const registrarAlerta = async (user, record, cambios, tituloPush = "Servicio editado en camino") => {
   const areaKey = recordAreaKey(record);
   const titulo = `${AREA_LABEL[areaKey] ?? areaKey} ${record.shipment ?? record.codigo}`;
   const nuevos = cambios.map((c) => ({ campo: c.campo, label: labelDeCampo(c.campo, areaKey), anterior: c.anteriorVisible, nuevo: c.nuevoVisible }));
@@ -378,5 +379,6 @@ export const historialCambiosServicio = async (actor, recordId) => {
     orderBy: { createdAt: "desc" },
     take: 200,
   });
-  return rows.map((c) => ({ id: c.id, campo: c.campo, label: labelDeCampo(c.campo, areaKey), anterior: c.anterior, nuevo: c.nuevo, editor: c.editorNombre, createdAt: c.createdAt }));
+  // hito = recibido / anulado por una app conectada: una linea de la linea de tiempo, no un dato que cambio de valor.
+  return rows.map((c) => ({ id: c.id, campo: c.campo, label: labelDeCampo(c.campo, areaKey), anterior: c.anterior, nuevo: c.nuevo, editor: c.editorNombre, createdAt: c.createdAt, hito: c.campo === "app_ricevuto" || c.campo === "app_annullata" }));
 };
