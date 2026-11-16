@@ -365,8 +365,9 @@ Gamonal puede recibir los servicios que **App Piazza** le asigna como proveedor 
 | `POST /:id/servizi` | Piazza (Bearer) | Deja un servicio en Solicitudes (actualiza si ya existe) |
 | `POST /:id/servizi/:recordId/annulla` | Piazza (Bearer) | Anula la solicitud si esta pendiente; si ya se acepto solo avisa a la oficina |
 | `POST /:id/scollega` | Piazza (Bearer) | Desconecta; el historial se conserva |
+| `POST /:id/vivo` | Piazza (Bearer, cuerpo `{}`) | **Solo lectura**: devuelve los servicios que Gamonal tiene en curso (solo `RITIRATO` / `IN_CONSEGNA`, maximo 300, por ETA) con posicion, chofer, targa y cliente. Solo responde si el Owner activo el interruptor "Condividi i miei servizi in corso" de esa conexion (si no, 403). Maximo 30 por minuto por conexion (429). Reutiliza la lectura con cache del seguimiento. |
 
-No hay ningun GET: Piazza solo puede dejar solicitudes, no leer, editar ni borrar nada. Gamonal llama a Piazza en `/esito`, `/aggiornamenti` y `/scollega` (con reintentos de 2 s, 8 s y 30 s porque Render duerme las apps; si todo falla, el error queda visible en la solicitud y en App collegate, con un boton para reenviar).
+No hay ningun GET: Piazza solo puede dejar solicitudes (y pedir `/vivo`, de solo lectura y solo si el Owner lo permite), no leer, editar ni borrar nada. Gamonal llama a Piazza en `/esito`, `/aggiornamenti` y `/scollega` (con reintentos de 2 s, 8 s y 30 s porque Render duerme las apps; si todo falla, el error queda visible en la solicitud y en App collegate, con un boton para reenviar).
 
 **Cambios que hace Piazza despues de mandar el servicio:** Piazza vuelve a mandar el servicio completo y Gamonal lo compara con lo ultimo que recibio (`SolicitudServicio.datosRemotos`). Cada diferencia queda en la **linea de tiempo del servicio** (tabla `CambioServicio`: visible en la solicitud y, ya aceptado, en el detalle del servicio, junto con "Recibido de App Piazza" y "Anulado por App Piazza"). Con el servicio por aceptar hay un push a la oficina; ya aceptado hay ademas una **alerta en el boton "Cambios"**. El servicio de Gamonal no se modifica solo: la oficina ve que cambio y decide.
 

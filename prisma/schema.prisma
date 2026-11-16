@@ -1629,6 +1629,8 @@ model Collegamento {
   // Ultimo problema de comunicacion con la otra app (null = todo bien).
   ultimoErrore      String?
   ultimoErroreAt    DateTime?
+  // Interruptor del Owner: la otra app puede pedir (POST /vivo) los servicios que Gamonal tiene en curso, con su posicion. Apagado hasta que el Owner lo active.
+  condividiServiziInCorso Boolean     @default(false)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 

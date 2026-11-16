@@ -1,11 +1,11 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
-import { accetta, elimina, pubAnnullo, pubRichiesta, pubScollega, pubServizio, reinvia, rifiuta, rigenera, stato } from "../controllers/collegamento.controller.js";
+import { accetta, condividi, elimina, pubAnnullo, pubRichiesta, pubScollega, pubServizio, pubVivo, reinvia, rifiuta, rigenera, stato } from "../controllers/collegamento.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
 import { autenticaRemoto } from "../services/collegamento.service.js";
-import { accettaSchema, annulloParamSchema, annulloRemotoSchema, idParamSchema, richiestaRemotaSchema, servizioRemotoSchema } from "../validators/collegamento.validator.js";
+import { accettaSchema, annulloParamSchema, annulloRemotoSchema, condivisioneSchema, idParamSchema, richiestaRemotaSchema, servizioRemotoSchema, vivoRemotoSchema } from "../validators/collegamento.validator.js";
 
 // API PUBLICA para las otras apps One Driver (servidor a servidor: sin JWT, sin sesion, sin CORS especial). Se monta en routes/index.js ANTES de
 // rrhhGate/clienteGate/authenticate. No hay ningun GET: la otra app solo puede dejar solicitudes, no leer, editar ni borrar nada.
@@ -15,10 +15,22 @@ const limite = (opzioni) =>
 const limiteRichiesta = limite({ limit: 10 });
 const limiteToken = limite({ limit: 30, skipSuccessfulRequests: true });
 
+// /vivo (solo lectura, la pide Piazza cuando alguien mira): maximo 30 peticiones por minuto POR CONEXION (no por IP). Va despues de autenticaRemoto, asi que
+// solo cuenta quien tiene un token valido.
+const limiteVivo = rateLimit({
+  windowMs: 60 * 1000,
+  limit: 30,
+  keyGenerator: (req) => `vivo:${req.params.id}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Troppe richieste, riprova tra poco" },
+});
+
 export const pubblico = Router();
 pubblico.post("/richiesta", limiteRichiesta, validate(richiestaRemotaSchema), pubRichiesta);
 pubblico.post("/:id/scollega", limiteToken, validate(idParamSchema, "params"), autenticaRemoto, pubScollega);
 pubblico.post("/:id/servizi", limiteToken, validate(idParamSchema, "params"), autenticaRemoto, validate(servizioRemotoSchema), pubServizio);
+pubblico.post("/:id/vivo", limiteToken, validate(idParamSchema, "params"), autenticaRemoto, limiteVivo, validate(vivoRemotoSchema), pubVivo);
 pubblico.post("/:id/servizi/:recordId/annulla", limiteToken, validate(annulloParamSchema, "params"), autenticaRemoto, validate(annulloRemotoSchema), pubAnnullo);
 
 // ---- Oficina ----
@@ -30,6 +42,7 @@ router.post("/solicitudes/:id/reinvia", authorize("OWNER", "ADMIN"), validate(id
 router.get("/", authorize("OWNER"), stato);
 router.post("/codice", authorize("OWNER"), rigenera);
 router.post("/:id/accetta", authorize("OWNER"), validate(idParamSchema, "params"), validate(accettaSchema), accetta);
+router.patch("/:id/condivisione", authorize("OWNER"), validate(idParamSchema, "params"), validate(condivisioneSchema), condividi);
 router.post("/:id/rifiuta", authorize("OWNER"), validate(idParamSchema, "params"), rifiuta);
 router.delete("/:id", authorize("OWNER"), validate(idParamSchema, "params"), elimina);
 

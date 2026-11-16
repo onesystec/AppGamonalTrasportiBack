@@ -65,6 +65,7 @@ const dto = (c) => ({
   remotoPartitaIva: c.remotoPartitaIva ?? null,
   remotoUrl: c.remotoUrl,
   client: c.client ? { id: c.client.id, nombre: c.client.nombre } : null,
+  condividiServiziInCorso: c.condividiServiziInCorso,
   ultimoErrore: c.ultimoErrore ?? null,
   ultimoErroreAt: c.ultimoErroreAt ?? null,
   createdAt: c.createdAt,
@@ -118,6 +119,13 @@ export const accettaCollegamento = async (actor, id, { clientId } = {}) => {
     include: INCLUDE,
   });
   return dto(aggiornata);
+};
+
+// Interruptor del Owner: compartir (o no) con esta app los servicios en curso con su posicion.
+export const impostaCondivisione = async (_actor, id, condividiServiziInCorso) => {
+  const riga = await trovaRiga(id);
+  if (riga.stato !== "ATTIVO") throw new AppError("Il collegamento non è attivo", 409);
+  return dto(await prisma.collegamento.update({ where: { id }, data: { condividiServiziInCorso }, include: INCLUDE }));
 };
 
 export const rifiutaCollegamento = async (_actor, id) => {

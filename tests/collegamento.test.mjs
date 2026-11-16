@@ -520,6 +520,107 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     assert.equal(fila.ultimoErrore, null);
   });
 
+  // ---- /vivo: servicios en curso de Gamonal que Piazza puede pedir ----
+  const vivo = (token = T2, id = collegamentoId) => api("POST", `/collegamenti/pubblico/${id}/vivo`, { token, body: {} });
+  // Se carga la lectura compartida del seguimiento (la misma cache que usa el mapa de Gamonal) con servicios de ejemplo: asi no hace falta GPS ni rutas reales.
+  const cargarSeguimiento = async (servicios) => {
+    const { bumpCacheVersion, cachedResponse } = await import("../src/utils/responseCache.js");
+    bumpCacheVersion();
+    await cachedResponse("cliente-seguimiento", 20_000, async () => ({ servicios, generadoAt: new Date().toISOString() }), { small: true });
+  };
+
+  test("vivo: 401 identico con token falso o id inexistente; sin interruptor -> 403", async () => {
+    const malo = await vivo("token-falso-token-falso-token-falso");
+    const inexistente = await vivo(T2, "no-existe");
+    assert.equal(malo.status, 401);
+    assert.equal(inexistente.status, 401);
+    assert.equal(malo.text, inexistente.text);
+    assert.equal((await api("GET", `/collegamenti/pubblico/${collegamentoId}/vivo`, { token: T2 })).status === 200, false, "no hay GET");
+    const apagado = await vivo();
+    assert.equal(apagado.status, 403);
+    assert.equal(apagado.body.message, "Questo collegamento non condivide i servizi in corso");
+    assert.equal((await prisma.collegamento.findUnique({ where: { id: collegamentoId } })).condividiServiziInCorso, false, "apagado por defecto");
+  });
+
+  test("vivo: solo el Owner enciende el interruptor (y debe ser booleano)", async () => {
+    const adminRow = await prisma.user.findFirst({ where: { cargo: "ADMIN" } });
+    const { signToken } = await import("../src/utils/jwt.js");
+    const adm = await api("PATCH", `/collegamenti/${collegamentoId}/condivisione`, { token: signToken({ sub: adminRow.id }), body: { condividiServiziInCorso: true } });
+    assert.equal(adm.status, 403);
+    assert.equal((await oficina("PATCH", `/collegamenti/${collegamentoId}/condivisione`, { condividiServiziInCorso: "si" })).status, 400);
+    const r = await oficina("PATCH", `/collegamenti/${collegamentoId}/condivisione`, { condividiServiziInCorso: true });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.body.data.collegamento.condividiServiziInCorso, true);
+    assert.equal((await oficina("GET", "/collegamenti")).body.data.collegamenti[0].condividiServiziInCorso, true);
+  });
+
+  test("vivo: 200 solo con RITIRATO / IN_CONSEGNA, sin campos extra, daPiazza solo en los que vienen de Piazza, ordenado por ETA", async () => {
+    const record = await prisma.record.findFirst({ where: { codigo: "GT-1" } });
+    const base = (id, estado, eta, extra = {}) => ({
+      id, codigo: `C-${id}`, estado, destino: `Destino ${id}`, etaPlan: eta, tipoLabel: "Extra Piazza", cliente: "Cliente X", vehiculo: "AA000AA",
+      chofer: { id: "d1", nombre: "Marta Lopez", telefono: "555-000" }, gps: null, pagos: 123, precioKm: 0.5, documentos: ["x"], ...extra,
+    });
+    await cargarSeguimiento([
+      base(record.id, "IN_CONSEGNA", "2026-11-20T09:00:00Z", { gps: { fuente: "VEHICULO", lat: 45.46, lng: 9.19, rumbo: 90, velocidad: 40, motor: true, actualizada: "2026-11-20T08:55:00.000Z" } }),
+      base("propio-1", "RITIRATO", "2026-11-20T08:00:00Z", { chofer: { id: "d2", nombre: "Sin asignar", telefono: null }, vehiculo: "SIN-ASIGNAR", cliente: null }),
+      base("sim-1", "IN_CONSEGNA", "2026-11-20T10:00:00Z", { gps: { fuente: "SIMULADO", lat: 1, lng: 2, actualizada: null } }),
+      base("entregado", "CONSEGNATO", "2026-11-20T07:00:00Z"),
+      base("anulado", "ANNULLATO", "2026-11-20T07:30:00Z"),
+      base("pendiente", "IN_SOSPESO", "2026-11-20T11:00:00Z"),
+      base("repro", "RISCHEDULATO", "2026-11-20T12:00:00Z"),
+    ]);
+    const r = await vivo();
+    assert.equal(r.status, 200, r.text);
+    const lista = r.body.data.servizi;
+    assert.deepEqual(lista.map((x) => x.id), ["propio-1", record.id, "sim-1"], "solo salidos, por ETA ascendente");
+    assert.ok(lista.every((x) => ["RITIRATO", "IN_CONSEGNA"].includes(x.estado)));
+    const permitidos = new Set(["id", "codigo", "estado", "destino", "ritiro", "eta", "cliente", "autista", "targa", "area", "daPiazza", "gps"]);
+    for (const x of lista) for (const k of Object.keys(x)) assert.ok(permitidos.has(k), `campo no permitido: ${k}`);
+    assert.ok(!r.text.includes("555-000") && !r.text.includes("precioKm") && !r.text.includes("documentos") && !r.text.includes("pagos"), "nada de telefonos, precios ni documentos");
+    const deP = lista.find((x) => x.id === record.id);
+    assert.equal(deP.daPiazza, "rec-1");
+    assert.equal(deP.autista, "Marta Lopez");
+    assert.equal(deP.targa, "AA000AA");
+    assert.equal(deP.area, "Extra Piazza");
+    assert.equal(deP.eta, "2026-11-20T09:00:00.000Z");
+    assert.deepEqual(deP.gps, { lat: 45.46, lng: 9.19, rumbo: 90, actualizada: "2026-11-20T08:55:00.000Z" }, "sin velocidad ni motor");
+    const propio = lista.find((x) => x.id === "propio-1");
+    assert.equal("daPiazza" in propio, false);
+    assert.equal("autista" in propio, false, "'Sin asignar' no se manda");
+    assert.equal("targa" in propio, false);
+    assert.equal("gps" in propio, false);
+    assert.equal("gps" in lista.find((x) => x.id === "sim-1"), false, "la posicion simulada no se manda");
+    assert.ok(lista.every((x) => x.daPiazza === undefined || x.id === record.id), "solo los de Piazza llevan daPiazza");
+  });
+
+  test("vivo: maximo 300 servicios", async () => {
+    const muchos = Array.from({ length: 320 }, (_, i) => ({ id: `m${i}`, codigo: `M${i}`, estado: "IN_CONSEGNA", destino: "d", etaPlan: new Date(Date.UTC(2026, 10, 20, 0, 0, 0) + i * 60000).toISOString(), chofer: { nombre: "A B" }, vehiculo: "ZZ1", gps: null }));
+    await cargarSeguimiento(muchos);
+    const r = await vivo();
+    assert.equal(r.body.data.servizi.length, 300);
+    assert.equal(r.body.data.servizi[0].id, "m0");
+  });
+
+  test("vivo: conexion que no esta ATTIVO -> 409", async () => {
+    const t = "t3-token-de-prueba-para-estado-no-activo-1234";
+    const fila = await prisma.collegamento.create({ data: { ruolo: "CLIENTE", stato: "RIFIUTATO", remotoUrl: piazzaUrl, remotoId: "p-9", remotoNome: "Otra", tokenEntranteHash: sha256(t), condividiServiziInCorso: true } });
+    const r = await vivo(t, fila.id);
+    assert.equal(r.status, 409);
+    await prisma.collegamento.delete({ where: { id: fila.id } });
+  });
+
+  test("vivo: pasado el limite de 30 por minuto por conexion -> 429", async () => {
+    await cargarSeguimiento([]);
+    let ultimo = 0;
+    let n = 0;
+    for (; n < 45; n += 1) {
+      ultimo = (await vivo()).status;
+      if (ultimo === 429) break;
+    }
+    assert.equal(ultimo, 429, "debe cortar");
+    assert.ok(n <= 30, `corto despues de ${n + 1} peticiones`);
+  });
+
   test("limitador: tantos 401 desde la misma IP terminan en 429", async () => {
     let ultimo = 0;
     for (let i = 0; i < 40; i += 1) {

@@ -68,7 +68,8 @@ const ESTADO_LABEL = {
 };
 
 // Una sola lectura de todos los viajes en camino para todos los clientes que miran a la vez (el calculo de GPS es pesado).
-const allSeguimiento = () =>
+// Lectura compartida del seguimiento (misma cache para el portal del cliente y para las apps conectadas).
+export const allSeguimiento = () =>
   cachedResponse("cliente-seguimiento", SEGUIMIENTO_TTL_MS, () => getSeguimiento({ cargo: "OWNER" }), { small: true });
 
 // Mapa "En Vivo": la posicion de los vehiculos visibles en el Mapa de la oficina (los mismos que ve el Admin), solo con lo que hace falta para

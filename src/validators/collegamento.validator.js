@@ -42,4 +42,7 @@ export const servizioRemotoSchema = z
     note: opz(4000),
   })
   .refine((s) => s.eta || s.fechaServicio, { message: "Manca la data del servizio" });
+// POST /vivo no lleva datos: el cuerpo es {} (lo que sobre se descarta).
+export const vivoRemotoSchema = z.object({});
+export const condivisioneSchema = z.object({ condividiServiziInCorso: z.boolean() });
 export const annulloRemotoSchema = z.object({ motivo: opz(300) });
