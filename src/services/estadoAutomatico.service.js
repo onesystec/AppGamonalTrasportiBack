@@ -31,3 +31,28 @@ export const advancePendingToEnCamino = async (now = Date.now()) => {
   if (count > 0) void sincronizzaAperti();
   return count;
 };
+
+// ---- Cuando hace falta volver a mirar la base ----
+// Mirar cada minuto si hay servicios por pasar a "En camino" mantenia despierta a Neon (que se cobra por hora despierta) todo el dia aunque no hubiera
+// nada que hacer. Ahora, tras cada revision se calcula cuando vencera el siguiente servicio (su hora de retiro + AUTO_EN_CAMINO_MIN) y no se consulta
+// hasta entonces, salvo que se escriba algo en los servicios (se crea o cambia uno: el numero de escrituras de utils/responseCache.js cambia) o pasen
+// MAX_SIN_REVISAR_MS (red de seguridad).
+export const MAX_SIN_REVISAR_MS = 30 * 60 * 1000;
+
+// Cuando vence el siguiente servicio pendiente que todavia no cumple el plazo (ms), o null si no hay ninguno.
+export const proximoAutoEnCamino = async (now = Date.now()) => {
+  const minutes = env.AUTO_EN_CAMINO_MIN;
+  if (!(minutes > 0)) return null;
+  const next = await prisma.record.findFirst({
+    where: { estado: "IN_SOSPESO", fechaRetiro: { gt: new Date(now - minutes * 60 * 1000) } },
+    orderBy: { fechaRetiro: "asc" },
+    select: { fechaRetiro: true },
+  });
+  return next?.fechaRetiro ? next.fechaRetiro.getTime() + minutes * 60 * 1000 : null;
+};
+
+// Que se recuerda de la ultima revision: hasta cuando no hace falta mirar y con que numero de escrituras se calculo.
+export const calcularProximaRevision = ({ vence, version, ahora = Date.now() }) => ({ version, hasta: Math.min(vence ?? Infinity, ahora + MAX_SIN_REVISAR_MS) });
+
+// true si hay que consultar la base: nunca se reviso, se escribio algo en los servicios, o ya llego la hora.
+export const hayQueConsultar = ({ proxima, version, ahora = Date.now() }) => !proxima || proxima.version !== version || ahora >= proxima.hasta;

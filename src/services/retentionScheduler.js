@@ -1,7 +1,8 @@
 import { env } from "../config/env.js";
 import { deleteParadasOlderThan } from "../models/parada.model.js";
 import { cleanupExpiredRecordFiles } from "./recordFile.service.js";
-import { advancePendingToEnCamino } from "./estadoAutomatico.service.js";
+import { advancePendingToEnCamino, calcularProximaRevision, hayQueConsultar, proximoAutoEnCamino } from "./estadoAutomatico.service.js";
+import { getCacheVersion } from "../utils/responseCache.js";
 import { remindDriversOfFaltantes } from "./faltantes.service.js";
 import { runSeguimientoAlerts } from "./seguimiento.service.js";
 import { loadPendingAreaCEntries, processAreaCReminders } from "./areaCAvisos.service.js";
@@ -111,12 +112,19 @@ export const startSeguimientoMonitor = () => {
 export const startAutoEnCamino = () => {
   if (env.NODE_ENV !== "production" || !(env.AUTO_EN_CAMINO_MIN > 0)) return;
   const pausa = parsePausa(env.AUTO_EN_CAMINO_PAUSA);
+  // Se recuerda cuando vence el siguiente servicio: hasta entonces (o hasta que se escriba algo en los servicios) no se consulta la base y Neon puede dormir.
+  let proxima = null;
   const tick = async ({ ignorarPausa = false } = {}) => {
     if (!ignorarPausa && enPausa(pausa)) return;
+    const ahora = Date.now();
+    const version = getCacheVersion();
+    if (!ignorarPausa && !hayQueConsultar({ proxima, version, ahora })) return;
     try {
-      const count = await advancePendingToEnCamino();
+      const count = await advancePendingToEnCamino(ahora);
       if (count > 0) console.log(`[estado] ${count} servicio(s) pasaron a "En camino" (retiro hace mas de ${env.AUTO_EN_CAMINO_MIN} min)`);
+      proxima = calcularProximaRevision({ vence: await proximoAutoEnCamino(ahora), version, ahora });
     } catch (err) {
+      proxima = null;
       console.error("[estado] no se pudo pasar servicios a En camino:", err.message);
     }
   };

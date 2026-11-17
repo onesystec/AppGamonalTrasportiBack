@@ -18,6 +18,9 @@ export const bumpCacheVersion = () => {
   version += 1;
 };
 
+// Numero de escrituras relevantes (servicios, combustible, peajes, multas) hasta ahora: sirve para saber si algo cambio sin volver a consultar la base.
+export const getCacheVersion = () => version;
+
 export const cachedResponse = async (key, ttlMs, loader, { small = false } = {}) => {
   const store = small ? smallEntries : entries;
   const max = small ? MAX_SMALL_ENTRIES : MAX_ENTRIES;

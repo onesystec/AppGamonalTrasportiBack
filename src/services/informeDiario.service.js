@@ -114,17 +114,25 @@ export const enviarInformeDiario = async ({ now = new Date(), destinatarios = de
 const CLAVE_ULTIMO_DIA = "informeDiario.ultimoDiaEnviado";
 
 // Lo llama el scheduler cada 10 minutos: a partir de INFORME_DIARIO_HORA (hora de Roma) manda el informe una vez por dia.
+// Dia en que ya se vio que el informe salio (en memoria): asi, despues de enviarlo, los ticks de cada 10 minutos no vuelven a consultar la base el resto del dia.
+let diaResuelto = null;
+
 export const tickInformeDiario = async (now = new Date()) => {
   const hoy = romeDay(now);
+  if (diaResuelto === hoy) return;
   const horaRoma = Number(
     new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", hourCycle: "h23" }).formatToParts(now).find((p) => p.type === "hour")?.value
   );
   if (horaRoma < env.INFORME_DIARIO_HORA) return;
   const ultimo = (await prisma.configuracion.findUnique({ where: { clave: CLAVE_ULTIMO_DIA } }))?.valor;
-  if (ultimo?.dia === hoy) return;
+  if (ultimo?.dia === hoy) {
+    diaResuelto = hoy;
+    return;
+  }
   // Se marca antes de enviar: si Resend falla, mejor un aviso en el log que correos repetidos cada 10 minutos.
   const valor = { dia: hoy, at: now.toISOString() };
   await prisma.configuracion.upsert({ where: { clave: CLAVE_ULTIMO_DIA }, create: { clave: CLAVE_ULTIMO_DIA, valor }, update: { valor } });
+  diaResuelto = hoy;
   const r = await enviarInformeDiario({ now });
   console.log(
     `[informe-diario] enviado a ${r.destinatarios.length} destinatario(s): ${r.resumen.multas.hoy.cantidad} multa(s) y ${r.resumen.mancatos.hoy.cantidad} mancato(s) vencen hoy`
