@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { after, before, describe, test } from "node:test";
+import { z } from "zod";
 
 const DB = process.env.GAMONAL_TEST_DATABASE_URL ?? "";
 const dbOk = /@(localhost|127\.0\.0\.1)[:/]/.test(DB);
@@ -27,6 +28,40 @@ Object.assign(process.env, {
 const { datiAggiornamento, ESPERAS_MS, chiamaConRiprova, stessiDati, stessoHash, sha256 } = await import("../src/services/collegamentoInvio.service.js");
 const { datiSolicitud, stessoSegreto } = await import("../src/services/collegamento.service.js");
 const { confronta, normalizzaDati } = await import("../src/services/collegamentoCambi.service.js");
+const { LIMITES_VIVO, aServizioVivo, esDireccionUtil, recorta } = await import("../src/services/collegamentoVivo.service.js");
+
+// Contrato con App Piazza. /aggiornamenti: el esquema que Piazza valida al recibir (copia del suyo). /vivo: la forma y los limites del documento del protocolo.
+const txt = (max) => z.string().trim().max(max);
+const esquemaAggiornamento = z.object({
+  recordId: z.string().trim().min(1).max(100),
+  tipo: z.enum(["ACCETTATO", "RIFIUTATO", "AGGIORNAMENTO"]),
+  motivo: txt(500).nullish(),
+  estado: z.enum(["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA", "CONSEGNATO", "ANNULLATO", "RISCHEDULATO"]).nullish(),
+  autista: txt(200).nullish(),
+  targa: txt(30).nullish(),
+});
+const esquemaVivo = z.object({
+  servizi: z
+    .array(
+      z
+        .object({
+          id: z.string().min(1).max(100),
+          codigo: z.string().max(100),
+          estado: z.enum(["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA"]),
+          destino: z.string().min(1).max(300),
+          ritiro: z.string().max(300).optional(),
+          eta: z.string().datetime(),
+          cliente: z.string().max(150).optional(),
+          autista: z.string().max(120).optional(),
+          targa: z.string().max(30).optional(),
+          area: z.string().max(60).optional(),
+          daPiazza: z.string().max(100).optional(),
+          gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), rumbo: z.number().min(0).max(360).optional(), actualizada: z.string().datetime() }).strict().optional(),
+        })
+        .strict()
+    )
+    .max(300),
+});
 const { decryptSecret, encryptSecret } = await import("../src/utils/secretBox.js");
 
 describe("collegamento: piezas puras", () => {
@@ -53,6 +88,41 @@ describe("collegamento: piezas puras", () => {
   test("ANNULLATO y RISCHEDULATO se mandan tal cual (no son parte del orden)", () => {
     assert.equal(datiAggiornamento(rec("ANNULLATO"), { estado: "IN_CONSEGNA" }).estado, "ANNULLATO");
     assert.equal(datiAggiornamento(rec("RISCHEDULATO"), { estado: "RITIRATO" }).estado, "RISCHEDULATO");
+  });
+
+  test("/vivo: textos recortados a los limites del contrato; gps solo valido y con fecha real", () => {
+    assert.deepEqual(LIMITES_VIVO, { id: 100, codigo: 100, destino: 300, ritiro: 300, cliente: 150, autista: 120, targa: 30, area: 60 });
+    assert.equal(recorta("x".repeat(500), 300).length, 300);
+    assert.equal(recorta("  hola  ", 10), "hola");
+    const largo = "z".repeat(400);
+    const s = { id: largo, codigo: largo, estado: "IN_CONSEGNA", etaPlan: "2026-11-19T10:56:00Z", cliente: largo, tipoLabel: largo, vehiculo: largo, chofer: { nombre: largo }, gps: { lat: 45.4, lng: 9.2, rumbo: 120, actualizada: "2026-11-19T10:31:00Z", velocidad: 50, motor: true } };
+    const r = aServizioVivo(s, { da: { recordRemotoId: largo, ritiro: largo }, destino: largo });
+    assert.equal(r.id.length, 100);
+    assert.equal(r.codigo.length, 100);
+    assert.equal(r.destino.length, 300);
+    assert.equal(r.ritiro.length, 300);
+    assert.equal(r.cliente.length, 150);
+    assert.equal(r.autista.length, 120);
+    assert.equal(r.targa.length, 30);
+    assert.equal(r.area.length, 60);
+    assert.equal(r.daPiazza.length, 100);
+    assert.deepEqual(r.gps, { lat: 45.4, lng: 9.2, rumbo: 120, actualizada: "2026-11-19T10:31:00.000Z" });
+    const sinGps = (gps) => "gps" in aServizioVivo({ ...s, gps }, { destino: "Via A 1" });
+    assert.equal(sinGps({ lat: 45, lng: 9, actualizada: null }), false, "sin fecha no se manda");
+    assert.equal(sinGps({ lat: 45, lng: 9, actualizada: "no-es-fecha" }), false);
+    assert.equal(sinGps({ lat: 95, lng: 9, actualizada: "2026-11-19T10:31:00Z" }), false, "latitud imposible");
+    assert.equal(sinGps({ lat: null, lng: 9, actualizada: "2026-11-19T10:31:00Z" }), false);
+    assert.equal(sinGps({ fuente: "SIMULADO", lat: 45, lng: 9, actualizada: "2026-11-19T10:31:00Z" }), false);
+    assert.equal("rumbo" in aServizioVivo({ ...s, gps: { ...s.gps, rumbo: 400 } }, { destino: "Via A 1" }).gps, false, "rumbo fuera de 0-360 se omite");
+    assert.equal("rumbo" in aServizioVivo({ ...s, gps: { ...s.gps, rumbo: null } }, { destino: "Via A 1" }).gps, false);
+  });
+
+  test("/vivo: un destino como 'Giro (2 tappe)' no es una direccion", () => {
+    assert.equal(esDireccionUtil("Giro (2 tappe)"), false);
+    assert.equal(esDireccionUtil("  giro (4 tappe)"), false);
+    assert.equal(esDireccionUtil(""), false);
+    assert.equal(esDireccionUtil(null), false);
+    assert.equal(esDireccionUtil("Via Italia 9, 20900 Monza MB"), true);
   });
 
   test("comparar lo ya avisado no depende del orden de las claves (jsonb las reordena)", () => {
@@ -145,6 +215,7 @@ describe("collegamento: piezas puras", () => {
 describe("collegamento: protocolo completo (base local + Piazza simulada)", { skip: !dbOk && "falta GAMONAL_TEST_DATABASE_URL (localhost)" }, () => {
   let server, base, piazza, piazzaUrl, prisma, ownerToken, owner, cliente;
   const recibido = []; // lo que "Piazza" recibe de Gamonal
+  const aggiornamentiTodos = []; // todos los /aggiornamenti que recibio, para comprobar el contrato
   let piazzaFalla = 0; // cuantas respuestas 503 da antes de responder bien
   const T1 = "T1-token-de-piazza-para-gamonal-123456";
 
@@ -174,6 +245,7 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
       req.on("data", (c) => (data += c));
       req.on("end", () => {
         recibido.push({ url: req.url, auth: req.headers.authorization, body: data ? JSON.parse(data) : null });
+        if (req.url.endsWith("/aggiornamenti")) aggiornamentiTodos.push(JSON.parse(data));
         if (piazzaFalla > 0 && req.url.endsWith("/aggiornamenti")) {
           piazzaFalla -= 1;
           res.writeHead(503, { "Content-Type": "application/json" }).end(JSON.stringify({ success: false, message: "duerme" }));
@@ -609,6 +681,36 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     await prisma.collegamento.delete({ where: { id: fila.id } });
   });
 
+  test("contrato: la respuesta de /vivo cumple la forma y los limites; 'Giro' usa la ultima parada real; sin direccion no se manda; un item roto no tira a los demas", async () => {
+    const chofer = await prisma.user.findFirst({ where: { cargo: "CHOFER" } });
+    const veh = await prisma.vehiculo.findFirst();
+    const cli = await prisma.client.findFirst();
+    const base = { driverId: chofer.id, vehicleId: veh.id, clientId: cli.id, fechaServicio: new Date(), eta: new Date(), descripcion: "d" };
+    const conParadas = await prisma.record.create({
+      data: { ...base, codigo: "GT-GIRO", destinazione: "Giro (2 tappe)", stops: { create: [{ orden: 1, direccion: "Via Prima 1, 20100 Milano MI" }, { orden: 2, direccion: "Via Segunda 2, 20900 Monza MB" }] } },
+    });
+    const sinParadas = await prisma.record.create({ data: { ...base, codigo: "GT-GIRO-SIN", destinazione: "Giro (3 tappe)" } });
+    const mk = (id, destino, extra = {}) => ({ id, codigo: `C-${id}`, estado: "IN_CONSEGNA", destino, etaPlan: "2026-11-20T10:00:00Z", tipoLabel: "DHL Milano", cliente: "HP", vehiculo: "CV627GV", chofer: { nombre: "José Guizado" }, gps: null, ...extra });
+    await cargarSeguimiento([
+      mk(conParadas.id, "Giro (2 tappe)", { gps: { fuente: "VEHICULO", lat: 45.4642, lng: 9.19, rumbo: 120, actualizada: "2026-11-19T10:31:00Z" } }),
+      mk(sinParadas.id, "Giro (3 tappe)"),
+      mk("sin-eta", "Via Eta 1, Milano", { etaPlan: null }),
+      mk("roto", "Via Rota 1, Milano", { chofer: null, vehiculo: undefined, gps: { lat: "x", lng: "y", actualizada: "2026-11-19T10:31:00Z" } }),
+      mk("normal", "Via Italia 9, 20900 Monza MB"),
+    ]);
+    const r = await vivo();
+    assert.equal(r.status, 200, r.text);
+    const parsed = esquemaVivo.safeParse(r.body.data);
+    assert.ok(parsed.success, parsed.success ? "" : JSON.stringify(parsed.error.issues));
+    const por = Object.fromEntries(r.body.data.servizi.map((x) => [x.id, x]));
+    assert.equal(por[conParadas.id].destino, "Via Segunda 2, 20900 Monza MB", "ultima parada real");
+    assert.deepEqual(por[conParadas.id].gps, { lat: 45.4642, lng: 9.19, rumbo: 120, actualizada: "2026-11-19T10:31:00.000Z" });
+    assert.equal(por[sinParadas.id], undefined, "sin direccion ubicable no se manda");
+    assert.equal(por["sin-eta"], undefined, "sin ETA no se manda (la otra app no podria ponerlo en rojo)");
+    assert.ok(por.roto && !("gps" in por.roto) && !("autista" in por.roto) && !("targa" in por.roto), "un item raro sale sin lo que no sirve y sin tirar a los demas");
+    assert.ok(por.normal);
+  });
+
   test("vivo: pasado el limite de 30 por minuto por conexion -> 429", async () => {
     await cargarSeguimiento([]);
     let ultimo = 0;
@@ -619,6 +721,17 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     }
     assert.equal(ultimo, 429, "debe cortar");
     assert.ok(n <= 30, `corto despues de ${n + 1} peticiones`);
+  });
+
+  test("contrato: todo lo que Gamonal manda a /aggiornamenti cumple el esquema de Piazza", () => {
+    assert.ok(aggiornamentiTodos.length >= 5, `se capturaron ${aggiornamentiTodos.length} avisos`);
+    const tipos = new Set(aggiornamentiTodos.map((b) => b.tipo));
+    assert.ok(tipos.has("ACCETTATO") && tipos.has("RIFIUTATO") && tipos.has("AGGIORNAMENTO"), `tipos vistos: ${[...tipos]}`);
+    for (const body of aggiornamentiTodos) {
+      const r = esquemaAggiornamento.safeParse(body);
+      assert.ok(r.success, `${JSON.stringify(body)} -> ${r.success ? "" : JSON.stringify(r.error.issues)}`);
+      assert.deepEqual(Object.keys(body).filter((k) => !["recordId", "tipo", "motivo", "estado", "autista", "targa"].includes(k)), [], "sin campos de mas (nada de importes ni datos personales)");
+    }
   });
 
   test("limitador: tantos 401 desde la misma IP terminan en 429", async () => {
