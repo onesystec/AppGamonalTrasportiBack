@@ -10,6 +10,7 @@ export const SAFE_USER_SELECT = {
   area: true,
   grupo: true,
   cargo: true,
+  rrhhVeServicios: true,
   responsableTipo: true,
   areasPermitidas: true,
   clienteId: true,

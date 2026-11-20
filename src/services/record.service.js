@@ -54,6 +54,12 @@ import { registrarCambiosOficina } from "./cambiosCliente.service.js";
 
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
+// Recursos Humanos con el interruptor que le activa el Owner (User.rrhhVeServicios): ve los Registros como la oficina, pero SOLO para leer y sin importes
+// (recibe la misma version sin datos economicos que ve un chofer de sus servicios, ademas sin el costo de los peajes). Solo las listas: el detalle, la edicion
+// y todo lo demas siguen cerrados (ver rrhhGate).
+export const isRrhhViewer = (actor) => actor.cargo === "RRHH" && Boolean(actor.rrhhVeServicios);
+const seesAllRecords = (actor) => isPrivileged(actor) || isRrhhViewer(actor);
+
 // Un Responsable (ADMIN) solo ve/gestiona los servicios de las areas que el Admin le marco
 // (User.areasPermitidas, ver utils/areaAccess.js); el Admin (OWNER) no tiene restriccion. Sin ninguna
 // area marcada no ve ningun servicio: deny-by-default.
@@ -63,7 +69,7 @@ export const spedizzioneFilterForActor = (actor) => recordAreaWhere(actor);
 // originales. El segundo tramo de un traspaso entre choferes (la "continuacion") no es un servicio
 // mas para el cliente ni para los totales: se ve desde su servicio original.
 export const listFilterForActor = (actor) =>
-  isPrivileged(actor)
+  seesAllRecords(actor)
     ? { ...(spedizzioneFilterForActor(actor) ?? {}), servicioOrigenId: null }
     : spedizzioneFilterForActor(actor);
 
@@ -518,7 +524,13 @@ const toChoferResponse = (record) => ({
   updatedAt: record.updatedAt,
 });
 
-export const toResponse = (record, actor) => (isPrivileged(actor) ? toFullResponse(record) : toChoferResponse(record));
+// Para Recursos Humanos: la vista del chofer sin ningun importe (tampoco el costo de cada peaje).
+const toRrhhResponse = (record) => {
+  const base = toChoferResponse(record);
+  return { ...base, mancatos: base.mancatos?.map(({ costo: _costo, ...m }) => m) };
+};
+
+export const toResponse = (record, actor) => (isPrivileged(actor) ? toFullResponse(record) : isRrhhViewer(actor) ? toRrhhResponse(record) : toChoferResponse(record));
 
 // skipActiveCheck: solo para el sync de AppSheet (ver appsheetSync.service.js) - esos
 // registros son historicos (servicios que ya pasaron), no una asignacion nueva, asi
@@ -658,7 +670,7 @@ export const exportRecordsForActor = async (actor, filters) => {
 };
 
 export const listRecordsForActor = async (actor, dateRange) => {
-  const driverId = isPrivileged(actor) ? undefined : actor.id;
+  const driverId = seesAllRecords(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
   const records = await attachFaltantes(await attachFuel(await findRecords({ driverId, dateRange, spedizzioneFilter })));
   return records.map((record) => toResponse(record, actor));
@@ -669,7 +681,7 @@ export const listRecordsForActor = async (actor, dateRange) => {
 // registros con la sincronizacion de AppSheet) solo para mostrar los pocos que estan
 // en curso.
 export const listPendingRecordsForActor = async (actor) => {
-  const driverId = isPrivileged(actor) ? undefined : actor.id;
+  const driverId = seesAllRecords(actor) ? undefined : actor.id;
   const [year, month, day] = romeDay()
     .split("-")
     .map(Number);
@@ -698,11 +710,13 @@ const nextDay = (day) => {
 const hasFilters = (f) => Boolean(f.driverId || f.vehicleId || f.clientId || f.estados?.length || f.targa || f.spedizzione || f.from || f.to || f.montoMin != null || f.montoMax != null);
 
 export const searchRecordsForActor = async (actor, params) => {
-  const { q: rawQ, ...rest } = typeof params === "string" ? { q: params } : (params ?? {});
+  const { q: rawQ, ...restRaw } = typeof params === "string" ? { q: params } : (params ?? {});
+  // Recursos Humanos no filtra por importe (no ve importes).
+  const rest = isRrhhViewer(actor) ? { ...restRaw, montoMin: undefined, montoMax: undefined } : restRaw;
   const query = (rawQ ?? "").trim();
-  const filtered = isPrivileged(actor) && hasFilters(rest);
+  const filtered = seesAllRecords(actor) && hasFilters(rest);
   if (query.length < SEARCH_MIN_LENGTH && !filtered) return { records: [], total: 0 };
-  const driverId = isPrivileged(actor) ? undefined : actor.id;
+  const driverId = seesAllRecords(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
   const filters = filtered
     ? {
@@ -744,7 +758,7 @@ export const listRecordsResumenForActor = async (actor, dateRange) => {
 };
 
 export const listRecordsSummaryForActor = async (actor, dateRange) => {
-  const driverId = isPrivileged(actor) ? undefined : actor.id;
+  const driverId = seesAllRecords(actor) ? undefined : actor.id;
   const spedizzioneFilter = listFilterForActor(actor);
   const records = await findRecordsSummary({ driverId, dateRange, spedizzioneFilter });
   // Cada fila lleva "faltante": true si ese servicio terminado tiene algo sin subir (la lista marca el dia).

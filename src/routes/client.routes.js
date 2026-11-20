@@ -10,7 +10,8 @@ const router = Router();
 router.use(authenticate);
 
 // El chofer no necesita la lista de clientes.
-router.get("/", authorize("OWNER", "ADMIN"), list);
+// Solo nombres: Recursos Humanos con el interruptor de Registros lo necesita para los filtros (rrhhGate la cierra si no lo tiene).
+router.get("/", authorize("OWNER", "ADMIN", "RRHH"), list);
 router.post("/", authorize("OWNER", "ADMIN"), validate(createClientSchema), create);
 router.patch(
   "/:id",

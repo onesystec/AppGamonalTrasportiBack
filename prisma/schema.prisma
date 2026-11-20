@@ -81,6 +81,8 @@ model User {
   area                         Area
   grupo                        Grupo?
   cargo                        Cargo            @default(CHOFER)
+  // Solo Recursos Humanos: con true tambien ve la lista de servicios (solo lectura, sin importes) para comprobar que se suben todos. Lo define el Owner.
+  rrhhVeServicios              Boolean          @default(false)
   // Solo Responsables: su equipo y las areas de servicio que puede ver ("dhl-milano", "dhl-roma",
   // "ab-service", "piazza-milano", "piazza-roma", "otros"). Admin (OWNER) ve todo.
   responsableTipo              ResponsableTipo?

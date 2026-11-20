@@ -155,12 +155,27 @@ export const getUserById = async (actor, id) => {
   return toUserResponse(user);
 };
 
+// "Ver la lista de servicios" de Recursos Humanos: lo decide solo el Owner y solo existe para el cargo RRHH (en cualquier otro queda apagado).
+const normalizeRrhhFlag = (actor, rawData, target) => {
+  let data = rawData;
+  if (data.rrhhVeServicios !== undefined && actor.cargo !== "OWNER") {
+    // Un formulario puede mandar el valor que ya tiene (sin cambiarlo): se ignora. Cambiarlo, solo el Owner.
+    if (!target || data.rrhhVeServicios !== Boolean(target.rrhhVeServicios)) throw new AppError("Solo un Admin puede definir si Recursos Humanos ve la lista de servicios", 403);
+    const { rrhhVeServicios: _sinCambio, ...resto } = data;
+    data = resto;
+  }
+  const cargoFinal = data.cargo ?? target?.cargo;
+  // Fuera de Recursos Humanos el interruptor no aplica: queda apagado.
+  if (cargoFinal !== "RRHH" && (data.rrhhVeServicios === true || target?.rrhhVeServicios)) return { ...data, rrhhVeServicios: false };
+  return data;
+};
+
 export const createUser = async (actor, data) => {
   if (actor.cargo === "RRHH" && data.cargo !== "CHOFER") {
     throw new AppError("Recursos Humanos solo puede dar de alta choferes", 403);
   }
   assertCanAssignCargo(actor, data.cargo);
-  const normalized = await normalizeClienteFields(normalizeResponsableFields(actor, data, null), null);
+  const normalized = await normalizeClienteFields(normalizeResponsableFields(actor, normalizeRrhhFlag(actor, data, null), null), null);
 
   const hashedPassword = await hashPassword(data.password);
 
@@ -211,6 +226,8 @@ export const updateUser = async (actor, targetId, data) => {
   if (payload.cargo && payload.cargo !== target.cargo) {
     assertCanAssignCargo(actor, payload.cargo);
   }
+  // Quien llega aqui con el cargo ya filtrado (RRHH solo edita choferes, el propio usuario solo sus datos): el interruptor lo toca unicamente el Owner.
+  payload = normalizeRrhhFlag(actor, payload, target);
   if (isPrivileged) {
     payload = normalizeResponsableFields(actor, payload, target);
     // La empresa y los modulos de un usuario cliente solo los toca un Admin.
