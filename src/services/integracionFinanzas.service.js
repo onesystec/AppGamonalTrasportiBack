@@ -38,14 +38,16 @@ export const rangoMes = (mes) => {
 };
 
 // Horas de manejo de un servicio: la jornada que declaro el chofer (fin - inicio - pausa). Si no la declaro, las horas
-// dia + noche cargadas en el servicio. 0 si no hay nada.
+// dia + noche cargadas en el servicio y, si tampoco hay, el tiempo de ruta del circuito (ida + vuelta) o de la ruta, como en
+// finanzas.service.js. `declarada` dice si salio de la jornada del chofer.
 export const horasServicio = (r) => {
   if (r.horaInicioReal && r.horaFinReal && r.horaFinReal > r.horaInicioReal) {
     const h = (r.horaFinReal - r.horaInicioReal) / 3600000 - num(r.pausaMin) / 60;
     if (h > 0 && h < 24) return { h, declarada: true };
   }
   const h = num(r.horasDia) + num(r.horasNoche);
-  return { h, declarada: false };
+  if (h > 0) return { h, declarada: false };
+  return { h: (num(r.circuitoMin) || num(r.rutaDuracionMin)) / 60, declarada: false };
 };
 
 const personaWhere = { cargo: { not: "CLIENTE" }, OR: [{ cargo: "CHOFER" }, { records: { some: {} } }] };
@@ -74,6 +76,7 @@ export const trabajadoresFinanzas = async ({ mes }) => {
         driverId: true, estado: true, fechaServicio: true, spedizzione: true,
         kilometros: true, kilometrosReales: true, rutaDistanciaKm: true,
         horaInicioReal: true, horaFinReal: true, pausaMin: true, horasDia: true, horasNoche: true,
+        circuitoMin: true, rutaDuracionMin: true,
       },
     }),
   ]);
