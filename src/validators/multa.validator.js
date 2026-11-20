@@ -11,6 +11,8 @@ const DATI_ESTADO_VALUES = ["PENDIENTE", "ENVIADO", "NO_REQUERIDO"];
 const datiEstado = z.enum(DATI_ESTADO_VALUES, { errorMap: () => ({ message: "Estado de datos del conductor invalido" }) });
 // Titular del verbale: S.R.L. o ditta individuale.
 const titular = z.enum(TITULAR_VALUES, { errorMap: () => ({ message: "Titular invalido (SRL o INDIVIDUAL)" }) });
+// Responsable de la oficina que gestiona la multa (nombre corto, ej. "Yan" o "Claudia").
+const gestor = z.string().trim().min(1).max(40, "Responsable demasiado largo");
 
 // Los formularios llegan como multipart: todo viene como string, y un campo opcional sin
 // completar puede venir vacio.
@@ -73,6 +75,7 @@ export const createMultaSchema = z.object({
   // Area de servicio a la que se imputa (ver User.areasPermitidas). Un Responsable debe indicarla.
   area: z.preprocess(emptyToUndefined, z.enum(AREA_KEYS).optional()),
   titular: z.preprocess(emptyToUndefined, titular.optional()),
+  gestor: z.preprocess(emptyToUndefined, gestor.optional()),
   comentarios: z.preprocess(emptyToUndefined, z.string().trim().max(1000).optional()),
   // Datos del conductor (art. 126-bis): si quita puntos, plazo legal y si ya se enviaron.
   puntosPatente: boolString.optional(),
@@ -104,6 +107,7 @@ export const updateMultaSchema = z.object({
   quienPaga: quienPaga.optional(),
   area: z.preprocess(emptyToNull, z.enum(AREA_KEYS).nullable().optional()),
   titular: z.preprocess(emptyToNull, titular.nullable().optional()),
+  gestor: z.preprocess(emptyToNull, gestor.nullable().optional()),
   comentarios: z.preprocess(emptyToNull, z.string().trim().max(1000).nullable().optional()),
   pagado: boolString.optional(),
   descontado: boolString.optional(),
@@ -135,6 +139,8 @@ const listFilters = {
   descuentoPendiente: z.preprocess(emptyToUndefined, z.enum(["true", "false"]).optional()),
   // SRL / INDIVIDUAL, o SIN = las que no tienen titular indicado.
   titular: z.preprocess(emptyToUndefined, z.enum([...TITULAR_VALUES, "SIN"]).optional()),
+  // Responsable que la gestiona (nombre), o SIN = las que no tienen responsable.
+  gestor: z.preprocess(emptyToUndefined, z.string().trim().max(40).optional()),
   // Datos del conductor: PENDIENTE (incluye las vencidas), ENVIADO o NO_REQUERIDO; ademas, de las pendientes,
   // VENCIDO (paso el limite legal) o SEMANA (el limite es en los proximos 7 dias).
   datiEstado: z.preprocess(emptyToUndefined, z.enum([...DATI_ESTADO_VALUES, "VENCIDO", "SEMANA"]).optional()),

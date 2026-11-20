@@ -966,6 +966,8 @@ model Multa {
   area                 String?
   // A nombre de quien llego el verbale: la S.R.L. o la ditta individuale (null = sin indicar).
   titular              TitularMulta?
+  // Quien de la oficina gestiona la multa (ej. "Yan", "Claudia"); null = sin asignar.
+  gestor               String?        @db.VarChar(40)
   pagado               Boolean        @default(false)
   pagadoAt             DateTime?
   // Comunicacion de los datos del conductor (art. 126-bis C.d.S.): si la infraccion quita puntos de
@@ -988,6 +990,7 @@ model Multa {
   @@index([pagado, fechaVencimiento])
   @@index([datiEstado, datiLimite])
   @@index([multaOrigenId])
+  @@index([gestor])
   @@index([driverId])
   @@index([fechaRecepcion])
   @@index([quienPaga, descontado])

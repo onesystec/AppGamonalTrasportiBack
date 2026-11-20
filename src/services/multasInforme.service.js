@@ -56,6 +56,7 @@ export const informeRows = (items) =>
     estado: ESTADO_LABEL[m.estado] ?? m.estado ?? "",
     quienPaga: QUIEN_LABEL[m.quienPaga] ?? "",
     titular: TITULAR_LABEL[m.titular] ?? "",
+    gestor: m.gestor ?? "",
     vinculo: vinculo(m),
     comentarios: m.comentarios ?? "",
   }));
@@ -78,6 +79,7 @@ const COLUMNS = [
   { key: "estado", header: "Estado multa", width: 11 },
   { key: "quienPaga", header: "Quien paga", width: 14 },
   { key: "titular", header: "Titular", width: 10 },
+  { key: "gestor", header: "Responsable", width: 12 },
   { key: "vinculo", header: "Sancion 126-bis vinculada", width: 30 },
   { key: "comentarios", header: "Comentarios", width: 70 },
 ];
@@ -173,6 +175,7 @@ const PDF_COLS = [
   { key: "chofer", header: "Chofer responsable", w: 88 },
   { key: "costo", header: "EUR", w: 40 },
   { key: "estado", header: "Multa", w: 40 },
+  { key: "gestor", header: "Responsable", w: 52 },
 ];
 
 export const buildMultasPdf = ({ items, titulo, filtros, generado }) =>

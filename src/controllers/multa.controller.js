@@ -41,6 +41,7 @@ const FILTRO_LABELS = {
 const describeFiltros = (q) => {
   const parts = [];
   for (const key of ["estado", "datiEstado", "quienPaga", "titular"]) if (q[key]) parts.push(FILTRO_LABELS[key][q[key]] ?? q[key]);
+  if (q.gestor) parts.push(q.gestor === "SIN" ? "Sin responsable" : `Responsable ${q.gestor}`);
   if (q.targa) parts.push(`Targa ${q.targa}`);
   if (q.area) parts.push(`Area ${q.area}`);
   if (q.from || q.to) parts.push(`Recepcion ${q.from ?? "..."} a ${q.to ?? "..."}`);

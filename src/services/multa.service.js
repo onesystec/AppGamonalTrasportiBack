@@ -24,6 +24,7 @@ import { AppError } from "../utils/AppError.js";
 import { findOfficeUserIdsForArea } from "../models/user.model.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { romeDay } from "../utils/romeTime.js";
+import { GESTOR_MULTAS_POR_DEFECTO } from "../constants/multas.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // Si el verbale no trae vencimiento cargado, se usa recepcion + 60 dias (lo habitual para
@@ -70,6 +71,9 @@ const buildWhere = (actor, filters, today) => {
   if (filters.quienPaga) and.push({ quienPaga: filters.quienPaga });
   if (filters.descuentoPendiente === "true") and.push({ quienPaga: "A_DESCONTAR", descontado: false });
   if (filters.titular) and.push({ titular: filters.titular === "SIN" ? null : filters.titular });
+  if (filters.gestor) {
+    and.push(filters.gestor === "SIN" ? { gestor: null } : { gestor: { equals: filters.gestor, mode: "insensitive" } });
+  }
   if (filters.datiEstado === "VENCIDO") {
     and.push({ datiEstado: "PENDIENTE", datiLimite: { lt: dayToDate(today) } });
   } else if (filters.datiEstado === "SEMANA") {
@@ -160,6 +164,7 @@ const toResponse = async (m, today) => {
     quienPaga: m.quienPaga,
     area: m.area,
     titular: m.titular ?? null,
+    gestor: m.gestor ?? null,
     descontado: m.descontado,
     descontadoAt: m.descontadoAt,
     comentarios: m.comentarios,
@@ -303,6 +308,8 @@ export const createMultaForActor = async (actor, data, files) => {
       quienPaga: data.quienPaga,
       area,
       titular: data.titular ?? null,
+      // Si no se indica, la gestiona el responsable actual de las multas.
+      gestor: data.gestor ?? GESTOR_MULTAS_POR_DEFECTO,
       comentarios: data.comentarios ?? null,
       multaKey,
       comprobanteKey,
@@ -437,7 +444,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   }
 
   const payload = {};
-  for (const key of ["numeroVerbale", "targa", "costo", "comentarios", "quienPaga", "titular"]) {
+  for (const key of ["numeroVerbale", "targa", "costo", "comentarios", "quienPaga", "titular", "gestor"]) {
     if (data[key] !== undefined) payload[key] = data[key];
   }
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
