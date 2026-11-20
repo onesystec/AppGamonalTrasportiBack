@@ -6,6 +6,7 @@ import morgan from "morgan";
 import { env } from "./config/env.js";
 import { apiLimiter } from "./middlewares/apiLimiter.js";
 import { errorHandler, notFound } from "./middlewares/errorHandler.js";
+import { onesystecControl } from "./middlewares/onesystecControl.js";
 import routes from "./routes/index.js";
 import { trackRequests } from "./utils/memoryMonitor.js";
 
@@ -24,6 +25,9 @@ app.use(
     origin: env.CORS_ORIGIN === "*" ? "*" : env.CORS_ORIGIN.split(",").map((o) => o.trim()),
   })
 );
+// Interruptor de ONESYSTEC GENERALE: con la app apagada en el portal, la API responde 503 APP_SUSPENDIDA
+// (salvo /api/health). Va detrás de CORS para que el navegador pueda leer el aviso. Sin GENERALE_URL/GENERALE_KEY no hace nada.
+app.use(onesystecControl());
 // Antes de leer el cuerpo: una peticion de mas no gasta memoria ni CPU en parsear.
 app.use("/api", apiLimiter);
 app.use(express.json());

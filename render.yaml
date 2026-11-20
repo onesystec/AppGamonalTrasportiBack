@@ -24,6 +24,10 @@ services:
         sync: false
       - key: ONESYSTEC_INTEGRATION_KEY
         sync: false
+      - key: GENERALE_URL
+        value: https://onesystec-generale.vercel.app
+      - key: GENERALE_KEY
+        sync: false
       - key: RESET_PASSWORD_URL
         sync: false
       - key: RESEND_API_KEY

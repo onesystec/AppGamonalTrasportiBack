@@ -25,6 +25,8 @@ cp .env.example .env
 | `PORT` | Puerto del servidor (default 4000) |
 | `NODE_ENV` | `development` \| `production` \| `test` |
 | `CORS_ORIGIN` | `*` o lista de origenes separados por coma |
+| `GENERALE_URL` | Portal ONESYSTEC GENERALE (`https://onesystec-generale.vercel.app`). Opcional: sin ella no se usa el interruptor |
+| `GENERALE_KEY` | Clave de conexion generada en GENERALE (Aplicaciones → Gamonal Trasporti → Generar clave) |
 | `DATABASE_URL` | Connection string de Neon PostgreSQL (con `?sslmode=require`) |
 | `JWT_SECRET` | Cadena aleatoria larga (`openssl rand -hex 32`) |
 | `JWT_EXPIRES_IN` | Ej: `7d` |
