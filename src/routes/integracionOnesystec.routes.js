@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { choferes, resumenDiario, usos } from "../controllers/integracionOnesystec.controller.js";
+import { choferes, finanzasTrabajadores, resumenDiario, usos } from "../controllers/integracionOnesystec.controller.js";
 import { requireIntegrationKey } from "../middlewares/integrationKey.js";
 import { validate } from "../middlewares/validate.js";
 import { usosQuerySchema } from "../validators/integracionOnesystec.validator.js";
@@ -12,6 +12,7 @@ router.use(requireIntegrationKey);
 
 router.get("/choferes", choferes);
 router.get("/resumen-diario", resumenDiario);
+router.get("/finanzas/trabajadores", finanzasTrabajadores);
 router.get("/usos", validate(usosQuerySchema, "query"), usos);
 
 export default router;

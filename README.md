@@ -27,6 +27,7 @@ cp .env.example .env
 | `CORS_ORIGIN` | `*` o lista de origenes separados por coma |
 | `GENERALE_URL` | Portal ONESYSTEC GENERALE (`https://onesystec-generale.vercel.app`). Opcional: sin ella no se usa el interruptor |
 | `GENERALE_KEY` | Clave de conexion generada en GENERALE (Aplicaciones → Gamonal Trasporti → Generar clave) |
+| `ONESYSTEC_INTEGRATION_KEY` | Clave de servicio (header `X-Integration-Key`) para `/api/integraciones/onesystec/*`, solo lectura. La usan OneSystec y la app de finanzas (`GET /finanzas/trabajadores?mes=YYYY-MM`: trabajadores, primer/ultimo servicio y produccion del mes) |
 | `DATABASE_URL` | Connection string de Neon PostgreSQL (con `?sslmode=require`) |
 | `JWT_SECRET` | Cadena aleatoria larga (`openssl rand -hex 32`) |
 | `JWT_EXPIRES_IN` | Ej: `7d` |
