@@ -12,7 +12,7 @@ export function onesystecControl({ exempt = ["/health", "/api/health"] } = {}) {
   const key = process.env.GENERALE_KEY || "";
   if (!base || !key) return (_req, _res, next) => next();
 
-  let state = { activa: true, mensaje: "" };
+  let state = { activa: true, mensaje: "", motivo: "" };
   async function refresh() {
     try {
       const res = await fetch(base + "/api/estado", {
@@ -21,7 +21,8 @@ export function onesystecControl({ exempt = ["/health", "/api/health"] } = {}) {
       });
       if (!res.ok) return; // clave mal puesta o portal caído: se mantiene el último estado
       const data = await res.json();
-      state = { activa: data.activa !== false, mensaje: String(data.mensaje || "") };
+      // motivo: "mantenimiento", "apagada", "pago" o "acceso"
+      state = { activa: data.activa !== false, mensaje: String(data.mensaje || ""), motivo: String(data.motivo || "") };
     } catch {
       // sin conexión: se mantiene el último estado conocido
     }
@@ -31,6 +32,6 @@ export function onesystecControl({ exempt = ["/health", "/api/health"] } = {}) {
 
   return (req, res, next) => {
     if (state.activa || req.method === "OPTIONS" || exempt.some((p) => req.path.startsWith(p))) return next();
-    res.set("Retry-After", "60").status(503).json({ code: "APP_SUSPENDIDA", error: state.mensaje, mensaje: state.mensaje });
+    res.set("Retry-After", "60").status(503).json({ code: "APP_SUSPENDIDA", error: state.mensaje, mensaje: state.mensaje, motivo: state.motivo });
   };
 }
