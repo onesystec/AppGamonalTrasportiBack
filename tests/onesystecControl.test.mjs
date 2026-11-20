@@ -42,7 +42,7 @@ test("apagada en GENERALE: 503 con el aviso y cabeceras CORS, salvo /api/health"
   globalThis.fetch = async (u, init) => {
     if (String(u).startsWith("https://generale.example.test")) {
       pedido = { u: String(u), auth: init.headers.Authorization };
-      return new Response(JSON.stringify({ activa: false, mensaje: "Mantenimiento programado" }), { status: 200 });
+      return new Response(JSON.stringify({ activa: false, mensaje: "Mantenimiento programado", motivo: "pago" }), { status: 200 });
     }
     return realFetch(u, init);
   };
@@ -55,6 +55,7 @@ test("apagada en GENERALE: 503 con el aviso y cabeceras CORS, salvo /api/health"
   const body = await res.json();
   assert.equal(body.code, "APP_SUSPENDIDA");
   assert.equal(body.mensaje, "Mantenimiento programado");
+  assert.equal(body.motivo, "pago", "the reason reaches the app so it can show the right screen");
 
   assert.equal((await realFetch(url + "/api/health")).status, 200);
   await cerrar();
