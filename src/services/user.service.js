@@ -171,8 +171,9 @@ const normalizeRrhhFlag = (actor, rawData, target) => {
 };
 
 export const createUser = async (actor, data) => {
-  if (actor.cargo === "RRHH" && data.cargo !== "CHOFER") {
-    throw new AppError("Recursos Humanos solo puede dar de alta choferes", 403);
+  // Las cuentas las crea solo el Admin (OWNER); la ruta ya lo filtra, esto lo repite por si se llama desde otro lado.
+  if (actor.cargo !== "OWNER") {
+    throw new AppError("Solo un Admin puede crear cuentas", 403);
   }
   assertCanAssignCargo(actor, data.cargo);
   const normalized = await normalizeClienteFields(normalizeResponsableFields(actor, normalizeRrhhFlag(actor, data, null), null), null);
@@ -246,6 +247,10 @@ export const updateUser = async (actor, targetId, data) => {
     payload = { ...payload, documentosNoTiene: marcados };
   }
 
+  if (payload.password && actor.cargo !== "OWNER") {
+    // La clave de otra persona la cambia solo el Admin (OWNER): ni Responsables ni Recursos Humanos.
+    throw new AppError("Solo un Admin puede cambiar contrasenas", 403);
+  }
   if (payload.password) {
     // La oficina cambia la clave de otra persona: sus sesiones abiertas dejan de valer (passwordChangedAt).
     payload = { ...payload, password: await hashPassword(payload.password), passwordChangedAt: new Date() };

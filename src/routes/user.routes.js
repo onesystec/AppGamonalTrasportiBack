@@ -99,7 +99,8 @@ router.get(
   getRouteHistoryHandler
 );
 
-router.post("/", authorize("OWNER", "ADMIN", "RRHH"), validate(createUserSchema), create);
+// Crear cuentas: solo el Admin (OWNER). Responsables y Recursos Humanos ya no dan de alta usuarios.
+router.post("/", authorize("OWNER"), validate(createUserSchema), create);
 
 router.patch(
   "/:id",
