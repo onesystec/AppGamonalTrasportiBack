@@ -278,6 +278,93 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(await reclasificarServiciosConectados(), 0, "repetirlo no cambia nada");
   });
 
+  const esperarAceptada = (id) =>
+    esperar(async () => {
+      const x = await prisma.solicitudServicio.findUnique({ where: { id } });
+      return x?.estado === "ACEPTADA" && x.recordId ? x : null;
+    });
+  const annullare = (recordId, motivo) => api("POST", `/collegamenti/pubblico/${col.id}/servizi/${recordId}/annulla`, { token: T2, body: motivo ? { motivo } : {} });
+
+  test("si Piazza elimina o anula un servicio que todavia no salio, aqui pasa a Anulado (y se ve asi en la lista del dia)", async () => {
+    const r = await enviar({ recordId: "pz-an", codigo: "P-AN", destinazione: "Via Anulada 1, Milano", eta: "2026-11-27T10:00:00Z" });
+    const sol = await esperarAceptada(r.body.data.id);
+    assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "IN_SOSPESO");
+    const a = await annullare("pz-an", "eliminado en Piazza");
+    assert.equal(a.status, 200, a.text);
+    const rec = await prisma.record.findUnique({ where: { id: sol.recordId } });
+    assert.equal(rec.estado, "ANNULLATO");
+    const dia = await api("GET", "/records/2026/11/27", { token: ownerToken });
+    assert.equal(dia.body.data.records.find((x) => x.id === sol.recordId).estado, "ANNULLATO");
+    // Queda en la linea de tiempo y con alerta para la oficina.
+    const hist = await api("GET", `/cambios?recordId=${sol.recordId}`, { token: ownerToken });
+    const hito = hist.body.data.items.find((i) => i.hito && /Anulado por App Piazza/.test(i.nuevo));
+    assert.ok(hito, "esta en la linea de tiempo");
+    assert.match(hito.nuevo, /pasó a Anulado/);
+    assert.ok(await prisma.alertaCambio.findFirst({ where: { recordId: sol.recordId } }), "hay alerta");
+    // Anularlo otra vez no rompe nada.
+    assert.equal((await annullare("pz-an")).status, 200);
+    assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "ANNULLATO");
+  });
+
+  test("si ya tenia chofer asignado pero no habia salido, tambien pasa a Anulado; un servicio que ya salio NO se toca (solo alerta)", async () => {
+    const a = await enviar({ recordId: "pz-an-chofer", codigo: "P-AN2", destinazione: "Via Con Chofer 2, Milano", eta: "2026-11-27T11:00:00Z" });
+    const sa = await esperarAceptada(a.body.data.id);
+    await prisma.record.update({ where: { id: sa.recordId }, data: { driverId: choferA.id, vehicleId: vehA.id } });
+    await annullare("pz-an-chofer");
+    assert.equal((await prisma.record.findUnique({ where: { id: sa.recordId } })).estado, "ANNULLATO");
+
+    const b = await enviar({ recordId: "pz-an-salio", codigo: "P-AN3", destinazione: "Via Ya Salio 3, Milano", eta: "2026-11-27T12:00:00Z" });
+    const sb = await esperarAceptada(b.body.data.id);
+    await prisma.record.update({ where: { id: sb.recordId }, data: { estado: "IN_CONSEGNA" } });
+    await annullare("pz-an-salio", "cliente cancelo");
+    assert.equal((await prisma.record.findUnique({ where: { id: sb.recordId } })).estado, "IN_CONSEGNA", "uno que ya salio no se anula solo");
+    const hist = await api("GET", `/cambios?recordId=${sb.recordId}`, { token: ownerToken });
+    assert.ok(hist.body.data.items.some((i) => i.hito && /ya había salido/.test(i.nuevo)));
+    assert.ok(await prisma.alertaCambio.findFirst({ where: { recordId: sb.recordId } }));
+  });
+
+  test("si Piazza lo vuelve a asignar a Gamonal despues de anularlo, el servicio se reabre", async () => {
+    const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "pz-an" } });
+    assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "ANNULLATO");
+    const r = await enviar({ recordId: "pz-an", codigo: "P-AN", destinazione: "Via Anulada 1, Milano", eta: "2026-11-27T10:00:00Z" });
+    assert.equal(r.status, 200, r.text);
+    assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "IN_SOSPESO", "reabierto");
+    const hist = await api("GET", `/cambios?recordId=${sol.recordId}`, { token: ownerToken });
+    assert.ok(hist.body.data.items.some((i) => i.hito && /se reabrió/.test(i.nuevo)));
+    // Un servicio anulado a mano por la oficina (sin marca de anulacion de Piazza) NO se reabre porque llegue un reenvio.
+    const b = await enviar({ recordId: "pz-an-oficina", codigo: "P-AN4", destinazione: "Via Oficina 4, Milano", eta: "2026-11-27T13:00:00Z" });
+    const sb = await esperarAceptada(b.body.data.id);
+    await prisma.record.update({ where: { id: sb.recordId }, data: { estado: "ANNULLATO" } });
+    await enviar({ recordId: "pz-an-oficina", codigo: "P-AN4", destinazione: "Via Oficina 4, Milano", eta: "2026-11-27T13:00:00Z", note: "cambio" });
+    assert.equal((await prisma.record.findUnique({ where: { id: sb.recordId } })).estado, "ANNULLATO");
+  });
+
+  test("al arrancar, los servicios que Piazza ya habia anulado y siguen Pendientes pasan a Anulado", async () => {
+    const { getSinAsignar } = await import("../src/services/sinAsignar.service.js");
+    const { driverId, vehicleId } = await getSinAsignar();
+    const cli = await prisma.client.findFirst({ where: { nombre: "Piazza Spedizioni" } });
+    const mk = async (clave, hitos) => {
+      const rec = await prisma.record.create({
+        data: { driverId, vehicleId, clientId: cli.id, descripcion: "d", codigo: `REC-${clave}`, destinazione: "Via Vieja 1, Milano", fechaServicio: new Date("2026-11-28T00:00:00Z"), eta: new Date("2026-11-28T09:00:00Z"), spedizzione: "EXTRA_PIAZZA", extrasPiazzaZona: "MILANO" },
+      });
+      const sol = await prisma.solicitudServicio.create({
+        data: { servicio: "EXTRA_PIAZZA", zona: "MILANO", cliente: "X", destinazione: "Via Vieja 1, Milano", fechaHora: new Date("2026-11-28T09:00:00Z"), fornitore: "Gamonal", empresaId: col.clientId, creadoPorId: owner.id, collegamentoId: col.id, recordRemotoId: `pz-rec-${clave}`, estado: "ACEPTADA", recordId: rec.id },
+      });
+      let t = Date.now() - 60_000;
+      for (const campo of hitos) await prisma.cambioServicio.create({ data: { solicitudId: sol.id, recordId: rec.id, campo, nuevo: campo, editorId: col.id, editorNombre: "App Piazza", createdAt: new Date((t += 1000)) } });
+      return rec;
+    };
+    const anulado = await mk("a", ["app_ricevuto", "app_annullata"]);
+    const reasignado = await mk("b", ["app_ricevuto", "app_annullata", "app_ricevuto"]);
+    const normal = await mk("c", ["app_ricevuto"]);
+    const { reconciliarAnuladosConectados } = await import("../src/services/collegamento.service.js");
+    assert.equal(await reconciliarAnuladosConectados(), 1);
+    assert.equal((await prisma.record.findUnique({ where: { id: anulado.id } })).estado, "ANNULLATO");
+    assert.equal((await prisma.record.findUnique({ where: { id: reasignado.id } })).estado, "IN_SOSPESO", "si despues lo volvieron a asignar, no");
+    assert.equal((await prisma.record.findUnique({ where: { id: normal.id } })).estado, "IN_SOSPESO");
+    assert.equal(await reconciliarAnuladosConectados(), 0, "repetirlo no cambia nada");
+  });
+
   test("al arrancar, las solicitudes de apps conectadas que quedaron pendientes pasan al Registro", async () => {
     const solicitud = await prisma.solicitudServicio.create({
       data: { servicio: "EXTRA_PIAZZA", zona: "MILANO", cliente: "HP", destinazione: "Via Pendiente 7, Milano", fechaHora: new Date("2026-11-25T09:00:00Z"), fornitore: "Gamonal", empresaId: col.clientId, creadoPorId: owner.id, collegamentoId: col.id, recordRemotoId: "pz-viejo" },

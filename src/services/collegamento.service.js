@@ -304,12 +304,36 @@ export const aceptarAutomaticamente = async (solicitudId) => {
 // Al arrancar: las solicitudes de apps conectadas que quedaron pendientes (por ejemplo, las que llegaron antes de este cambio) pasan al Registro.
 export const convertirSolicitudesConectadasPendientes = async () => {
   if (!env.COLLEGAMENTI_AUTO_ACEPTAR) return 0;
+  await reconciliarAnuladosConectados().catch((err) => console.error("[collegamenti] fallo la reconciliacion de anulados:", err.message));
   await reclasificarServiciosConectados().catch((err) => console.error("[collegamenti] fallo la reclasificacion:", err.message));
   const pendientes = await prisma.solicitudServicio.findMany({ where: { estado: "PENDIENTE", collegamentoId: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true }, take: 100 });
   let convertidas = 0;
   for (const { id } of pendientes) if (await aceptarAutomaticamente(id)) convertidas += 1;
   if (convertidas > 0) console.log(`[collegamenti] ${convertidas} solicitud(es) de apps conectadas pasaron al Registro`);
   return convertidas;
+};
+
+// Servicios de apps conectadas que la otra app ya anulo (consta en su linea de tiempo) pero que siguen Pendientes aqui, porque la anulacion llego antes de que se
+// pasara a Anulado solo: se ponen en Anulado. Se mira el ultimo hito de cada uno (si despues lo volvieron a asignar a Gamonal, no se toca).
+export const reconciliarAnuladosConectados = async () => {
+  const filas = await prisma.solicitudServicio.findMany({
+    where: { collegamentoId: { not: null }, estado: "ACEPTADA", recordId: { not: null }, record: { estado: "IN_SOSPESO" } },
+    select: { id: true, recordId: true },
+    take: 300,
+  });
+  if (filas.length === 0) return 0;
+  const hitos = await prisma.cambioServicio.findMany({
+    where: { solicitudId: { in: filas.map((f) => f.id) }, campo: { in: ["app_annullata", "app_ricevuto"] } },
+    orderBy: { createdAt: "desc" },
+    select: { solicitudId: true, campo: true },
+  });
+  const ultimo = new Map();
+  for (const h of hitos) if (!ultimo.has(h.solicitudId)) ultimo.set(h.solicitudId, h.campo);
+  const anulados = filas.filter((f) => ultimo.get(f.id) === "app_annullata").map((f) => f.recordId);
+  if (anulados.length === 0) return 0;
+  const { count } = await prisma.record.updateMany({ where: { id: { in: anulados }, estado: "IN_SOSPESO" }, data: { estado: "ANNULLATO" } });
+  if (count > 0) console.log(`[collegamenti] ${count} servicio(s) anulados por la app conectada pasaron a Anulado`);
+  return count;
 };
 
 // Servicios de apps conectadas que ya estan en el Registro, todavia sin chofer ni vehiculo, pero con el tipo mal puesto (por ejemplo, un AB Service que entro como Extra Piazza
@@ -371,7 +395,7 @@ export const riceviServizio = async (riga, s) => {
   const datosRemotos = normalizzaDati(s);
   const esistente = await prisma.solicitudServicio.findUnique({
     where: { collegamentoId_recordRemotoId: { collegamentoId: riga.id, recordRemotoId: s.recordId } },
-    include: { record: { select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true } } },
+    include: { record: { select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true, estado: true } } },
   });
   if (esistente) {
     // Cambios respecto de lo ultimo que mando la otra app (linea de tiempo del servicio + aviso a la oficina).
@@ -381,6 +405,14 @@ export const riceviServizio = async (riga, s) => {
       await registraCambi({ riga, solicitud: esistente, cambi, tituloSolicitud: "Solicitud modificada por la app conectada" });
       void aceptarAutomaticamente(esistente.id);
     } else if (esistente.estado === "ACEPTADA") {
+      // Si la otra app lo habia anulado (y por eso esta Anulado) y ahora lo vuelve a asignar a Gamonal, se reabre.
+      if (esistente.record?.estado === "ANNULLATO") {
+        const ultimo = await prisma.cambioServicio.findFirst({ where: { solicitudId: esistente.id, campo: { in: ["app_annullata", "app_ricevuto"] } }, orderBy: { createdAt: "desc" }, select: { campo: true } });
+        if (ultimo?.campo === "app_annullata") {
+          const { count } = await prisma.record.updateMany({ where: { id: esistente.record.id, estado: "ANNULLATO" }, data: { estado: "IN_SOSPESO" } });
+          if (count > 0) await registraHito(riga, esistente.id, esistente.record.id, "app_ricevuto", `Reasignado por ${riga.remotoNome}: el servicio se reabrió`);
+        }
+      }
       // Ya esta en el registro: el servicio de Gamonal NO se toca; se anota que cambio y se avisa a la oficina.
       await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { datosRemotos } });
       await registraCambi({ riga, solicitud: esistente, record: esistente.record, cambi, tituloPush: "Servicio modificado por la app conectada" });
@@ -438,16 +470,27 @@ export const riceviAnnullo = async (riga, recordRemotoId, { motivo } = {}) => {
     });
     await registraHito(riga, solicitud.id, null, "app_annullata", `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}`);
   } else if (solicitud.estado === "ACEPTADA" && solicitud.recordId) {
-    // El servicio ya esta en el registro: NO se borra ni se anula solo; queda en la linea de tiempo y se avisa a la oficina (alerta + push).
-    const record = await prisma.record.findUnique({ where: { id: solicitud.recordId }, select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true } });
+    // El servicio ya esta en el Registro. Si todavia no salio (Pendiente), pasa a Anulado como lo hizo la otra app (eliminarlo o anularlo alla es lo mismo); si ya salio
+    // (retirado, en camino o entregado) NO se toca: no se puede anular algo que ya se hizo, asi que solo queda en la linea de tiempo y se avisa a la oficina (alerta + push).
+    const record = await prisma.record.findUnique({
+      where: { id: solicitud.recordId },
+      select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true, estado: true, driverId: true, driver: { select: { correoElectronico: true } } },
+    });
     if (record) {
+      const { count } = await prisma.record.updateMany({ where: { id: record.id, estado: "IN_SOSPESO" }, data: { estado: "ANNULLATO" } });
+      const anulado = count > 0;
+      const quien = `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}`;
       await registraCambi({
         riga,
         solicitud,
         record,
-        cambi: [{ campo: "app_annullata", anteriorVisible: null, nuevoVisible: `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}` }],
-        tituloPush: "Servicio anulado por la app conectada",
+        cambi: [{ campo: "app_annullata", anteriorVisible: null, nuevoVisible: anulado ? `${quien} (el servicio pasó a Anulado)` : `${quien} (el servicio ya había salido: revísalo)` }],
+        tituloPush: anulado ? "Servicio anulado por la app conectada" : "Servicio anulado por la app conectada, pero ya habia salido",
       });
+      // El chofer que ya lo tenia asignado se entera.
+      if (anulado && record.driver?.correoElectronico !== SIN_ASIGNAR_CORREO) {
+        void sendPushToUserIds([record.driverId], { title: "Servicio anulado", body: `${record.codigo} fue anulado por ${riga.remotoNome}.`, data: { type: "record", recordId: record.id } }).catch(() => {});
+      }
     }
   }
   return { ok: true };
