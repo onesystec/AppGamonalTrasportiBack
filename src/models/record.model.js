@@ -87,6 +87,8 @@ const RECORD_RELATIONS_SELECT = {
 const RECORD_SELECT_LIST = {
   id: true,
   estado: true,
+  // Si vino de una app conectada (App Piazza): de que empresa, para la insignia "Da ..." tambien en la lista.
+  solicitud: { select: { collegamento: { select: { remotoNome: true } } } },
   driverId: true,
   vehicleId: true,
   clientId: true,

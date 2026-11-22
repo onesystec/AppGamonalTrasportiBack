@@ -5,11 +5,13 @@ import { AppError } from "../utils/AppError.js";
 import { CodiceNonValido, codiceScaduto, formatoCodice, leggiCodice as leggiCodiceBase, urlValida } from "../utils/codiceCollegamento.js";
 import { encryptSecret } from "../utils/secretBox.js";
 import { createClient } from "./client.service.js";
+import { avisarServicioDirecto, crearServicioDirecto } from "./servicioDirecto.service.js";
 import { confronta, normalizzaDati, registraCambi, registraHito } from "./collegamentoCambi.service.js";
 import {
   chiamaCollegamento,
   controllaDestinazione,
   nomeAzienda,
+  notificaEsitoSolicitud,
   nuovoToken,
   sha256,
   sincronizza,
@@ -224,6 +226,7 @@ export const datiSolicitud = (s, riga) => {
   const tappe = (s.tappe ?? []).filter(Boolean);
   const merce = [s.pesoKg != null ? `${s.pesoKg} kg` : null, s.dimensioni || null, s.colli != null ? `${s.colli} colli` : null].filter(Boolean).join(" · ");
   const descripcion = [
+    s.codigo || s.shipment ? `Codice ${riga.remotoNome}: ${[s.codigo, s.shipment && s.shipment !== s.codigo ? s.shipment : null].filter(Boolean).join(" / ")}` : null,
     s.cliente ? `Cliente finale: ${s.cliente}` : null,
     s.mittente ? `Mittente: ${s.mittente}` : null,
     merce ? `Merce: ${merce}` : null,
@@ -251,7 +254,56 @@ export const datiSolicitud = (s, riga) => {
 // Roma si la ciudad lo dice; el resto es Milano (ademas el area de Responsable se decide por la zona).
 const zonaDe = (s) => (/\broma\b/i.test(s.ciudad ?? "") ? "ROMA" : "MILANO");
 
-// Llega un servicio de la otra app: queda como solicitud "pendiente" (NUNCA se crea el servicio solo: lo crea una persona al aceptar). Si llega de nuevo (reenvio), se actualiza.
+const enCurso = new Set();
+
+// Aviso de que hay una solicitud esperando en la bandeja (solo cuando no se pudo pasar sola al Registro, o con COLLEGAMENTI_AUTO_ACEPTAR=false).
+const avisaSolicitudPendiente = (solicitud, nombreApp) =>
+  ownerAndResponsableIds(solicitud.servicio, solicitud.zona)
+    .then((ids) =>
+      sendPushToUserIds(ids, { title: "Nueva entrega de app conectada", body: `${nombreApp}: ${solicitud.cliente} - ${solicitud.destinazione}`, data: { type: "solicitud", solicitudId: solicitud.id } })
+    )
+    .catch(() => {});
+
+// Lo que llega de una app conectada (App Piazza) no espera en "Solicitudes": entra DIRECTO al Registro del dia, con chofer y vehiculo "Sin asignar" (el Responsable elige los
+// reales en "Por asignar"), y a la otra app se le avisa enseguida que quedo aceptado (y despues, cuando se asignan chofer y vehiculo, su nombre y targa). La solicitud se
+// conserva, ya ACEPTADA y enlazada al servicio, porque de ahi salen la linea de tiempo y los cambios que haga la otra app. Si el servicio no se puede crear, la solicitud
+// queda pendiente (nada se pierde) y se avisa a la oficina como antes. No bloquea la respuesta a la otra app: se hace en segundo plano.
+export const aceptarAutomaticamente = async (solicitudId) => {
+  if (!env.COLLEGAMENTI_AUTO_ACEPTAR || enCurso.has(solicitudId)) return null;
+  enCurso.add(solicitudId);
+  let solicitud = null;
+  try {
+    solicitud = await prisma.solicitudServicio.findUnique({ where: { id: solicitudId }, include: { collegamento: { select: { remotoNome: true } } } });
+    if (!solicitud || solicitud.estado !== "PENDIENTE" || !solicitud.collegamentoId) return null;
+    const record = await crearServicioDirecto(solicitud);
+    const { count } = await prisma.solicitudServicio.updateMany({
+      where: { id: solicitudId, estado: "PENDIENTE" },
+      data: { estado: "ACEPTADA", recordId: record.id, revisadoAt: new Date(), motivoRechazo: null },
+    });
+    if (!count) return null;
+    void notificaEsitoSolicitud(solicitud, "ACCETTATO");
+    void ownerAndResponsableIds(solicitud.servicio, solicitud.zona).then((ids) => avisarServicioDirecto(solicitud, record, { cliente: { nombre: solicitud.collegamento?.remotoNome } }, ids));
+    return record;
+  } catch (err) {
+    console.error("[collegamenti] no se pudo pasar al Registro, queda como solicitud pendiente:", err.message);
+    if (solicitud) void avisaSolicitudPendiente(solicitud, solicitud.collegamento?.remotoNome ?? "App conectada");
+    return null;
+  } finally {
+    enCurso.delete(solicitudId);
+  }
+};
+
+// Al arrancar: las solicitudes de apps conectadas que quedaron pendientes (por ejemplo, las que llegaron antes de este cambio) pasan al Registro.
+export const convertirSolicitudesConectadasPendientes = async () => {
+  if (!env.COLLEGAMENTI_AUTO_ACEPTAR) return 0;
+  const pendientes = await prisma.solicitudServicio.findMany({ where: { estado: "PENDIENTE", collegamentoId: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true }, take: 100 });
+  let convertidas = 0;
+  for (const { id } of pendientes) if (await aceptarAutomaticamente(id)) convertidas += 1;
+  if (convertidas > 0) console.log(`[collegamenti] ${convertidas} solicitud(es) de apps conectadas pasaron al Registro`);
+  return convertidas;
+};
+
+// Llega un servicio de la otra app: entra directo al Registro del dia sin chofer ni vehiculo (ver aceptarAutomaticamente). Si llega de nuevo (reenvio), se actualiza.
 export const riceviServizio = async (riga, s) => {
   richiedeAttivo(riga);
   const dati = datiSolicitud(s, riga);
@@ -266,6 +318,7 @@ export const riceviServizio = async (riga, s) => {
     if (esistente.estado === "PENDIENTE") {
       await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { ...dati, datosRemotos } });
       await registraCambi({ riga, solicitud: esistente, cambi, tituloSolicitud: "Solicitud modificada por la app conectada" });
+      void aceptarAutomaticamente(esistente.id);
     } else if (esistente.estado === "ACEPTADA") {
       // Ya esta en el registro: el servicio de Gamonal NO se toca; se anota que cambio y se avisa a la oficina.
       await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { datosRemotos } });
@@ -274,31 +327,39 @@ export const riceviServizio = async (riga, s) => {
       // Quitado y luego reasignado a Gamonal: vuelve a "pendiente".
       await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { ...dati, datosRemotos, estado: "PENDIENTE", motivoRechazo: null, revisadoPorId: null, revisadoAt: null } });
       await registraHito(riga, esistente.id, null, "app_ricevuto", `Reasignado por ${riga.remotoNome}`);
+      void aceptarAutomaticamente(esistente.id);
     } else if (!esistente.datosRemotos) {
       await prisma.solicitudServicio.update({ where: { id: esistente.id }, data: { datosRemotos } });
     }
     return { id: esistente.id };
   }
   const zona = zonaDe(s);
-  const solicitud = await prisma.solicitudServicio.create({
-    data: {
-      ...dati,
-      datosRemotos,
-      servicio: "EXTRA_PIAZZA",
-      zona,
-      fornitore: env.EMPRESA_NOMBRE,
-      empresaId: riga.clientId,
-      creadoPorId: await utenteDelCollegamento(riga),
-      collegamentoId: riga.id,
-      recordRemotoId: s.recordId,
-    },
-  });
+  let solicitud;
+  try {
+    solicitud = await prisma.solicitudServicio.create({
+      data: {
+        ...dati,
+        datosRemotos,
+        servicio: "EXTRA_PIAZZA",
+        zona,
+        fornitore: env.EMPRESA_NOMBRE,
+        empresaId: riga.clientId,
+        creadoPorId: await utenteDelCollegamento(riga),
+        collegamentoId: riga.id,
+        recordRemotoId: s.recordId,
+      },
+    });
+  } catch (err) {
+    // Dos envios iguales a la vez (la otra app reintenta): el segundo encuentra la fila que acaba de crear el primero y no hace nada mas.
+    if (err?.code !== "P2002") throw err;
+    const ya = await prisma.solicitudServicio.findUnique({ where: { collegamentoId_recordRemotoId: { collegamentoId: riga.id, recordRemotoId: s.recordId } }, select: { id: true } });
+    if (!ya) throw err;
+    return { id: ya.id };
+  }
   await registraHito(riga, solicitud.id, null, "app_ricevuto", `Recibido de ${riga.remotoNome}`);
-  void ownerAndResponsableIds(solicitud.servicio, solicitud.zona)
-    .then((ids) =>
-      sendPushToUserIds(ids, { title: "Nueva entrega de app conectada", body: `${riga.remotoNome}: ${solicitud.cliente} - ${solicitud.destinazione}`, data: { type: "solicitud", solicitudId: solicitud.id } })
-    )
-    .catch(() => {});
+  // Directo al Registro (en segundo plano); con el interruptor apagado, a la bandeja de Solicitudes como antes.
+  if (env.COLLEGAMENTI_AUTO_ACEPTAR) void aceptarAutomaticamente(solicitud.id);
+  else void avisaSolicitudPendiente(solicitud, riga.remotoNome);
   return { id: solicitud.id };
 };
 

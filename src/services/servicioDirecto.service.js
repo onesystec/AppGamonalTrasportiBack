@@ -73,13 +73,14 @@ const descripcionDe = (s) =>
     .filter((v) => v && String(v).trim())
     .join("\n") || (s.cliente ? `Solicitud de ${s.cliente}` : "Servicio cargado desde el portal del cliente");
 
-export const crearServicioDirecto = async (solicitud) => {
+export const crearServicioDirecto = async (solicitud, { direccionCompleta = Boolean(solicitud.collegamentoId) } = {}) => {
   const tipo = SOLICITUD_SERVICIOS[solicitud.servicio];
   if (!tipo) throw new Error(`Tipo de servicio desconocido: ${solicitud.servicio}`);
   if (!solicitud.destinazione?.trim()) throw new Error("Sin direccion de entrega: lo completa la oficina");
   const zona = solicitud.servicio === "EXTRA_PIAZZA" ? (solicitud.zona ?? "MILANO") : tipo.zona;
   const [{ driverId, vehicleId }, clientId] = await Promise.all([getSinAsignar(), resolverCliente(solicitud)]);
-  const { direccion, ciudad } = direccionDeEntrega(solicitud);
+  // Lo que manda una app conectada ya es la direccion de entrega completa (no una ciudad con calle y CAP aparte).
+  const { direccion, ciudad } = direccionCompleta ? { direccion: solicitud.destinazione.trim(), ciudad: undefined } : direccionDeEntrega(solicitud);
 
   const data = {
     driverId,
@@ -142,7 +143,7 @@ export const intentarServicioDirecto = async (solicitud, user, include) => {
 // Se llama una vez al arrancar el servidor; lo que no se pueda crear sigue pendiente y se vuelve a intentar en el proximo arranque.
 export const convertirPendientesDirectos = async () => {
   const pendientes = await prisma.solicitudServicio.findMany({
-    // Las que llegaron por una app conectada (collegamentoId) nunca pasan solas: las acepta una persona.
+    // Las de una app conectada (collegamentoId) las pasa convertirSolicitudesConectadasPendientes (collegamento.service.js), que ademas avisa a la otra app.
     where: { estado: "PENDIENTE", collegamentoId: null, OR: [{ creadoPor: { serviciosDirectos: true } }, { empresa: { serviciosDirectos: true } }] },
     orderBy: { createdAt: "asc" },
     take: 200,

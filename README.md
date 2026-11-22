@@ -357,7 +357,7 @@ Gamonal puede recibir los servicios que **App Piazza** le asigna como proveedor 
 **Como se conecta (solo el Owner, menu "App collegate")**
 1. Gamonal muestra su codigo `XXXX-XXXX@host` (vale `COLLEGAMENTI_CODICE_ORE` horas y se usa una sola vez). Se pega en la ficha del proveedor dentro de App Piazza.
 2. La solicitud llega a Gamonal como "por aprobar". El Owner elige (o crea) la ficha de cliente y acepta: Gamonal genera su token y se lo manda a Piazza. Solo si Piazza responde OK queda activa.
-3. Desde ahi, los servicios asignados a Gamonal aparecen en **Solicitudes** (con la insignia "Da App Piazza"). La oficina los acepta (crea el servicio y elige chofer y vehiculo) o los rechaza con un motivo. **Nunca se crea un servicio solo.**
+3. Desde ahi, los servicios asignados a Gamonal **entran directo al Registro del dia** (con la insignia "Da App Piazza"), con chofer y vehiculo "Sin asignar"; el Responsable o el Admin elige los reales en "Por asignar". No hay bandeja que aceptar: a Piazza se le avisa enseguida que quedo aceptado y despues, al asignar, el nombre del chofer y la targa. Si por algun motivo el servicio no se puede crear, la solicitud queda pendiente en **Solicitudes** (nada se pierde). Con `COLLEGAMENTI_AUTO_ACEPTAR=false` todo vuelve a llegar como solicitud.
 4. Al aceptar o rechazar, y cada vez que cambia el estado, el chofer o el vehiculo del servicio, Gamonal avisa a Piazza. Solo se manda: estado, nombre del chofer y targa (nunca precios, pagos, documentos, ubicaciones ni datos personales).
 
 **API publica** (`/api/collegamenti/pubblico`, sin JWT; se monta antes de las puertas de sesion y no pasa por el limite general):

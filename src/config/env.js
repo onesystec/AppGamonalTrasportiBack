@@ -260,6 +260,9 @@ const envSchema = z.object({
     .default("")
     .transform((v) => v.split(",").map((h) => h.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/[/:].*$/, "")).filter(Boolean)),
   COLLEGAMENTI_CODICE_ORE: z.coerce.number().int().min(1).max(168).default(24),
+  // Los servicios que llegan de una app conectada (App Piazza) entran DIRECTO al Registro del dia, sin chofer ni vehiculo ("Sin asignar"), y el Responsable elige
+  // los reales; no pasan por la bandeja de Solicitudes. Con "false" vuelven a llegar como solicitud pendiente (por si hubiera que frenarlo).
+  COLLEGAMENTI_AUTO_ACEPTAR: z.enum(["true", "false"]).default("true").transform((v) => v === "true"),
   COLLEGAMENTI_ENCRYPTION_KEY: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32, "COLLEGAMENTI_ENCRYPTION_KEY debe tener al menos 32 caracteres").optional()),
 
   // Carga de servicios por chat (ver telegramAssistant.service.js) - bot privado de

@@ -5,6 +5,7 @@ import { healCrossedAssignments } from "./services/assignmentRematch.service.js"
 import { recalcularCircuitosBase } from "./services/circuitoBase.service.js";
 import { ensureKmhPago } from "./services/velocidadPago.service.js";
 import { convertirPendientesDirectos } from "./services/servicioDirecto.service.js";
+import { convertirSolicitudesConectadasPendientes } from "./services/collegamento.service.js";
 import { logMemoryNow, startMemoryMonitor } from "./utils/memoryMonitor.js";
 import { startAreaCAvisos, startAutoEnCamino, startFaltantesReminder, startInformeDiario, startInformeSemanal, startKmGpsSync, startMemorandumReminders, startRetentionScheduler, startSeguimientoMonitor } from "./services/retentionScheduler.js";
 
@@ -27,6 +28,8 @@ startInformeSemanal();
 startInformeDiario();
 // Solicitudes pendientes de empresas con servicios directos: pasan al Registro una vez al arrancar.
 setTimeout(() => void convertirPendientesDirectos().catch((err) => console.error("[servicio-directo] fallo la conversion:", err.message)), 20000);
+// Solicitudes de apps conectadas (App Piazza) que quedaron pendientes: pasan al Registro una vez al arrancar.
+setTimeout(() => void convertirSolicitudesConectadasPendientes().catch((err) => console.error("[collegamenti] fallo la conversion:", err.message)), 25000).unref();
 // Peajes y cargas de combustible que quedaron asignados al servicio de otra targa (ver findCandidateServices): se corrigen una vez al arrancar.
 if (env.NODE_ENV === "production") setTimeout(() => void healCrossedAssignments().catch((err) => console.error("[asignaciones] fallo la correccion:", err.message)), 20 * 1000).unref();
 

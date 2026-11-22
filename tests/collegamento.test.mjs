@@ -23,6 +23,8 @@ Object.assign(process.env, {
   R2_BUCKET_NAME: "x",
   GOOGLE_MAPS_API_KEY: "x",
   COLLEGAMENTI_ENCRYPTION_KEY: "k".repeat(40),
+  // Estas pruebas recorren el camino de la bandeja de Solicitudes; el paso directo al Registro tiene las suyas (collegamentoAuto.test.mjs).
+  COLLEGAMENTI_AUTO_ACEPTAR: "false",
 });
 
 const { datiAggiornamento, ESPERAS_MS, chiamaConRiprova, stessiDati, stessoHash, sha256 } = await import("../src/services/collegamentoInvio.service.js");
