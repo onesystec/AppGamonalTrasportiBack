@@ -80,16 +80,10 @@ describe("collegamento: piezas puras", () => {
     assert.deepEqual(d, { estado: "IN_SOSPESO", autista: null, targa: null });
   });
 
-  test("el estado solo avanza hacia adelante (IN_SOSPESO < RITIRATO < IN_CONSEGNA < CONSEGNATO)", () => {
-    assert.equal(datiAggiornamento(rec("RITIRATO"), { estado: "IN_CONSEGNA" }).estado, "IN_CONSEGNA");
-    assert.equal(datiAggiornamento(rec("IN_SOSPESO"), { estado: "CONSEGNATO" }).estado, "CONSEGNATO");
-    assert.equal(datiAggiornamento(rec("CONSEGNATO"), { estado: "RITIRATO" }).estado, "CONSEGNATO");
-    assert.equal(datiAggiornamento(rec("IN_CONSEGNA"), null).estado, "IN_CONSEGNA");
-  });
-
-  test("ANNULLATO y RISCHEDULATO se mandan tal cual (no son parte del orden)", () => {
-    assert.equal(datiAggiornamento(rec("ANNULLATO"), { estado: "IN_CONSEGNA" }).estado, "ANNULLATO");
-    assert.equal(datiAggiornamento(rec("RISCHEDULATO"), { estado: "RITIRATO" }).estado, "RISCHEDULATO");
+  test("avisa el estado actual del registro", () => {
+    for (const estado of ["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA", "CONSEGNATO", "ANNULLATO", "RISCHEDULATO"]) {
+      assert.equal(datiAggiornamento(rec(estado)).estado, estado);
+    }
   });
 
   test("/vivo: textos recortados a los limites del contrato; gps solo valido y con fecha real", () => {
@@ -434,12 +428,13 @@ describe("collegamento: protocolo completo (base local + Piazza simulada)", { sk
     recibido.length = 0;
     assert.equal((await sincronizza({ recordId: record.id })).inviato, false);
     assert.equal(recibido.length, 0);
-    // Cambia el estado: se manda; el estado no retrocede.
+    // El aviso lleva el estado persistido en Gamonal. Piazza decide si avanza su estado local.
     await prisma.record.update({ where: { id: record.id }, data: { estado: "IN_CONSEGNA" } });
     assert.equal((await sincronizza({ recordId: record.id })).inviato, true);
     assert.equal(recibido.at(-1).body.estado, "IN_CONSEGNA");
     await prisma.record.update({ where: { id: record.id }, data: { estado: "RITIRATO" } });
-    assert.equal((await sincronizza({ recordId: record.id })).inviato, false, "retroceder no se avisa");
+    assert.equal((await sincronizza({ recordId: record.id })).inviato, true);
+    assert.equal(recibido.at(-1).body.estado, "RITIRATO");
     await prisma.record.update({ where: { id: record.id }, data: { estado: "CONSEGNATO" } });
     await sincronizza({ recordId: record.id });
     assert.equal(recibido.at(-1).body.estado, "CONSEGNATO");

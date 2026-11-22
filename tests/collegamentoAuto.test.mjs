@@ -67,6 +67,8 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
   const T1 = "T1-token-de-piazza-para-gamonal-123456";
   const T2 = "T2-token-de-gamonal-para-piazza-123456";
   const aggiornamenti = [];
+  const entregas = [];
+  let ignorar = false;
 
   const api = async (method, path, { token, body } = {}) => {
     const res = await fetch(`${base}/api${path}`, { method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -102,8 +104,12 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
       let data = "";
       req.on("data", (c) => (data += c));
       req.on("end", () => {
-        if (req.url.endsWith("/aggiornamenti")) aggiornamenti.push(JSON.parse(data));
-        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ success: true, data: { ok: true } }));
+        if (req.url.endsWith("/aggiornamenti")) {
+          aggiornamenti.push(JSON.parse(data));
+          entregas.push({ url: req.url, authorization: req.headers.authorization });
+        }
+        const respuesta = ignorar ? { ok: true, ignorato: true, motivo: "Servicio reasignado" } : { ok: true };
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ success: true, data: respuesta }));
       });
     });
     await new Promise((r) => piazza.listen(0, r));
@@ -167,6 +173,69 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista: "Carlos Test", targa: "GA111AA" });
     const sinAsignar = await api("GET", "/records/sin-asignar", { token: ownerToken });
     assert.ok(!sinAsignar.body.data.records.some((x) => x.id === sol.recordId));
+  });
+
+  test("los PATCH de chofer, vehículo y ambos avisan únicamente sobre el registro guardado", async () => {
+    const remoto = "pz-selectores";
+    assert.equal((await enviar({ recordId: remoto, codigo: "P-SELECTORES" })).status, 200);
+    const sol = await esperar(() => prisma.solicitudServicio.findFirst({
+      where: { recordRemotoId: remoto, estado: "ACEPTADA" },
+    }));
+    await esperar(async () => (await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).ultimoEnviado);
+    const choferB = await prisma.user.create({
+      data: { nombre: "Fabio", apellido: "Test", area: "DHL", cargo: "CHOFER", fechaNacimiento: new Date("1985-01-01"), numeroCelular: "3331234567", correoElectronico: "fabio@t.it", password: "x" },
+    });
+    const vehB = await prisma.vehiculo.create({ data: { targa: "GB222BB", modelo: "Transit", area: "DHL" } });
+    for (const [body, autista, targa] of [
+      [{ driverId: choferA.id }, "Carlos Test", null],
+      [{ vehicleId: vehA.id }, "Carlos Test", "GA111AA"],
+      [{ driverId: choferB.id, vehicleId: vehB.id }, "Fabio Test", "GB222BB"],
+    ]) {
+      const desde = aggiornamenti.length;
+      const r = await api("PATCH", `/records/${sol.recordId}`, { token: ownerToken, body });
+      assert.equal(r.status, 200, r.text);
+      await esperar(async () => {
+        const { ultimoEnviado } = await prisma.solicitudServicio.findUnique({ where: { id: sol.id } });
+        return ultimoEnviado?.autista === autista && ultimoEnviado?.targa === targa;
+      });
+      assert.deepEqual(aggiornamenti.slice(desde), [{ recordId: remoto, tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista, targa }]);
+    }
+
+    const propio = await prisma.record.create({
+      data: { driverId: choferA.id, vehicleId: vehA.id, clientId: col.clientId, descripcion: "Prueba", codigo: "PROPIO-SELECTORES", destinazione: "Milano", fechaServicio: new Date("2026-11-24"), eta: new Date("2026-11-24T09:00:00Z"), spedizzione: "EXTRA_PIAZZA" },
+    });
+    const desde = aggiornamenti.length;
+    const r = await api("PATCH", `/records/${propio.id}`, { token: ownerToken, body: { driverId: choferB.id } });
+    assert.equal(r.status, 200, r.text);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(aggiornamenti.length, desde);
+  });
+
+  test("Reenviar recupera una solicitud tras reconectar y distingue un 200 ignorado", async () => {
+    const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "pz-selectores" } });
+    const { encryptSecret } = await import("../src/utils/secretBox.js");
+    await prisma.solicitudServicio.update({ where: { id: sol.id }, data: { collegamentoId: null } });
+    const tokenNuevo = "token-saliente-de-la-nueva-conexion";
+    await prisma.collegamento.update({ where: { id: col.id }, data: { remotoId: "p-conexion-nueva", tokenUscente: encryptSecret(tokenNuevo) } });
+    ignorar = true;
+    try {
+      const r = await api("PATCH", `/records/${sol.recordId}`, { token: ownerToken, body: { driverId: choferA.id } });
+      assert.equal(r.status, 200, r.text);
+      await esperar(async () => (await prisma.collegamento.findUnique({ where: { id: col.id } })).ultimoErrore);
+      const reinvio = await api("POST", `/collegamenti/solicitudes/${sol.id}/reinvia`, { token: ownerToken });
+      assert.equal(reinvio.status, 502, reinvio.text);
+      assert.match(reinvio.text, /Servicio reasignado/);
+      assert.deepEqual((await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).ultimoEnviado, sol.ultimoEnviado);
+    } finally {
+      ignorar = false;
+    }
+    const r = await api("POST", `/collegamenti/solicitudes/${sol.id}/reinvia`, { token: ownerToken });
+    assert.equal(r.status, 200, r.text);
+    assert.equal(r.body.data.inviato, true);
+    assert.deepEqual(entregas.at(-1), { url: "/api/collegamenti/pubblico/p-conexion-nueva/aggiornamenti", authorization: `Bearer ${tokenNuevo}` });
+    assert.deepEqual(aggiornamenti.at(-1), { recordId: "pz-selectores", tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista: "Carlos Test", targa: "GB222BB" });
+    assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).collegamentoId, col.id);
+    assert.equal((await prisma.collegamento.findUnique({ where: { id: col.id } })).ultimoErrore, null);
   });
 
   test("si Piazza lo reenvia con cambios: no se duplica el servicio, queda la alerta y la linea de tiempo", async () => {

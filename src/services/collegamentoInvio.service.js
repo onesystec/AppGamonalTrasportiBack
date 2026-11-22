@@ -83,6 +83,16 @@ export const chiamaConRiprova = async (collegamento, percorso, body, { esperas =
   }
 };
 
+const inviaAggiornamento = async (collegamento, body, options) => {
+  const esito = await chiamaConRiprova(collegamento, "/aggiornamenti", body, options);
+  if (esito.ignorato === true) {
+    const motivo = typeof esito.motivo === "string" && esito.motivo.trim()
+      ? esito.motivo.trim()
+      : "Servizio remoto assente o non assegnato a questo fornitore";
+    throw new AppError(`L'altra app ha ignorato l'aggiornamento: ${motivo}`, 502);
+  }
+};
+
 // Recuerda el ultimo problema (se ve en la lista de conexiones) o lo borra cuando vuelve a funcionar.
 export const segnaEsito = (collegamentoId, err) =>
   prisma.collegamento
@@ -93,24 +103,21 @@ const seguro = (nome, promesa) => promesa.catch((err) => console.error(`[collega
 
 // ---- Estado que se avisa a la otra app ----
 
-const ORDINE = ["IN_SOSPESO", "RITIRATO", "IN_CONSEGNA", "CONSEGNATO"];
 const nomePersona = (p) => (p && p.correoElectronico !== SIN_ASIGNAR_CORREO ? `${p.nombre} ${p.apellido}`.trim() : null);
 
-// { estado, autista, targa } de un servicio (las fichas internas "Sin asignar" cuentan como vacio). El estado solo avanza hacia adelante
-// (IN_SOSPESO < RITIRATO < IN_CONSEGNA < CONSEGNATO): si el servicio retrocede, se sigue mandando el que ya se aviso. ANNULLATO y RISCHEDULATO se mandan tal cual.
-export const datiAggiornamento = (record, ultimo = null) => {
-  let estado = record.estado;
-  const prima = ORDINE.indexOf(ultimo?.estado);
-  const ora = ORDINE.indexOf(estado);
-  if (prima !== -1 && ora !== -1 && ora < prima) estado = ultimo.estado;
-  return { estado, autista: nomePersona(record.driver), targa: record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null };
-};
+// Las fichas internas "Sin asignar" cuentan como vacío.
+export const datiAggiornamento = (record) => ({
+  estado: record.estado,
+  autista: nomePersona(record.driver),
+  targa: record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
+});
 
 // Campo por campo (Postgres guarda el JSON con otro orden de claves, asi que no sirve comparar el texto).
 export const stessiDati = (a, b) => Boolean(a && b) && a.estado === b.estado && (a.autista ?? null) === (b.autista ?? null) && (a.targa ?? null) === (b.targa ?? null);
 
 const INCLUDE_SYNC = {
   collegamento: true,
+  empresa: { include: { collegamento: true } },
   record: { select: { id: true, estado: true, driver: { select: { nombre: true, apellido: true, correoElectronico: true } }, vehicle: { select: { targa: true } } } },
 };
 
@@ -118,21 +125,38 @@ const INCLUDE_SYNC = {
 // (se puede llamar las veces que haga falta). forzar = true manda de nuevo igual ("Reinvia"). Lanza el error (para el boton); los disparos
 // automaticos usan sincronizzaSicuro.
 export const sincronizza = async ({ solicitudId, recordId }, { forzar = false, esperas } = {}) => {
+  if (!solicitudId && !recordId) return { inviato: false };
   const solicitud = await prisma.solicitudServicio.findFirst({
-    where: { ...(solicitudId ? { id: solicitudId } : { recordId }), collegamentoId: { not: null }, estado: "ACEPTADA", recordId: { not: null } },
+    where: {
+      ...(solicitudId ? { id: solicitudId, recordId: { not: null } } : { recordId }),
+      recordRemotoId: { not: null },
+      estado: "ACEPTADA",
+    },
     include: INCLUDE_SYNC,
   });
-  const collegamento = solicitud?.collegamento;
-  if (!solicitud?.record || !solicitud.recordRemotoId || collegamento?.stato !== "ATTIVO" || collegamento.ruolo !== "CLIENTE") return { inviato: false };
-  const dati = datiAggiornamento(solicitud.record, solicitud.ultimoEnviado);
-  if (!forzar && stessiDati(dati, solicitud.ultimoEnviado)) return { inviato: false };
+  if (!solicitud?.record) {
+    if (forzar) throw new AppError("La richiesta non ha un servizio collegato da reinviare", 409);
+    return { inviato: false };
+  }
+
+  // Al desconectar, la solicitud conserva su ID remoto y la ficha original de cliente.
+  // Solo se recupera el envío si la nueva conexión se aprobó con esa misma ficha.
+  const collegamento = solicitud.collegamento ?? solicitud.empresa?.collegamento;
+  if (collegamento?.stato !== "ATTIVO" || collegamento.ruolo !== "CLIENTE") {
+    throw new AppError("Non c'è un collegamento attivo per il cliente di questa richiesta", 409);
+  }
+  const dati = datiAggiornamento(solicitud.record);
+  if (!forzar && solicitud.collegamentoId && stessiDati(dati, solicitud.ultimoEnviado)) return { inviato: false };
   try {
-    await chiamaConRiprova(collegamento, "/aggiornamenti", { recordId: solicitud.recordRemotoId, tipo: "AGGIORNAMENTO", ...dati }, esperas ? { esperas } : undefined);
-    await prisma.solicitudServicio.update({ where: { id: solicitud.id }, data: { ultimoEnviado: dati } });
-    void segnaEsito(collegamento.id, null);
+    await inviaAggiornamento(collegamento, { recordId: solicitud.recordRemotoId, tipo: "AGGIORNAMENTO", ...dati }, esperas ? { esperas } : undefined);
+    await prisma.solicitudServicio.updateMany({
+      where: { id: solicitud.id, collegamentoId: solicitud.collegamentoId },
+      data: { ultimoEnviado: dati, collegamentoId: collegamento.id },
+    });
+    await segnaEsito(collegamento.id, null);
     return { inviato: true };
   } catch (err) {
-    void segnaEsito(collegamento.id, err);
+    await segnaEsito(collegamento.id, err);
     throw err;
   }
 };
@@ -145,7 +169,7 @@ export const sincronizzaAperti = () =>
     "aggiornamenti",
     (async () => {
       const aperti = await prisma.solicitudServicio.findMany({
-        where: { collegamentoId: { not: null }, estado: "ACEPTADA", recordId: { not: null }, record: { estado: { notIn: ["ANNULLATO"] } } },
+        where: { recordRemotoId: { not: null }, estado: "ACEPTADA", recordId: { not: null }, record: { estado: { notIn: ["ANNULLATO"] } } },
         select: { id: true },
         take: 200,
       });
@@ -162,10 +186,10 @@ export const notificaEsitoSolicitud = (solicitud, tipo, motivo) =>
       const collegamento = await prisma.collegamento.findUnique({ where: { id: solicitud.collegamentoId } });
       if (!collegamento || collegamento.stato !== "ATTIVO") return;
       try {
-        await chiamaConRiprova(collegamento, "/aggiornamenti", { recordId: solicitud.recordRemotoId, tipo, ...(motivo ? { motivo: String(motivo).slice(0, 500) } : {}) });
-        void segnaEsito(collegamento.id, null);
+        await inviaAggiornamento(collegamento, { recordId: solicitud.recordRemotoId, tipo, ...(motivo ? { motivo: String(motivo).slice(0, 500) } : {}) });
+        await segnaEsito(collegamento.id, null);
       } catch (err) {
-        void segnaEsito(collegamento.id, err);
+        await segnaEsito(collegamento.id, err);
         throw err;
       }
       // Aceptado: tambien se avisa ya quien es el chofer y la targa (si la oficina ya los eligio).

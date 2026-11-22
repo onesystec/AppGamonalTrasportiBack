@@ -150,8 +150,8 @@ export const scollega = async (_actor, id) => {
 
 // "Reinvia" de una solicitud ya aceptada: vuelve a avisar estado, chofer y targa a la otra app.
 export const reinviaSolicitud = async (solicitudId) => {
-  const solicitud = await prisma.solicitudServicio.findUnique({ where: { id: solicitudId }, select: { id: true, collegamentoId: true, estado: true } });
-  if (!solicitud?.collegamentoId) throw new AppError("Questa richiesta non arriva da un'app collegata", 409);
+  const solicitud = await prisma.solicitudServicio.findUnique({ where: { id: solicitudId }, select: { recordRemotoId: true, estado: true } });
+  if (!solicitud?.recordRemotoId) throw new AppError("Questa richiesta non arriva da un'app collegata", 409);
   if (solicitud.estado !== "ACEPTADA") throw new AppError("La richiesta non è ancora stata accettata", 409);
   return sincronizza({ solicitudId }, { forzar: true });
 };

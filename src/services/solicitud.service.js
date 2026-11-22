@@ -86,7 +86,12 @@ const toDto = (s, { office = false, verFotos = false } = {}) => ({
   ...(s.creadoPor ? { creadoPor: personName(s.creadoPor), creadoPorRol: rolDe(s.creadoPor) } : {}),
   ...(office ? { empresa: s.empresa?.nombre ?? null } : {}),
   // Llego por una app One Driver conectada (App Piazza): nombre de la empresa y ultimo problema al avisarle (para el boton "Reinvia").
-  ...(s.collegamentoId && office ? { origen: { empresa: s.collegamento?.remotoNome ?? null, errore: office ? (s.collegamento?.ultimoErrore ?? null) : null } } : {}),
+  ...(s.recordRemotoId && office ? {
+    origen: {
+      empresa: (s.collegamento ?? s.empresa?.collegamento)?.remotoNome ?? s.empresa?.nombre ?? null,
+      errore: (s.collegamento ?? s.empresa?.collegamento)?.ultimoErrore ?? null,
+    },
+  } : {}),
 });
 
 // --- Usuario cliente ---
@@ -225,7 +230,12 @@ const officeWhere = (actor) => {
   return { OR: condiciones };
 };
 
-const OFFICE_INCLUDE = { creadoPor: CREADOR, empresa: { select: { nombre: true } }, collegamento: { select: { remotoNome: true, ultimoErrore: true } } };
+const ORIGEN_APP = { select: { remotoNome: true, ultimoErrore: true } };
+const OFFICE_INCLUDE = {
+  creadoPor: CREADOR,
+  empresa: { select: { nombre: true, collegamento: ORIGEN_APP } },
+  collegamento: ORIGEN_APP,
+};
 
 export const listSolicitudesForActor = async (actor, { estado = "PENDIENTE" } = {}) => {
   const rows = await prisma.solicitudServicio.findMany({
