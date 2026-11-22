@@ -24,6 +24,44 @@ Object.assign(process.env, {
   VALHALLA_BASE_URL: "http://127.0.0.1:9",
 });
 
+const { detectarTipoServicio, tipoDeSolicitud, textoDeServicio } = await import("../src/services/collegamentoTipo.service.js");
+
+describe("tipo de servicio deducido del texto (reglas puras)", () => {
+  const tipo = (s) => detectarTipoServicio({ ...s, texto: textoDeServicio(s) });
+  test("AB Service: por el cliente, las palabras, el deposito de Romanengo o la forma del Shipment", () => {
+    assert.equal(tipo({ cliente: "AB SERVICE", destinazione: "Via Nazionale 544, Roseto degli Abruzzi" }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "AB", codigo: "X" }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "A.B. Service s.r.l." }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "Farmacia", note: "Ritiro: AB Service (Romanengo)\nConsegna: Via Roma 1" }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "Farmacia", note: "ritiro presso magazzino di Romanengo" }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "Farmacia", shipment: "182123456" }), "AB_SERVICE");
+    assert.equal(tipo({ codigo: "182123456" }), "AB_SERVICE");
+    assert.equal(tipo({ cliente: "Farmacia", shipment: "123456789", orderNumero: "012345678" }), "AB_SERVICE");
+  });
+  test("DHL: por el cliente, el portal (Ship To) o la forma del Shipment y del Order", () => {
+    assert.equal(tipo({ cliente: "DHL" }), "DHL");
+    assert.equal(tipo({ cliente: "EMC2", note: "Shipment # 171712939 / Customer EMC2 / Ship To City VIZZOLA TICINO" }), "DHL");
+    assert.equal(tipo({ cliente: "EMC2", note: "Ship To Address VIA X 1" }), "DHL");
+    assert.equal(tipo({ cliente: "HP", shipment: "172076185" }), "DHL");
+    assert.equal(tipo({ cliente: "HP", orderNumero: "1167746741" }), "DHL");
+  });
+  test("el resto es Extra Piazza; el tipo expreso de la otra app manda", () => {
+    assert.equal(tipo({ cliente: "Farmacia Verdi", destinazione: "Via Roma 1, Milano", codigo: "P-100" }), "EXTRA_PIAZZA");
+    assert.equal(tipo({ cliente: "HP", codigo: "S20602391" }), "EXTRA_PIAZZA");
+    assert.equal(tipo({}), "EXTRA_PIAZZA");
+    assert.equal(tipo({ tipo: "AB_SERVICE", cliente: "Farmacia" }), "AB_SERVICE");
+    assert.equal(tipo({ tipo: "DHL Milano", cliente: "Farmacia" }), "DHL");
+    assert.equal(tipo({ tipo: "EXTRA_PIAZZA", cliente: "DHL" }), "EXTRA_PIAZZA");
+  });
+  test("tipo y zona de la solicitud", () => {
+    assert.deepEqual(tipoDeSolicitud("AB_SERVICE", { ciudad: "Roma" }), { servicio: "AB_SERVICE", zona: null });
+    assert.deepEqual(tipoDeSolicitud("DHL", { ciudad: "Milano" }), { servicio: "DHL_MILANO", zona: null });
+    assert.deepEqual(tipoDeSolicitud("DHL", { destino: "Via del Corso 1, 00186 Roma RM" }), { servicio: "DHL_ROMA", zona: null });
+    assert.deepEqual(tipoDeSolicitud("EXTRA_PIAZZA", { ciudad: "Roma" }), { servicio: "EXTRA_PIAZZA", zona: "ROMA" });
+    assert.deepEqual(tipoDeSolicitud("EXTRA_PIAZZA", { ciudad: "Milano" }), { servicio: "EXTRA_PIAZZA", zona: "MILANO" });
+  });
+});
+
 describe("App collegate: servicios directo al Registro (base local + Piazza simulada)", { skip: !dbOk && "falta GAMONAL_TEST_DATABASE_URL (localhost)" }, () => {
   let server, base, piazza, prisma, ownerToken, owner, col, choferA, vehA;
   const T1 = "T1-token-de-piazza-para-gamonal-123456";
@@ -107,7 +145,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     const dia = await api("GET", "/records/2026/11/24", { token: ownerToken });
     assert.ok(dia.body.data.records.some((x) => x.id === record.id), "esta en la lista de servicios del dia");
     const sinAsignar = await api("GET", "/records/sin-asignar", { token: ownerToken });
-    assert.ok(sinAsignar.body.data.records.some((x) => x.id === record.id), "esta en Por asignar");
+    assert.ok(!sinAsignar.body.data.records.some((x) => x.id === record.id), "NO se repite arriba, en Por asignar: ya esta en la lista del dia");
     assert.equal(dia.body.data.records.find((x) => x.id === record.id).origenApp, "App Piazza", "con la insignia 'Da App Piazza'");
   });
 
@@ -128,7 +166,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     const msg = await esperar(() => aggiornamenti.find((b) => b.autista));
     assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista: "Carlos Test", targa: "GA111AA" });
     const sinAsignar = await api("GET", "/records/sin-asignar", { token: ownerToken });
-    assert.ok(!sinAsignar.body.data.records.some((x) => x.id === sol.recordId), "ya no esta en Por asignar");
+    assert.ok(!sinAsignar.body.data.records.some((x) => x.id === sol.recordId));
   });
 
   test("si Piazza lo reenvia con cambios: no se duplica el servicio, queda la alerta y la linea de tiempo", async () => {
@@ -155,6 +193,89 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     await new Promise((res) => setTimeout(res, 800));
     assert.equal(await prisma.record.count(), antes + 2, "dos servicios, ni uno de mas");
     assert.equal(await prisma.solicitudServicio.count({ where: { recordRemotoId: "pz-2" } }), 1);
+  });
+
+  test("un servicio de AB Service entra como AB Service (por su texto), con el cliente AB y su Shipment como codigo", async () => {
+    await prisma.client.create({ data: { nombre: "AB" } });
+    const r = await enviar({ recordId: "pz-ab", cliente: "AB SERVICE", codigo: "182123456", shipment: "182123456", orderNumero: "012345678", destinazione: "VIA NAZIONALE, 544, 64026 Roseto Degli Abruzzi", km: 594, note: "Ritiro: AB Service (Romanengo)" });
+    assert.equal(r.status, 200, r.text);
+    const sol = await esperar(async () => {
+      const x = await prisma.solicitudServicio.findUnique({ where: { id: r.body.data.id } });
+      return x?.estado === "ACEPTADA" ? x : null;
+    });
+    assert.equal(sol.servicio, "AB_SERVICE");
+    const rec = await prisma.record.findUnique({ where: { id: sol.recordId }, include: { client: true } });
+    assert.equal(rec.spedizzione, "AB_SERVICE");
+    assert.equal(rec.client.nombre, "AB");
+    assert.equal(rec.codigo, "182123456");
+    assert.equal(rec.shipment, "182123456");
+    assert.equal(rec.orderNumero, "012345678");
+    assert.equal(rec.kilometros, 594);
+    // Sale en el area AB Service del dia.
+    const dia = await api("GET", "/records/2026/11/24", { token: ownerToken });
+    assert.equal(dia.body.data.records.find((x) => x.id === rec.id).spedizzione, "AB_SERVICE");
+  });
+
+  test("un servicio de DHL entra como DHL Milano (o DHL Roma si es de Roma)", async () => {
+    const a = await enviar({ recordId: "pz-dhl", cliente: "DHL", shipment: "172076185", codigo: "172076185", destinazione: "Via Italia 9, 20900 Monza MB", ciudad: "Monza" });
+    const b = await enviar({ recordId: "pz-dhl-roma", cliente: "DHL", shipment: "172076186", codigo: "172076186", destinazione: "Via del Corso 1, 00186 Roma RM", ciudad: "Roma" });
+    const final = async (id) => esperar(async () => {
+      const x = await prisma.solicitudServicio.findUnique({ where: { id } });
+      return x?.estado === "ACEPTADA" ? x : null;
+    });
+    const sa = await final(a.body.data.id);
+    const sb = await final(b.body.data.id);
+    assert.equal(sa.servicio, "DHL_MILANO");
+    assert.equal(sb.servicio, "DHL_ROMA");
+    const ra = await prisma.record.findUnique({ where: { id: sa.recordId } });
+    const rb = await prisma.record.findUnique({ where: { id: sb.recordId } });
+    assert.equal(ra.spedizzione, "DHL");
+    assert.equal(ra.extrasPiazzaZona, "MILANO");
+    assert.equal(rb.extrasPiazzaZona, "ROMA");
+    assert.equal(ra.shipment, "172076185");
+  });
+
+  test("'Por asignar' no repite los servicios de Piazza, pero sigue mostrando los de otros clientes sin chofer", async () => {
+    const { getSinAsignar } = await import("../src/services/sinAsignar.service.js");
+    const { driverId, vehicleId } = await getSinAsignar();
+    const cli = await prisma.client.findFirst();
+    const portal = await prisma.record.create({
+      data: { driverId, vehicleId, clientId: cli.id, descripcion: "d", codigo: "PORTAL-1", destinazione: "Via Portal 1, Milano", fechaServicio: new Date("2026-11-24T00:00:00Z"), eta: new Date("2026-11-24T09:00:00Z"), spedizzione: "EXTRA_PIAZZA" },
+    });
+    const r = await api("GET", "/records/sin-asignar", { token: ownerToken });
+    const codigos = r.body.data.records.map((x) => x.codigo);
+    assert.ok(codigos.includes("PORTAL-1"), "el de otro cliente sigue arriba");
+    assert.ok(!codigos.includes("182123456") && !codigos.includes("172076185") && !codigos.includes("P-100"), "los de Piazza no");
+    await prisma.record.delete({ where: { id: portal.id } });
+  });
+
+  test("los servicios de Piazza que entraron mal clasificados (sin chofer todavia) se corrigen; los ya asignados no se tocan", async () => {
+    const { getSinAsignar } = await import("../src/services/sinAsignar.service.js");
+    const { driverId, vehicleId } = await getSinAsignar();
+    const cli = await prisma.client.findFirst({ where: { nombre: "Piazza Spedizioni" } });
+    const mkConectado = async (clave, { asignado = false, datos }) => {
+      const rec = await prisma.record.create({
+        data: { driverId: asignado ? choferA.id : driverId, vehicleId: asignado ? vehA.id : vehicleId, clientId: cli.id, descripcion: "d", codigo: `EXTRA_PIAZZA-17953478${clave}`, destinazione: "Via Nazionale 544, Roseto", fechaServicio: new Date("2026-11-26T00:00:00Z"), eta: new Date("2026-11-26T09:00:00Z"), spedizzione: "EXTRA_PIAZZA", extrasPiazzaZona: "MILANO" },
+      });
+      const sol = await prisma.solicitudServicio.create({
+        data: { servicio: "EXTRA_PIAZZA", zona: "MILANO", cliente: datos.app_cliente, destinazione: "Via Nazionale 544, Roseto", fechaHora: new Date("2026-11-26T09:00:00Z"), fornitore: "Gamonal", shipment: datos.app_shipment, empresaId: col.clientId, creadoPorId: owner.id, collegamentoId: col.id, recordRemotoId: `pz-mal-${clave}`, estado: "ACEPTADA", recordId: rec.id, datosRemotos: datos },
+      });
+      return { rec, sol };
+    };
+    const ab = { app_cliente: "AB SERVICE", app_codice: "182555111", app_shipment: "182555111", app_destinazione: "Via Nazionale 544, Roseto", app_tappe: [], app_ciudad: null };
+    const sinAsignar = await mkConectado("11", { datos: ab });
+    const yaAsignado = await mkConectado("22", { asignado: true, datos: { ...ab, app_codice: "182555222", app_shipment: "182555222" } });
+    const extraOk = await mkConectado("33", { datos: { app_cliente: "Farmacia", app_codice: "P-9", app_shipment: "P-9", app_destinazione: "Via Roma 1", app_tappe: [], app_ciudad: "Milano" } });
+    const { reclasificarServiciosConectados } = await import("../src/services/collegamento.service.js");
+    assert.ok((await reclasificarServiciosConectados()) >= 1);
+    const a = await prisma.record.findUnique({ where: { id: sinAsignar.rec.id }, include: { client: true } });
+    assert.equal(a.spedizzione, "AB_SERVICE");
+    assert.equal(a.client.nombre, "AB");
+    assert.equal(a.codigo, "182555111");
+    assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sinAsignar.sol.id } })).servicio, "AB_SERVICE");
+    assert.equal((await prisma.record.findUnique({ where: { id: yaAsignado.rec.id } })).spedizzione, "EXTRA_PIAZZA", "uno con chofer asignado no se toca");
+    assert.equal((await prisma.record.findUnique({ where: { id: extraOk.rec.id } })).spedizzione, "EXTRA_PIAZZA", "un Extra Piazza sigue siendo Extra Piazza");
+    assert.equal(await reclasificarServiciosConectados(), 0, "repetirlo no cambia nada");
   });
 
   test("al arrancar, las solicitudes de apps conectadas que quedaron pendientes pasan al Registro", async () => {

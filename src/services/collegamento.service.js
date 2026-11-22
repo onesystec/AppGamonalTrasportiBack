@@ -5,7 +5,11 @@ import { AppError } from "../utils/AppError.js";
 import { CodiceNonValido, codiceScaduto, formatoCodice, leggiCodice as leggiCodiceBase, urlValida } from "../utils/codiceCollegamento.js";
 import { encryptSecret } from "../utils/secretBox.js";
 import { createClient } from "./client.service.js";
-import { avisarServicioDirecto, crearServicioDirecto } from "./servicioDirecto.service.js";
+import { Prisma } from "@prisma/client";
+import { SOLICITUD_SERVICIOS } from "../constants/solicitudes.js";
+import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+import { avisarServicioDirecto, crearServicioDirecto, resolverClientePorNombre } from "./servicioDirecto.service.js";
+import { detectarTipoServicio, textoDeServicio, tipoDeSolicitud } from "./collegamentoTipo.service.js";
 import { confronta, normalizzaDati, registraCambi, registraHito } from "./collegamentoCambi.service.js";
 import {
   chiamaCollegamento,
@@ -251,8 +255,12 @@ export const datiSolicitud = (s, riga) => {
   };
 };
 
-// Roma si la ciudad lo dice; el resto es Milano (ademas el area de Responsable se decide por la zona).
-const zonaDe = (s) => (/\broma\b/i.test(s.ciudad ?? "") ? "ROMA" : "MILANO");
+// El codigo que manda la otra app sirve de codigo del servicio si nadie lo usa ya (si no, el interno de siempre).
+const codigoLibre = async (codigo) => {
+  const c = String(codigo ?? "").trim();
+  if (!c || c.length > 100) return undefined;
+  return (await prisma.record.findUnique({ where: { codigo: c }, select: { id: true } })) ? undefined : c;
+};
 
 const enCurso = new Set();
 
@@ -275,7 +283,7 @@ export const aceptarAutomaticamente = async (solicitudId) => {
   try {
     solicitud = await prisma.solicitudServicio.findUnique({ where: { id: solicitudId }, include: { collegamento: { select: { remotoNome: true } } } });
     if (!solicitud || solicitud.estado !== "PENDIENTE" || !solicitud.collegamentoId) return null;
-    const record = await crearServicioDirecto(solicitud);
+    const record = await crearServicioDirecto(solicitud, { codigoPreferido: await codigoLibre(solicitud.shipment) });
     const { count } = await prisma.solicitudServicio.updateMany({
       where: { id: solicitudId, estado: "PENDIENTE" },
       data: { estado: "ACEPTADA", recordId: record.id, revisadoAt: new Date(), motivoRechazo: null },
@@ -296,11 +304,64 @@ export const aceptarAutomaticamente = async (solicitudId) => {
 // Al arrancar: las solicitudes de apps conectadas que quedaron pendientes (por ejemplo, las que llegaron antes de este cambio) pasan al Registro.
 export const convertirSolicitudesConectadasPendientes = async () => {
   if (!env.COLLEGAMENTI_AUTO_ACEPTAR) return 0;
+  await reclasificarServiciosConectados().catch((err) => console.error("[collegamenti] fallo la reclasificacion:", err.message));
   const pendientes = await prisma.solicitudServicio.findMany({ where: { estado: "PENDIENTE", collegamentoId: { not: null } }, orderBy: { createdAt: "asc" }, select: { id: true }, take: 100 });
   let convertidas = 0;
   for (const { id } of pendientes) if (await aceptarAutomaticamente(id)) convertidas += 1;
   if (convertidas > 0) console.log(`[collegamenti] ${convertidas} solicitud(es) de apps conectadas pasaron al Registro`);
   return convertidas;
+};
+
+// Servicios de apps conectadas que ya estan en el Registro, todavia sin chofer ni vehiculo, pero con el tipo mal puesto (por ejemplo, un AB Service que entro como Extra Piazza
+// antes de que el tipo se dedujera del texto): se corrigen con el mismo criterio. Los que ya tienen chofer o vehiculo, o ya salieron, no se tocan.
+export const reclasificarServiciosConectados = async () => {
+  const filas = await prisma.solicitudServicio.findMany({
+    where: {
+      collegamentoId: { not: null },
+      estado: "ACEPTADA",
+      recordId: { not: null },
+      datosRemotos: { not: Prisma.DbNull },
+      record: { estado: "IN_SOSPESO", driver: { correoElectronico: SIN_ASIGNAR_CORREO }, vehicle: { targa: SIN_ASIGNAR_TARGA } },
+    },
+    include: { record: { select: { id: true, codigo: true, spedizzione: true, extrasPiazzaZona: true } } },
+    take: 200,
+  });
+  let corregidos = 0;
+  for (const fila of filas) {
+    try {
+      const d = fila.datosRemotos;
+      const tipo = detectarTipoServicio({
+        cliente: d.app_cliente,
+        shipment: d.app_shipment,
+        orderNumero: d.app_order,
+        codigo: d.app_codice,
+        texto: [d.app_cliente, d.app_codice, d.app_shipment, d.app_order, d.app_mittente, d.app_ritiro, d.app_destinazione, ...(d.app_tappe ?? []), d.app_note].filter(Boolean).join("\n"),
+      });
+      const { servicio, zona } = tipoDeSolicitud(tipo, { ciudad: d.app_ciudad, destino: d.app_destinazione });
+      const def = SOLICITUD_SERVICIOS[servicio];
+      const zonaRecord = servicio === "EXTRA_PIAZZA" ? zona : def.zona;
+      if (fila.servicio === servicio && fila.record.spedizzione === def.spedizzione && fila.record.extrasPiazzaZona === zonaRecord) continue;
+      const conNumeros = servicio !== "EXTRA_PIAZZA";
+      const codigo = /^[A-Z_]+-\d{10,}$/.test(fila.record.codigo) ? await codigoLibre(fila.shipment) : undefined;
+      await prisma.record.update({
+        where: { id: fila.record.id },
+        data: {
+          spedizzione: def.spedizzione,
+          extrasPiazzaZona: zonaRecord,
+          clientId: await resolverClientePorNombre(fila.cliente, { abService: servicio === "AB_SERVICE" }),
+          shipment: conNumeros ? (fila.shipment ?? null) : null,
+          orderNumero: conNumeros ? (fila.orderNumero ?? null) : null,
+          ...(codigo ? { codigo } : {}),
+        },
+      });
+      await prisma.solicitudServicio.update({ where: { id: fila.id }, data: { servicio, zona: servicio === "EXTRA_PIAZZA" ? zona : null } });
+      corregidos += 1;
+    } catch (err) {
+      console.error(`[collegamenti] no se pudo reclasificar ${fila.id}:`, err.message);
+    }
+  }
+  if (corregidos > 0) console.log(`[collegamenti] ${corregidos} servicio(s) de apps conectadas se reclasificaron por su texto`);
+  return corregidos;
 };
 
 // Llega un servicio de la otra app: entra directo al Registro del dia sin chofer ni vehiculo (ver aceptarAutomaticamente). Si llega de nuevo (reenvio), se actualiza.
@@ -333,14 +394,16 @@ export const riceviServizio = async (riga, s) => {
     }
     return { id: esistente.id };
   }
-  const zona = zonaDe(s);
+  // DHL, AB Service o Extra Piazza: lo dice el texto (cliente, palabras y forma de los numeros), igual que el lector de textos de la oficina.
+  const tipoDetectado = detectarTipoServicio({ tipo: s.tipo, cliente: s.cliente, texto: textoDeServicio(s), shipment: s.shipment, orderNumero: s.orderNumero, codigo: s.codigo });
+  const { servicio, zona } = tipoDeSolicitud(tipoDetectado, { ciudad: s.ciudad, destino: s.destinazione });
   let solicitud;
   try {
     solicitud = await prisma.solicitudServicio.create({
       data: {
         ...dati,
         datosRemotos,
-        servicio: "EXTRA_PIAZZA",
+        servicio,
         zona,
         fornitore: env.EMPRESA_NOMBRE,
         empresaId: riga.clientId,

@@ -22,6 +22,8 @@ export const richiestaRemotaSchema = z.object({
 export const servizioRemotoSchema = z
   .object({
     recordId: id,
+    // Tipo de servicio si la otra app lo manda (DHL, AB Service, Extra Piazza); si no, se deduce del texto.
+    tipo: opz(40),
     codigo: opz(100),
     cliente: opz(200),
     destinazione: testo(500).min(1),

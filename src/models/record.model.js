@@ -424,6 +424,8 @@ export const findRecordsSinAsignar = ({ spedizzioneFilter } = {}) =>
     where: {
       estado: { in: EN_PROCESO_ESTADOS },
       OR: [{ driver: { correoElectronico: SIN_ASIGNAR_CORREO } }, { vehicle: { targa: SIN_ASIGNAR_TARGA } }],
+      // Los de una app conectada (App Piazza) ya estan en la lista del dia, donde se les asigna chofer y vehiculo: no se repiten arriba.
+      NOT: { solicitud: { is: { collegamentoId: { not: null } } } },
       ...(spedizzioneFilter ?? {}),
     },
     select: RECORD_SELECT_LIST,

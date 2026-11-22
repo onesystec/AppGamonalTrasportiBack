@@ -73,7 +73,7 @@ const descripcionDe = (s) =>
     .filter((v) => v && String(v).trim())
     .join("\n") || (s.cliente ? `Solicitud de ${s.cliente}` : "Servicio cargado desde el portal del cliente");
 
-export const crearServicioDirecto = async (solicitud, { direccionCompleta = Boolean(solicitud.collegamentoId) } = {}) => {
+export const crearServicioDirecto = async (solicitud, { direccionCompleta = Boolean(solicitud.collegamentoId), codigoPreferido } = {}) => {
   const tipo = SOLICITUD_SERVICIOS[solicitud.servicio];
   if (!tipo) throw new Error(`Tipo de servicio desconocido: ${solicitud.servicio}`);
   if (!solicitud.destinazione?.trim()) throw new Error("Sin direccion de entrega: lo completa la oficina");
@@ -89,7 +89,7 @@ export const crearServicioDirecto = async (solicitud, { direccionCompleta = Bool
     eta: solicitud.fechaHora,
     descripcion: descripcionDe(solicitud),
     // DHL: el servidor lo reemplaza por el Shipment (ese es el codigo del servicio); en los demas es un codigo interno unico.
-    codigo: `${tipo.spedizzione}-${sello()}`,
+    codigo: codigoPreferido ?? `${tipo.spedizzione}-${sello()}`,
     spedizzione: tipo.spedizzione,
     extrasPiazzaZona: zona,
     stops: [{ direccion }],
