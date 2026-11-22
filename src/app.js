@@ -39,6 +39,7 @@ if (env.NODE_ENV !== "test") {
 app.use(trackRequests);
 
 app.get("/api/health", (req, res) => {
+  if (process.env.RENDER_GIT_COMMIT) res.set("X-App-Revision", process.env.RENDER_GIT_COMMIT);
   res.status(200).json({ success: true, message: "RegistrosGTBack esta activo" });
 });
 
