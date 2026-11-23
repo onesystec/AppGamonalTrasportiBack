@@ -11,7 +11,7 @@ import {
 } from "../models/recordFile.model.js";
 import { env } from "../config/env.js";
 import { deleteObject, getObjectBuffer, getSignedUrlForKey, uploadObject } from "./storage.service.js";
-import { inviaFotoBolla, notificaFotoBolla } from "./collegamentoInvio.service.js";
+import { inviaAllegato, notificaAllegato } from "./collegamentoInvio.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { canAccessRecordArea } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
@@ -36,13 +36,19 @@ const processFile = async (file) => {
 const buildStorageKey = (recordId, tipoArchivo, ext) =>
   `records/${recordId}/${tipoArchivo}-${Date.now()}-${randomUUID()}.${ext}`;
 
-const esFotoBolla = (file) => file.tipoArchivo === "BOLLA" && file.archivoKey.endsWith(".webp");
+const mimeTypeAdjunto = (file) => {
+  const key = file.archivoKey.toLowerCase();
+  if (key.endsWith(".webp")) return "image/webp";
+  if (key.endsWith(".pdf")) return "application/pdf";
+  return null;
+};
 
 const toResponse = async (file) => ({
   id: file.id,
   recordId: file.recordId,
   tipoArchivo: file.tipoArchivo,
-  esFotoBolla: esFotoBolla(file),
+  esFotoBolla: file.tipoArchivo === "BOLLA" && mimeTypeAdjunto(file) === "image/webp",
+  puedeReenviar: Boolean(mimeTypeAdjunto(file)),
   archivoUrl: await getSignedUrlForKey(file.archivoKey),
   createdAt: file.createdAt,
 });
@@ -67,7 +73,7 @@ export const createFileForRecord = async (actor, recordId, tipoArchivo, file) =>
   await uploadObject(archivoKey, buffer, mimeType);
 
   const recordFile = await createRecordFileModel({ recordId, tipoArchivo, archivoKey });
-  if (record.driverId === actor.id && tipoArchivo === "BOLLA" && mimeType === "image/webp") void notificaFotoBolla(recordFile, buffer);
+  void notificaAllegato(recordFile, buffer, mimeType);
   return toResponse(recordFile);
 };
 
@@ -77,11 +83,10 @@ export const reinviaFotoBollaGuardada = async (actor, recordId, fileId) => {
   assertRecordAccess(actor, record);
   const file = await findRecordFileById(fileId);
   if (!file || file.recordId !== recordId) throw new AppError("Archivo no encontrado", 404);
-  if (!esFotoBolla(file)) {
-    throw new AppError("El archivo debe ser una foto de bolla", 400);
-  }
+  const mimeType = mimeTypeAdjunto(file);
+  if (!mimeType) throw new AppError("Solo se pueden reenviar fotos y documentos PDF", 400);
   const buffer = await getObjectBuffer(file.archivoKey);
-  if (!(await inviaFotoBolla(file, buffer))) throw new AppError("El servicio no está vinculado a otra app", 409);
+  if (!(await inviaAllegato(file, buffer, mimeType))) throw new AppError("El servicio no está vinculado a otra app", 409);
 };
 
 export const listFilesForRecord = async (actor, recordId) => {

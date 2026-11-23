@@ -8,8 +8,7 @@ import { hostPrivato } from "../utils/codiceCollegamento.js";
 import { decryptSecret } from "../utils/secretBox.js";
 
 // Llamadas SALIENTES de Gamonal a la otra app One Driver (App Piazza) y utilidades comunes (ver model Collegamento).
-// Gamonal solo manda a Piazza: aceptado / rechazado de un servicio, y su estado, nombre del chofer y targa. Nada de precios, pagos,
-// documentos, ubicaciones ni datos personales del chofer. Nunca bloquea ni rompe la operacion que lo origina (ver "seguro").
+// Sincroniza el estado y los adjuntos de servicios vinculados. Las notificaciones automáticas no bloquean la operación original.
 
 export const sha256 = (testo) => createHash("sha256").update(String(testo)).digest("hex");
 export const nuovoToken = () => randomBytes(32).toString("base64url");
@@ -39,14 +38,14 @@ export const controllaDestinazione = async (baseUrl) => {
 };
 
 // Llamada POST al API publico de collegamenti de la otra app. Lanza AppError 502; err.riprova = true si vale la pena reintentar (no responde / error 5xx / 429).
-export const chiamaRemoto = async (baseUrl, percorso, { token, body } = {}) => {
+export const chiamaRemoto = async (baseUrl, percorso, { token, body, contentType } = {}) => {
   await controllaDestinazione(baseUrl);
   const foto = Buffer.isBuffer(body);
   let res;
   try {
     res = await fetch(`${baseUrl}/api/collegamenti/pubblico${percorso}`, {
       method: "POST",
-      headers: { "Content-Type": foto ? "image/webp" : "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { "Content-Type": foto ? (contentType ?? "image/webp") : "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: foto ? body : JSON.stringify(body ?? {}),
       redirect: "error",
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -65,18 +64,18 @@ export const chiamaRemoto = async (baseUrl, percorso, { token, body } = {}) => {
   return json?.data ?? {};
 };
 
-export const chiamaCollegamento = (collegamento, percorso, body) => {
+export const chiamaCollegamento = (collegamento, percorso, body, { contentType } = {}) => {
   if (!collegamento.tokenUscente || !collegamento.remotoId) throw new AppError("Collegamento non ancora attivo", 409);
-  return chiamaRemoto(collegamento.remotoUrl, `/${collegamento.remotoId}${percorso}`, { token: decryptSecret(collegamento.tokenUscente), body });
+  return chiamaRemoto(collegamento.remotoUrl, `/${collegamento.remotoId}${percorso}`, { token: decryptSecret(collegamento.tokenUscente), body, contentType });
 };
 
 // Render duerme las apps gratuitas: se reintenta con espera creciente (2 s, 8 s, 30 s) solo si el fallo es transitorio.
 export const ESPERAS_MS = [2000, 8000, 30000];
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
-export const chiamaConRiprova = async (collegamento, percorso, body, { esperas = ESPERAS_MS, chiama = chiamaCollegamento } = {}) => {
+export const chiamaConRiprova = async (collegamento, percorso, body, { esperas = ESPERAS_MS, chiama = chiamaCollegamento, contentType } = {}) => {
   for (let intento = 0; ; intento += 1) {
     try {
-      return await chiama(collegamento, percorso, body);
+      return await chiama(collegamento, percorso, body, { contentType });
     } catch (err) {
       if (!err.riprova || intento >= esperas.length) throw err;
       await dormir(esperas[intento]);
@@ -133,18 +132,18 @@ const collegamentoAttivo = (solicitud) => {
   return collegamento;
 };
 
-export const inviaFotoBolla = async ({ id, recordId }, buffer) => {
+export const inviaAllegato = async ({ id, recordId, tipoArchivo }, buffer, contentType) => {
   const solicitud = await prisma.solicitudServicio.findFirst({
     where: { recordId, recordRemotoId: { not: null }, estado: "ACEPTADA" },
     include: { collegamento: true, empresa: { include: { collegamento: true } } },
   });
   if (!solicitud) return false;
   const collegamento = collegamentoAttivo(solicitud);
-  const percorso = `/servizi/${encodeURIComponent(solicitud.recordRemotoId)}/bolle/${encodeURIComponent(id)}`;
+  const percorso = `/servizi/${encodeURIComponent(solicitud.recordRemotoId)}/bolle/${encodeURIComponent(id)}?tipoArchivo=${encodeURIComponent(tipoArchivo)}`;
   try {
-    const esito = await chiamaConRiprova(collegamento, percorso, buffer);
+    const esito = await chiamaConRiprova(collegamento, percorso, buffer, { contentType });
     esigeApplicato(esito);
-    if (esito.ok !== true) throw new AppError("L'altra app non ha confermato la ricezione della bolla", 502);
+    if (esito.ok !== true) throw new AppError("L'altra app non ha confermato la ricezione dell’allegato", 502);
     return true;
   } catch (err) {
     await segnaEsito(collegamento.id, err);
@@ -152,7 +151,7 @@ export const inviaFotoBolla = async ({ id, recordId }, buffer) => {
   }
 };
 
-export const notificaFotoBolla = (file, buffer) => seguro("foto bolla", inviaFotoBolla(file, buffer));
+export const notificaAllegato = (file, buffer, contentType) => seguro("allegato", inviaAllegato(file, buffer, contentType));
 
 // Avisa a la otra app el estado, chofer y targa actuales de un servicio que vino por una conexion. Solo manda si algo cambio desde el ultimo aviso
 // (se puede llamar las veces que haga falta). forzar = true manda de nuevo igual ("Reinvia"). Lanza el error (para el boton); los disparos
