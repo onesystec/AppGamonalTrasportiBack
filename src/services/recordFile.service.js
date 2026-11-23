@@ -11,6 +11,7 @@ import {
 } from "../models/recordFile.model.js";
 import { env } from "../config/env.js";
 import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
+import { notificaFotoBolla } from "./collegamentoInvio.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { canAccessRecordArea } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
@@ -63,6 +64,7 @@ export const createFileForRecord = async (actor, recordId, tipoArchivo, file) =>
   await uploadObject(archivoKey, buffer, mimeType);
 
   const recordFile = await createRecordFileModel({ recordId, tipoArchivo, archivoKey });
+  if (record.driverId === actor.id && tipoArchivo === "BOLLA" && mimeType === "image/webp") void notificaFotoBolla(recordFile, buffer);
   return toResponse(recordFile);
 };
 

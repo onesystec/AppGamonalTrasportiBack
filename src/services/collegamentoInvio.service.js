@@ -41,12 +41,13 @@ export const controllaDestinazione = async (baseUrl) => {
 // Llamada POST al API publico de collegamenti de la otra app. Lanza AppError 502; err.riprova = true si vale la pena reintentar (no responde / error 5xx / 429).
 export const chiamaRemoto = async (baseUrl, percorso, { token, body } = {}) => {
   await controllaDestinazione(baseUrl);
+  const foto = Buffer.isBuffer(body);
   let res;
   try {
     res = await fetch(`${baseUrl}/api/collegamenti/pubblico${percorso}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body ?? {}),
+      headers: { "Content-Type": foto ? "image/webp" : "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: foto ? body : JSON.stringify(body ?? {}),
       redirect: "error",
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -83,8 +84,7 @@ export const chiamaConRiprova = async (collegamento, percorso, body, { esperas =
   }
 };
 
-const inviaAggiornamento = async (collegamento, body, options) => {
-  const esito = await chiamaConRiprova(collegamento, "/aggiornamenti", body, options);
+const esigeApplicato = (esito) => {
   if (esito.ignorato === true) {
     const motivo = typeof esito.motivo === "string" && esito.motivo.trim()
       ? esito.motivo.trim()
@@ -92,6 +92,9 @@ const inviaAggiornamento = async (collegamento, body, options) => {
     throw new AppError(`L'altra app ha ignorato l'aggiornamento: ${motivo}`, 502);
   }
 };
+
+const inviaAggiornamento = async (collegamento, body, options) =>
+  esigeApplicato(await chiamaConRiprova(collegamento, "/aggiornamenti", body, options));
 
 // Recuerda el ultimo problema (se ve en la lista de conexiones) o lo borra cuando vuelve a funcionar.
 export const segnaEsito = (collegamentoId, err) =>
@@ -121,6 +124,34 @@ const INCLUDE_SYNC = {
   record: { select: { id: true, estado: true, driver: { select: { nombre: true, apellido: true, correoElectronico: true } }, vehicle: { select: { targa: true } } } },
 };
 
+// Una solicitud desconectada solo puede usar una conexión aprobada con la misma ficha.
+const collegamentoAttivo = (solicitud) => {
+  const collegamento = solicitud.collegamento ?? solicitud.empresa?.collegamento;
+  if (collegamento?.stato !== "ATTIVO" || collegamento.ruolo !== "CLIENTE") {
+    throw new AppError("Non c'è un collegamento attivo per il cliente di questa richiesta", 409);
+  }
+  return collegamento;
+};
+
+export const notificaFotoBolla = ({ id, recordId }, buffer) =>
+  seguro("foto bolla", (async () => {
+    const solicitud = await prisma.solicitudServicio.findFirst({
+      where: { recordId, recordRemotoId: { not: null }, estado: "ACEPTADA" },
+      include: { collegamento: true, empresa: { include: { collegamento: true } } },
+    });
+    if (!solicitud) return;
+    const collegamento = collegamentoAttivo(solicitud);
+    const percorso = `/servizi/${encodeURIComponent(solicitud.recordRemotoId)}/bolle/${encodeURIComponent(id)}`;
+    try {
+      const esito = await chiamaConRiprova(collegamento, percorso, buffer);
+      esigeApplicato(esito);
+      if (esito.ok !== true) throw new AppError("L'altra app non ha confermato la ricezione della bolla", 502);
+    } catch (err) {
+      await segnaEsito(collegamento.id, err);
+      throw err;
+    }
+  })());
+
 // Avisa a la otra app el estado, chofer y targa actuales de un servicio que vino por una conexion. Solo manda si algo cambio desde el ultimo aviso
 // (se puede llamar las veces que haga falta). forzar = true manda de nuevo igual ("Reinvia"). Lanza el error (para el boton); los disparos
 // automaticos usan sincronizzaSicuro.
@@ -139,12 +170,7 @@ export const sincronizza = async ({ solicitudId, recordId }, { forzar = false, e
     return { inviato: false };
   }
 
-  // Al desconectar, la solicitud conserva su ID remoto y la ficha original de cliente.
-  // Solo se recupera el envío si la nueva conexión se aprobó con esa misma ficha.
-  const collegamento = solicitud.collegamento ?? solicitud.empresa?.collegamento;
-  if (collegamento?.stato !== "ATTIVO" || collegamento.ruolo !== "CLIENTE") {
-    throw new AppError("Non c'è un collegamento attivo per il cliente di questa richiesta", 409);
-  }
+  const collegamento = collegamentoAttivo(solicitud);
   const dati = datiAggiornamento(solicitud.record);
   if (!forzar && solicitud.collegamentoId && stessiDati(dati, solicitud.ultimoEnviado)) return { inviato: false };
   try {
