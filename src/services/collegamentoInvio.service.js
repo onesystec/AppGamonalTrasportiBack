@@ -133,24 +133,26 @@ const collegamentoAttivo = (solicitud) => {
   return collegamento;
 };
 
-export const notificaFotoBolla = ({ id, recordId }, buffer) =>
-  seguro("foto bolla", (async () => {
-    const solicitud = await prisma.solicitudServicio.findFirst({
-      where: { recordId, recordRemotoId: { not: null }, estado: "ACEPTADA" },
-      include: { collegamento: true, empresa: { include: { collegamento: true } } },
-    });
-    if (!solicitud) return;
-    const collegamento = collegamentoAttivo(solicitud);
-    const percorso = `/servizi/${encodeURIComponent(solicitud.recordRemotoId)}/bolle/${encodeURIComponent(id)}`;
-    try {
-      const esito = await chiamaConRiprova(collegamento, percorso, buffer);
-      esigeApplicato(esito);
-      if (esito.ok !== true) throw new AppError("L'altra app non ha confermato la ricezione della bolla", 502);
-    } catch (err) {
-      await segnaEsito(collegamento.id, err);
-      throw err;
-    }
-  })());
+export const inviaFotoBolla = async ({ id, recordId }, buffer) => {
+  const solicitud = await prisma.solicitudServicio.findFirst({
+    where: { recordId, recordRemotoId: { not: null }, estado: "ACEPTADA" },
+    include: { collegamento: true, empresa: { include: { collegamento: true } } },
+  });
+  if (!solicitud) return false;
+  const collegamento = collegamentoAttivo(solicitud);
+  const percorso = `/servizi/${encodeURIComponent(solicitud.recordRemotoId)}/bolle/${encodeURIComponent(id)}`;
+  try {
+    const esito = await chiamaConRiprova(collegamento, percorso, buffer);
+    esigeApplicato(esito);
+    if (esito.ok !== true) throw new AppError("L'altra app non ha confermato la ricezione della bolla", 502);
+    return true;
+  } catch (err) {
+    await segnaEsito(collegamento.id, err);
+    throw err;
+  }
+};
+
+export const notificaFotoBolla = (file, buffer) => seguro("foto bolla", inviaFotoBolla(file, buffer));
 
 // Avisa a la otra app el estado, chofer y targa actuales de un servicio que vino por una conexion. Solo manda si algo cambio desde el ultimo aviso
 // (se puede llamar las veces que haga falta). forzar = true manda de nuevo igual ("Reinvia"). Lanza el error (para el boton); los disparos

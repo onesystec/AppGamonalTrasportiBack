@@ -10,8 +10,8 @@ import {
   findRecordFilesByRecordId,
 } from "../models/recordFile.model.js";
 import { env } from "../config/env.js";
-import { deleteObject, getSignedUrlForKey, uploadObject } from "./storage.service.js";
-import { notificaFotoBolla } from "./collegamentoInvio.service.js";
+import { deleteObject, getObjectBuffer, getSignedUrlForKey, uploadObject } from "./storage.service.js";
+import { inviaFotoBolla, notificaFotoBolla } from "./collegamentoInvio.service.js";
 import { compressImage } from "../utils/imageProcessor.js";
 import { canAccessRecordArea } from "../utils/areaAccess.js";
 import { AppError } from "../utils/AppError.js";
@@ -36,10 +36,13 @@ const processFile = async (file) => {
 const buildStorageKey = (recordId, tipoArchivo, ext) =>
   `records/${recordId}/${tipoArchivo}-${Date.now()}-${randomUUID()}.${ext}`;
 
+const esFotoBolla = (file) => file.tipoArchivo === "BOLLA" && file.archivoKey.endsWith(".webp");
+
 const toResponse = async (file) => ({
   id: file.id,
   recordId: file.recordId,
   tipoArchivo: file.tipoArchivo,
+  esFotoBolla: esFotoBolla(file),
   archivoUrl: await getSignedUrlForKey(file.archivoKey),
   createdAt: file.createdAt,
 });
@@ -66,6 +69,19 @@ export const createFileForRecord = async (actor, recordId, tipoArchivo, file) =>
   const recordFile = await createRecordFileModel({ recordId, tipoArchivo, archivoKey });
   if (record.driverId === actor.id && tipoArchivo === "BOLLA" && mimeType === "image/webp") void notificaFotoBolla(recordFile, buffer);
   return toResponse(recordFile);
+};
+
+export const reinviaFotoBollaGuardada = async (actor, recordId, fileId) => {
+  const record = await findRecordById(recordId);
+  if (!record) throw new AppError("Registro no encontrado", 404);
+  assertRecordAccess(actor, record);
+  const file = await findRecordFileById(fileId);
+  if (!file || file.recordId !== recordId) throw new AppError("Archivo no encontrado", 404);
+  if (!esFotoBolla(file)) {
+    throw new AppError("El archivo debe ser una foto de bolla", 400);
+  }
+  const buffer = await getObjectBuffer(file.archivoKey);
+  if (!(await inviaFotoBolla(file, buffer))) throw new AppError("El servicio no está vinculado a otra app", 409);
 };
 
 export const listFilesForRecord = async (actor, recordId) => {

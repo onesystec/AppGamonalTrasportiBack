@@ -15,3 +15,5 @@ export const recordIdParamSchema = z.object({
 export const fileIdParamSchema = z.object({
   id: z.string().uuid("Id invalido"),
 });
+
+export const bollaReenvioParamSchema = recordIdParamSchema.extend({ fileId: z.string().uuid("Id invalido") });

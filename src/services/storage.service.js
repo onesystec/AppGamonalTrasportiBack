@@ -23,3 +23,9 @@ export const deleteObject = (key) =>
 // El bucket es privado: nunca se persiste una URL, se firma una fresca en cada respuesta.
 export const getSignedUrlForKey = (key, expiresIn = env.R2_SIGNED_URL_EXPIRES_SECONDS) =>
   getSignedUrl(r2Client, new GetObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key }), { expiresIn });
+
+
+export const getObjectBuffer = async (key) => {
+  const { Body } = await r2Client.send(new GetObjectCommand({ Bucket: env.R2_BUCKET_NAME, Key: key }));
+  return Buffer.from(await Body.transformToByteArray());
+};

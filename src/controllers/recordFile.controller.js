@@ -3,12 +3,18 @@ import {
   createFileForRecord,
   deleteFile,
   listFilesForRecord,
+  reinviaFotoBollaGuardada,
 } from "../services/recordFile.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const create = asyncHandler(async (req, res) => {
   const file = await createFileForRecord(req.user, req.params.id, req.body.tipoArchivo, req.file);
   res.status(201).json({ success: true, data: { file } });
+});
+
+export const reinviaBolla = asyncHandler(async (req, res) => {
+  await reinviaFotoBollaGuardada(req.user, req.params.id, req.params.fileId);
+  res.status(204).end();
 });
 
 export const list = asyncHandler(async (req, res) => {

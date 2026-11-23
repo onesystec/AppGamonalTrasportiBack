@@ -33,7 +33,7 @@ import {
   update,
   updateDeclaraciones,
 } from "../controllers/record.controller.js";
-import { create as createFile, list as listFiles } from "../controllers/recordFile.controller.js";
+import { create as createFile, list as listFiles, reinviaBolla } from "../controllers/recordFile.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { upload } from "../middlewares/upload.js";
@@ -56,7 +56,7 @@ import {
   yearMonthParamSchema,
   yearParamSchema,
 } from "../validators/record.validator.js";
-import { createRecordFileSchema } from "../validators/recordFile.validator.js";
+import { bollaReenvioParamSchema, createRecordFileSchema } from "../validators/recordFile.validator.js";
 
 const router = Router();
 
@@ -172,6 +172,7 @@ router.post(
   validate(createRecordFileSchema),
   createFile
 );
+router.post("/:id/files/:fileId/reinvia-bolla", validate(bollaReenvioParamSchema, "params"), reinviaBolla);
 router.get("/:id/files", validate(idParamSchema, "params"), listFiles);
 
 export default router;

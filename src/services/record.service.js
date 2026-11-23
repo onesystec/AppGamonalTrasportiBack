@@ -480,6 +480,7 @@ const toChoferResponse = (record) => ({
   driver: record.driver,
   vehicle: record.vehicle,
   client: record.client,
+  origenApp: record.solicitud?.collegamento?.remotoNome ?? null,
   fechaServicio: record.fechaServicio,
   eta: record.eta,
   fechaRetiro: record.fechaRetiro,
