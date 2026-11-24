@@ -3,6 +3,7 @@ import {
   deleteDocumentForActor,
   getDocumentByIdForActor,
   listDocumentsForActor,
+  listPersonalParaDocumentos,
   updateDocumentForActor,
 } from "../services/document.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -30,4 +31,9 @@ export const update = asyncHandler(async (req, res) => {
 export const remove = asyncHandler(async (req, res) => {
   await deleteDocumentForActor(req.user, req.params.id);
   res.status(204).send();
+});
+
+export const listPersonal = asyncHandler(async (_req, res) => {
+  const personal = await listPersonalParaDocumentos();
+  res.status(200).json({ success: true, data: { personal } });
 });

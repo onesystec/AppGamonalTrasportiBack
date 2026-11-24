@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { prisma } from "../config/prisma.js";
+import { SIN_ASIGNAR_CORREO } from "../constants/sinAsignar.js";
 import {
   createDocument as createDocumentRecord,
   deleteDocumentById,
@@ -11,24 +13,38 @@ import { compressImage } from "../utils/imageProcessor.js";
 import { findUserById, updateUserById } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
 
-// Admin y Responsables ven los documentos de todos; Recursos Humanos, solo los de los choferes.
+// La oficina puede consultar documentos de otras personas según su cargo.
 const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN" || actor.cargo === "RRHH";
 
 // Documentos personales que cada persona sube por su cuenta desde su perfil (choferes, Responsables y Admin). El resto de tipos (contrato,
 // UNILAV, responsivas, permiso de trasporto, 13ma/14ma) son de la empresa: los carga y los gestiona solo la oficina.
 export const SELF_DOCUMENT_TYPES = ["CARTA_IDENTITA", "PATENTE", "TRADUZIONE_PATENTE", "CODICE_FISCALE", "PASSAPORTO", "SOGGIORNO"];
 const isSelfType = (tipo) => SELF_DOCUMENT_TYPES.includes(tipo);
-// Quienes pueden subir sus propios documentos. Los usuarios cliente no entran (ni siquiera llegan aca, ver clienteGate) y Recursos Humanos tampoco por ahora.
+// Cargos con carga personal desde el perfil. RRHH gestiona la documentación desde su sección.
 const SELF_UPLOAD_CARGOS = ["CHOFER", "ADMIN", "OWNER"];
 
-// Un Responsable (ADMIN) y Recursos Humanos gestionan los documentos de los choferes, no los de otros Admin o Responsables.
+// Límite para los Responsables y para el borrado de documentos por RRHH.
 const assertChofer = async (usuarioId) => {
   const owner = await findUserById(usuarioId);
   if (owner?.cargo !== "CHOFER") throw new AppError("Solo puedes gestionar documentos de choferes", 403);
 };
 
+const personalInterno = { cargo: { not: "CLIENTE" }, correoElectronico: { not: SIN_ASIGNAR_CORREO } };
+
+const assertPersonalInterno = async (id) => {
+  const usuario = await prisma.user.findFirst({ where: { id, ...personalInterno }, select: { id: true } });
+  if (!usuario) throw new AppError("Solo puedes gestionar documentos del personal interno", 403);
+};
+
+export const listPersonalParaDocumentos = () => prisma.user.findMany({
+  where: personalInterno,
+  select: { id: true, nombre: true, apellido: true, cargo: true, documentosNoTiene: true },
+  orderBy: [{ apellido: "asc" }, { nombre: "asc" }, { id: "asc" }],
+});
+
 // write = crear, reemplazar o borrar. Ver el propio documento siempre se puede; modificarlo, solo si es uno de los personales.
-const assertAccess = async (actor, document, { write = false } = {}) => {
+const assertAccess = async (actor, document, { write = false, deleting = false } = {}) => {
+  if (actor.cargo === "RRHH" && !deleting) return assertPersonalInterno(document.usuarioId);
   if (document.usuarioId === actor.id) {
     if (!write || actor.cargo === "OWNER" || (SELF_UPLOAD_CARGOS.includes(actor.cargo) && isSelfType(document.tipoDocumento))) return;
     throw new AppError("Este documento lo gestiona la oficina", 403);
@@ -70,7 +86,10 @@ export const createDocumentForUser = async (actor, file, data) => {
   // Sin usuarioId (o con el propio) es un documento personal: cada persona sube solo los suyos, de los 6 tipos personales.
   // La oficina (OWNER, ADMIN, RRHH) puede ademas cargar cualquier tipo a un chofer.
   let targetUsuarioId = actor.id;
-  if (isPrivileged(actor) && data.usuarioId && data.usuarioId !== actor.id) {
+  if (actor.cargo === "RRHH") {
+    targetUsuarioId = data.usuarioId ?? actor.id;
+    await assertPersonalInterno(targetUsuarioId);
+  } else if (isPrivileged(actor) && data.usuarioId && data.usuarioId !== actor.id) {
     targetUsuarioId = data.usuarioId;
     if (actor.cargo !== "OWNER") await assertChofer(targetUsuarioId);
   } else {
@@ -104,8 +123,9 @@ export const createDocumentForUser = async (actor, file, data) => {
 
 export const listDocumentsForActor = async (actor, queryUsuarioId) => {
   const usuarioId = isPrivileged(actor) ? queryUsuarioId : actor.id;
-  if ((actor.cargo === "RRHH" || actor.cargo === "ADMIN") && usuarioId && usuarioId !== actor.id) await assertChofer(usuarioId);
-  const documents = await findDocuments(usuarioId, { soloChoferes: actor.cargo === "RRHH" });
+  if (actor.cargo === "RRHH" && usuarioId) await assertPersonalInterno(usuarioId);
+  if (actor.cargo === "ADMIN" && usuarioId && usuarioId !== actor.id) await assertChofer(usuarioId);
+  const documents = await findDocuments(usuarioId, { soloChoferes: actor.cargo === "RRHH" && !usuarioId });
   return Promise.all(documents.map(toResponse));
 };
 
@@ -125,7 +145,7 @@ export const updateDocumentForActor = async (actor, id, data, file) => {
   }
   await assertAccess(actor, document, { write: true });
   // Nadie puede cambiar el tipo de su propio documento a uno de la empresa (por ejemplo, hacer pasar un archivo suyo por un "contrato").
-  if (data.tipoDocumento && document.usuarioId === actor.id && actor.cargo !== "OWNER" && !isSelfType(data.tipoDocumento)) {
+  if (data.tipoDocumento && document.usuarioId === actor.id && !["OWNER", "RRHH"].includes(actor.cargo) && !isSelfType(data.tipoDocumento)) {
     throw new AppError("Ese documento lo carga la oficina", 403);
   }
 
@@ -149,7 +169,7 @@ export const deleteDocumentForActor = async (actor, id) => {
   if (!document) {
     throw new AppError("Documento no encontrado", 404);
   }
-  await assertAccess(actor, document, { write: true });
+  await assertAccess(actor, document, { write: true, deleting: true });
 
   await deleteObject(document.archivoKey);
   await deleteDocumentById(id);

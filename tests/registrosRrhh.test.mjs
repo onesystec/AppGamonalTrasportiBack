@@ -69,6 +69,47 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
     await prisma?.$disconnect();
   });
 
+  test("RRHH carga, reemplaza y completa documentos de choferes y usuarios internos", async (t) => {
+    const { r2Client } = await import("../src/config/r2.js");
+    const { SIN_ASIGNAR_CORREO } = await import("../src/constants/sinAsignar.js");
+    const storage = t.mock.method(r2Client, "send", async () => ({}));
+    const cliente = await mkUser("CLIENTE", "cliente-docs@t.it");
+    const interno = await mkUser("CHOFER", SIN_ASIGNAR_CORREO);
+    const directorio = await api("GET", "/documents/personal", { token: tokens.rrhhNo });
+    assert.equal(directorio.status, 200, directorio.text);
+    assert.deepEqual(new Set(directorio.body.data.personal.map(({ id }) => id)), new Set(Object.values(ids)));
+    assert.equal((await api("GET", "/documents/personal", { token: tokens.chofer1 })).status, 403);
+
+    const upload = async (usuarioId) => {
+      const body = new FormData();
+      body.append("usuarioId", usuarioId);
+      body.append("tipoDocumento", "CONTRATO");
+      body.append("archivo", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "contrato.pdf");
+      return fetch(`${base}/api/documents`, { method: "POST", headers: { Authorization: `Bearer ${tokens.rrhhNo}` }, body });
+    };
+
+    for (const usuarioId of [ids.chofer1, ids.chofer2, ids.admin, ids.owner, ids.rrhhNo]) {
+      const res = await upload(usuarioId);
+      const data = await res.json();
+      assert.equal(res.status, 201, JSON.stringify(data));
+      const { document } = data.data;
+      assert.equal(document.usuarioId, usuarioId);
+      const body = new FormData();
+      body.append("archivo", new Blob(["%PDF-1.4"], { type: "application/pdf" }), "nuevo.pdf");
+      body.append("fechaScadenza", "2027-04-21");
+      const patch = await fetch(`${base}/api/documents/${document.id}`, { method: "PATCH", headers: { Authorization: `Bearer ${tokens.rrhhNo}` }, body });
+      assert.equal(patch.status, 200, await patch.text());
+      const listed = await api("GET", `/documents?usuarioId=${usuarioId}`, { token: tokens.rrhhNo });
+      assert.equal(listed.status, 200);
+      assert.match(listed.body.data.documents[0].fechaScadenza, /^2027-04-21/);
+    }
+    const calls = storage.mock.callCount();
+    assert.equal((await upload(cliente.id)).status, 403);
+    assert.equal((await upload(interno.id)).status, 403);
+    assert.equal(storage.mock.callCount(), calls);
+    assert.equal((await api("GET", `/users/${ids.admin}`, { token: tokens.rrhhNo })).status, 403);
+  });
+
   test("RRHH sin el interruptor no ve ningun Registro", async () => {
     for (const ruta of ["/records", "/records/2026/11", "/records/2026/11/20", "/records/2026/11/summary", "/records/pending", "/records/search?q=R-1", "/clients"]) {
       const r = await api("GET", ruta, { token: tokens.rrhhNo });
