@@ -83,6 +83,7 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
       where: { id: existing.id },
       data: {
         driverId: relevoDriverId,
+        aceptacionChofer: "PENDIENTE",
         traspasoHora: null,
         estado: "IN_SOSPESO",
         ...(lugar !== undefined ? { traspasoLugar: lugar || null } : {}),
@@ -97,6 +98,7 @@ export const syncRelevoForRecord = async (record, relevoDriverId, assignedDriver
     servicioOrigenId: record.id,
     traspasoLugar: lugar || null,
     driverId: relevoDriverId,
+    aceptacionChofer: "PENDIENTE",
     // Normalmente viene con su propio vehiculo; si no tiene uno asignado, el mismo del servicio.
     vehicleId: driver.vehiculoAsignadoId ?? record.vehicleId,
     clientId: record.clientId,

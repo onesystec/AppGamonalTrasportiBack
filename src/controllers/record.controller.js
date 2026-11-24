@@ -6,6 +6,8 @@ import {
   reordenarForActor,
 } from "../services/compactado.service.js";
 import {
+  aceptarAsignacionChofer,
+  listarVehiculosParaAsignacion,
   createRecord,
   deleteRecord,
   exportRecordsForActor,
@@ -281,4 +283,20 @@ export const anular = asyncHandler(async (req, res) => {
 export const deshacerReprogramacion = asyncHandler(async (req, res) => {
   const record = await deshacerReprogramacionForActor(req.user, req.params.id);
   res.status(200).json({ success: true, data: { record } });
+});
+
+
+export const aceptarAsignacion = asyncHandler(async (req, res) => {
+  const record = await aceptarAsignacionChofer(req.user, req.params.id);
+  res.json({ success: true, data: { record } });
+});
+
+export const vehiculosAsignacion = asyncHandler(async (req, res) => {
+  const vehicles = await listarVehiculosParaAsignacion(req.user, req.params.id);
+  res.json({ success: true, data: { vehicles } });
+});
+
+export const confirmarVehiculoAsignacion = asyncHandler(async (req, res) => {
+  const record = await updateRecordForActor(req.user, req.params.id, req.body, { confirmarVehiculo: true });
+  res.json({ success: true, data: { record } });
 });

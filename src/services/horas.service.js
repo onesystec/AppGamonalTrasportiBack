@@ -11,7 +11,7 @@ import { computePayIfApproved, computeServicePay } from "./finanzas.service.js";
 import { ensureKmhPago } from "./velocidadPago.service.js";
 import { sendPushToUserIds } from "./pushNotification.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
-import { assertAccess, spedizzioneFilterForActor, toJornada } from "./record.service.js";
+import { assertAccess, assertChoferConfirmado, spedizzioneFilterForActor, toJornada } from "./record.service.js";
 import { idsDeLaOficina } from "./oficinaAvisos.service.js";
 import { recordAreaKey } from "../utils/areaAccess.js";
 import { attachCompactados } from "./compactadoView.service.js";
@@ -75,6 +75,7 @@ export const submitHoursForActor = async (actor, id, body) => {
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
+  assertChoferConfirmado(actor, record);
 
   if (!wasWorked(record)) {
     throw new AppError("Un servicio anulado o reprogramado no tiene horas para cargar", 409);
@@ -83,6 +84,7 @@ export const submitHoursForActor = async (actor, id, body) => {
   let tripMembers = null;
   if (record.compactadoId) {
     tripMembers = await findGroupMembers(record.compactadoId);
+    tripMembers.forEach((member) => assertChoferConfirmado(actor, member));
     const principal = tripMembers[0];
     if (principal && principal.id !== record.id) {
       throw new AppError(`Este servicio va compactado en un viaje: las horas se cargan una sola vez, en ${principal.codigo}`, 409);
@@ -216,10 +218,13 @@ export const closeServiceForActor = async (actor, id, body) => {
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
+  assertChoferConfirmado(actor, record);
   if (!wasWorked(record)) throw new AppError("Un servicio anulado o reprogramado no se termina", 409);
 
   if (record.compactadoId) {
-    const principal = (await findGroupMembers(record.compactadoId))[0];
+    const members = await findGroupMembers(record.compactadoId);
+    members.forEach((member) => assertChoferConfirmado(actor, member));
+    const principal = members[0];
     if (principal && principal.id !== record.id) {
       throw new AppError(`Este servicio va compactado en un viaje: se termina una sola vez, en ${principal.codigo}`, 409);
     }
@@ -642,6 +647,7 @@ export const setReceptionTimeForActor = async (actor, id, body) => {
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
   assertAccess(actor, record);
+  assertChoferConfirmado(actor, record);
   if (!record.servicioOrigenId) throw new AppError("Este servicio no fue recibido de otro chofer", 409);
   if (record.horasEstado === "APROBADAS" && !isPrivileged(actor)) {
     throw new AppError("Las horas de este servicio ya fueron aprobadas: avisa al responsable", 409);

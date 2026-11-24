@@ -522,9 +522,16 @@ enum HorasEstado {
   DEVUELTAS
 }
 
+enum EstadoAceptacionChofer {
+  PENDIENTE
+  VEHICULO_PENDIENTE
+  CONFIRMADA
+}
+
 model Record {
   id     String       @id @default(uuid())
   estado RecordStatus @default(IN_SOSPESO)
+  aceptacionChofer EstadoAceptacionChofer?
 
   driverId  String
   driver    User     @relation(fields: [driverId], references: [id])

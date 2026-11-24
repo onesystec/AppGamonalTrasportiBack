@@ -1,5 +1,8 @@
 import { Router } from "express";
 import {
+  aceptarAsignacion,
+  confirmarVehiculoAsignacion,
+  vehiculosAsignacion,
   compactar,
   create,
   descompactar,
@@ -39,6 +42,7 @@ import { authorize } from "../middlewares/authorize.js";
 import { upload } from "../middlewares/upload.js";
 import { validate } from "../middlewares/validate.js";
 import {
+  confirmarVehiculoAsignacionSchema,
   compactadoIdParamSchema,
   compactarSchema,
   kmViajeSchema,
@@ -123,6 +127,9 @@ router.get("/:year(\\d{4})", validate(yearParamSchema, "params"), listByYear);
 
 router.post("/", authorize("OWNER", "ADMIN"), validate(createRecordSchema), create);
 
+router.post("/:id/asignacion/aceptar", authorize("CHOFER"), validate(idParamSchema, "params"), aceptarAsignacion);
+router.get("/:id/asignacion/vehiculos", authorize("CHOFER"), validate(idParamSchema, "params"), vehiculosAsignacion);
+router.post("/:id/asignacion/vehiculo", authorize("CHOFER"), validate(idParamSchema, "params"), validate(confirmarVehiculoAsignacionSchema), confirmarVehiculoAsignacion);
 router.get("/:id", validate(idParamSchema, "params"), getById);
 // Circuito (lugar de espera -> retiro -> paradas -> lugar de espera) con sus tramos y el recorrido, para verlo en el mapa.
 router.get("/:id/circuito", validate(idParamSchema, "params"), circuitoMapa);

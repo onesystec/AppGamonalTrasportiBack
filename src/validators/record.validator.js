@@ -289,3 +289,5 @@ export const reprogramacionPreviaQuerySchema = z.object({
   driverId: z.string().uuid().optional(),
   vehicleId: z.string().uuid().optional(),
 });
+
+export const confirmarVehiculoAsignacionSchema = z.object({ vehicleId: z.string().uuid() });

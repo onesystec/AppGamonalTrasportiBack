@@ -111,7 +111,7 @@ const nomePersona = (p) => (p && p.correoElectronico !== SIN_ASIGNAR_CORREO ? `$
 export const datiAggiornamento = (record) => ({
   estado: record.estado,
   autista: nomePersona(record.driver),
-  targa: record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
+  targa: !["PENDIENTE", "VEHICULO_PENDIENTE"].includes(record.aceptacionChofer) && record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
 });
 
 // Campo por campo (Postgres guarda el JSON con otro orden de claves, asi que no sirve comparar el texto).
@@ -120,7 +120,7 @@ export const stessiDati = (a, b) => Boolean(a && b) && a.estado === b.estado && 
 const INCLUDE_SYNC = {
   collegamento: true,
   empresa: { include: { collegamento: true } },
-  record: { select: { id: true, estado: true, driver: { select: { nombre: true, apellido: true, correoElectronico: true } }, vehicle: { select: { targa: true } } } },
+  record: { select: { id: true, estado: true, aceptacionChofer: true, driver: { select: { nombre: true, apellido: true, correoElectronico: true } }, vehicle: { select: { targa: true } } } },
 };
 
 // Una solicitud desconectada solo puede usar una conexión aprobada con la misma ficha.

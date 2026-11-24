@@ -4,7 +4,7 @@ import { findVehicleById } from "../models/vehicle.model.js";
 import { kmFacturables, kmMultiplier } from "../utils/kmFacturables.js";
 import { distanceMeters } from "../utils/stopDetection.js";
 import { AppError } from "../utils/AppError.js";
-import { assertAccess, assertDriverActivo, toResponse } from "./record.service.js";
+import { assertAccess, assertDriverActivo, estadoAceptacionInicial, toResponse } from "./record.service.js";
 import { attachFaltantes } from "./faltantes.service.js";
 import { rematchAssignmentsForVehicle } from "./assignmentRematch.service.js";
 import { ensureCircuitSafe, planTiming } from "./rutaEstimada.service.js";
@@ -214,7 +214,7 @@ export const reprogramarRecordForActor = async (actor, id, body) => {
   if (cambioVehiculo && nuevoVehiculoId === record.vehicleId) {
     throw new AppError("El vehiculo nuevo es el mismo del servicio: desmarca el cambio de vehiculo", 400, { nuevoVehiculoId: ["Es el mismo vehiculo"] });
   }
-  if (cambioChofer) await assertDriverActivo(nuevoChoferId);
+  const nuevoChofer = cambioChofer ? await assertDriverActivo(nuevoChoferId) : null;
   const nuevoVehiculo = cambioVehiculo ? await findVehicleById(nuevoVehiculoId) : record.vehicle;
   if (!nuevoVehiculo) throw new AppError("El vehiculo indicado no existe", 400, { nuevoVehiculoId: ["No existe"] });
 
@@ -239,6 +239,7 @@ export const reprogramarRecordForActor = async (actor, id, body) => {
       data: {
         estado: "IN_SOSPESO",
         driverId: nuevoChoferId,
+        aceptacionChofer: cambioChofer ? estadoAceptacionInicial(nuevoChofer) : record.aceptacionChofer,
         vehicleId: nuevoVehiculoId,
         clientId: record.clientId,
         fechaServicio: fechaRetiro ?? body.eta,

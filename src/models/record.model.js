@@ -86,6 +86,7 @@ const RECORD_RELATIONS_SELECT = {
 // pedidos aunque nadie lo este mirando - la diferencia es de KBs a MBs por pedido.
 const RECORD_SELECT_LIST = {
   id: true,
+  aceptacionChofer: true,
   estado: true,
   // Si vino de una app conectada (App Piazza): de que empresa, para la insignia "Da ..." tambien en la lista.
   solicitud: { select: { collegamento: { select: { remotoNome: true } } } },
@@ -466,8 +467,8 @@ export const findRecordsSummary = ({ driverId, dateRange, spedizzioneFilter } = 
     orderBy: { fechaServicio: "desc" },
   });
 
-export const updateRecordById = (id, data) =>
-  prisma.record.update({ where: { id }, data, include: RECORD_INCLUDE });
+export const updateRecordById = (id, data, guard = {}) =>
+  prisma.record.update({ where: { id, ...guard }, data, include: RECORD_INCLUDE });
 
 // Usado por el mapa de ubicaciones: solo se muestra un chofer si tiene un
 // servicio en camino ahora mismo. "ultimaParada" (la parada final) se usa para

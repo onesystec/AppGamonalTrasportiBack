@@ -68,6 +68,7 @@ export const findRecordsForCompact = (ids) =>
 
 const MEMBER_SELECT = {
   id: true,
+  aceptacionChofer: true,
   codigo: true,
   destinazione: true,
   eta: true,

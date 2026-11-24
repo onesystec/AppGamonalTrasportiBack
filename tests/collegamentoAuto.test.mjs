@@ -164,15 +164,33 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(aggiornamento.targa ?? null, null);
   });
 
-  test("el Responsable elige chofer y vehiculo y Piazza recibe su nombre y targa", async () => {
+  test("el chofer asignado acepta, elige un vehículo disponible y Piazza recibe la targa confirmada", async () => {
+    const { signToken } = await import("../src/utils/jwt.js");
+    const token = signToken({ sub: choferA.id });
     const sol = await prisma.solicitudServicio.findFirst({ where: { recordRemotoId: "pz-1" } });
+    const ruta = `/records/${sol.recordId}`;
     aggiornamenti.length = 0;
-    const r = await api("PATCH", `/records/${sol.recordId}`, { token: ownerToken, body: { driverId: choferA.id, vehicleId: vehA.id } });
-    assert.equal(r.status, 200, r.text);
-    const msg = await esperar(() => aggiornamenti.find((b) => b.autista));
-    assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: "GA111AA" });
-    const sinAsignar = await api("GET", "/records/sin-asignar", { token: ownerToken });
-    assert.ok(!sinAsignar.body.data.records.some((x) => x.id === sol.recordId));
+    const asignado = await api("PATCH", ruta, { token: ownerToken, body: { driverId: choferA.id, vehicleId: vehA.id } });
+    assert.equal(asignado.status, 200, asignado.text);
+    assert.equal(asignado.body.data.record.aceptacionChofer, "PENDIENTE");
+    assert.equal((await api("PATCH", ruta, { token, body: { estado: "CONSEGNATO" } })).status, 409);
+    assert.equal((await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: vehA.id } })).status, 409);
+    const previo = await esperar(() => aggiornamenti.find((body) => body.autista));
+    assert.equal(previo.targa, null);
+    const aceptado = await api("POST", `${ruta}/asignacion/aceptar`, { token });
+    assert.equal(aceptado.status, 200, aceptado.text);
+    assert.equal(aceptado.body.data.record.aceptacionChofer, "VEHICULO_PENDIENTE");
+
+    const asignadoB = await prisma.vehiculo.create({ data: { targa: "QC345AB", modelo: "Transit", area: "DHL" } });
+    const taller = await prisma.vehiculo.create({ data: { targa: "QC346AB", modelo: "Transit", area: "DHL", estado: "EN_MANTENIMIENTO" } });
+    const lista = await api("GET", `${ruta}/asignacion/vehiculos`, { token });
+    assert.deepEqual(lista.body.data.vehicles.map(({ id }) => id), [vehA.id, asignadoB.id]);
+    assert.equal((await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: taller.id } })).status, 409);
+    const confirmado = await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: asignadoB.id } });
+    assert.equal(confirmado.status, 200, confirmado.text);
+    assert.equal(confirmado.body.data.record.aceptacionChofer, "CONFIRMADA");
+    const msg = await esperar(() => aggiornamenti.find((body) => body.targa));
+    assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: "QC345AB" });
   });
 
   test("los PATCH de chofer, vehículo y ambos avisan únicamente sobre el registro guardado", async () => {
@@ -188,8 +206,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     const vehB = await prisma.vehiculo.create({ data: { targa: "GB222BB", modelo: "Transit", area: "DHL" } });
     for (const [body, autista, targa] of [
       [{ driverId: choferA.id }, "Carlos Test", null],
-      [{ vehicleId: vehA.id }, "Carlos Test", "GA111AA"],
-      [{ driverId: choferB.id, vehicleId: vehB.id }, "Fabio Test", "GB222BB"],
+      [{ driverId: choferB.id, vehicleId: vehB.id }, "Fabio Test", null],
     ]) {
       const desde = aggiornamenti.length;
       const r = await api("PATCH", `/records/${sol.recordId}`, { token: ownerToken, body });
@@ -233,7 +250,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(r.status, 200, r.text);
     assert.equal(r.body.data.inviato, true);
     assert.deepEqual(entregas.at(-1), { url: "/api/collegamenti/pubblico/p-conexion-nueva/aggiornamenti", authorization: `Bearer ${tokenNuevo}` });
-    assert.deepEqual(aggiornamenti.at(-1), { recordId: "pz-selectores", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: "GB222BB" });
+    assert.deepEqual(aggiornamenti.at(-1), { recordId: "pz-selectores", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: null });
     assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).collegamentoId, col.id);
     assert.equal((await prisma.collegamento.findUnique({ where: { id: col.id } })).ultimoErrore, null);
   });
