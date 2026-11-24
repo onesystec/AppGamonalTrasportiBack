@@ -93,13 +93,13 @@ router.post("/punto-encuentro/rutas", authorize("OWNER", "ADMIN"), validate(meet
 // (campanita) + marcar pagada (con comprobante opcional) + limpieza (medida de
 // optimizacion de costos, ver AREA_C_ENTRY_RETENTION_DAYS en env.js - solo OWNER, es
 // un borrado en bloque e irreversible, mismo criterio que /users/location-pings/cleanup).
-router.get("/area-c-entries", authorize("OWNER", "ADMIN"), listAreaCEntries);
-router.get("/area-c-entries/unpaid", authorize("OWNER", "ADMIN"), listUnpaidAreaCEntries);
+router.get("/area-c-entries", authorize("OWNER", "ADMIN", "RRHH"), listAreaCEntries);
+router.get("/area-c-entries/unpaid", authorize("OWNER", "ADMIN", "RRHH"), listUnpaidAreaCEntries);
 router.post("/area-c-entries/cleanup", authorize("OWNER"), cleanupAreaCEntries);
-router.post("/area-c-entries/:id/reavisar", authorize("OWNER"), validate(idParamSchema, "params"), resendAreaCEntryNotice);
+router.post("/area-c-entries/:id/reavisar", authorize("OWNER", "RRHH"), validate(idParamSchema, "params"), resendAreaCEntryNotice);
 router.patch(
   "/area-c-entries/:id",
-  authorize("OWNER", "ADMIN"),
+  authorize("OWNER", "ADMIN", "RRHH"),
   validate(idParamSchema, "params"),
   areaCEntryUpload.single("comprobante"),
   validate(updateAreaCEntrySchema),
@@ -107,7 +107,7 @@ router.patch(
 );
 router.delete(
   "/area-c-entries/:id",
-  authorize("OWNER", "ADMIN"),
+  authorize("OWNER", "ADMIN", "RRHH"),
   validate(idParamSchema, "params"),
   deleteAreaCEntry
 );

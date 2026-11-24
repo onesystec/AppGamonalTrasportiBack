@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { randomUUID } from "node:crypto";
 import {
   countActiveChoferes,
@@ -44,7 +45,6 @@ const ESPERA_SERVICIO_DIAS = 7;
 // El chofer tiene que subir el aviso dentro de este tiempo desde el transito; si tarda mas, la oficina lo ve marcado.
 const SUBIDA_LIMITE_HORAS = 48;
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dayDiff = (fromDay, toDay) => Math.round((dayToDate(toDay) - dayToDate(fromDay)) / DAY_MS);
@@ -153,7 +153,7 @@ const venceWhere = (vence, today) => {
 // El chofer solo ve los suyos; OWNER/ADMIN ven todos y pueden filtrar por chofer.
 const buildWhere = (actor, filters, today) => {
   const and = [];
-  if (!isPrivileged(actor)) and.push({ driverId: actor.id });
+  if (!canManageFinance(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
   // Un Responsable ve los mancatos de servicios de sus areas y los que cargo el; sin servicio asignado
   // (aun en espera) solo los ven los Admin.
@@ -192,7 +192,7 @@ const buildWhere = (actor, filters, today) => {
 
 const assertAccess = (actor, mancato) => {
   if (mancato.driverId === actor.id || actor.cargo === "OWNER") return;
-  if (actor.cargo === "ADMIN") {
+  if (canManageFinance(actor)) {
     // Los que no tienen servicio los ven todos los Admin y Responsables.
     const inArea = !mancato.recordId || (mancato.record && canAccessRecordArea(actor, mancato.record));
     if (inArea || mancato.createdById === actor.id) return;
@@ -309,7 +309,7 @@ const CHOFER_HIDDEN_FIELDS = [
   "esperaHasta",
 ];
 const forActor = (actor) => (response) => {
-  if (isPrivileged(actor)) return response;
+  if (canManageFinance(actor)) return response;
   const visible = { ...response, editable: !response.pagado };
   for (const field of CHOFER_HIDDEN_FIELDS) delete visible[field];
   return visible;
@@ -322,7 +322,7 @@ const assertNotFuture = (transitAt, now = new Date()) => {
 };
 
 const resolveDriverId = (actor, requestedDriverId) => {
-  if (!isPrivileged(actor)) return actor.id;
+  if (!canManageFinance(actor)) return actor.id;
   if (!requestedDriverId) throw new AppError("Elige el chofer del mancato pagamento", 400);
   return requestedDriverId;
 };
@@ -344,7 +344,7 @@ export const createMancatoForActor = async (actor, data, files) => {
   const id = randomUUID();
   const vencimiento = calcVencimiento(data.fecha);
   // El comprobante de pago lo sube solo la oficina: el chofer solo registra el aviso.
-  const comprobanteFile = isPrivileged(actor) ? files.comprobante?.[0] : undefined;
+  const comprobanteFile = canManageFinance(actor) ? files.comprobante?.[0] : undefined;
 
   const uploaded = [];
   try {
@@ -451,7 +451,7 @@ export const listMancatosForActor = async (actor, query) => {
 // Informe (Excel/PDF) de la oficina: todos los mancati que cumplen los filtros de la lista, en formato de respuesta.
 const EXPORT_MAX = 3000;
 export const exportMancatosForActor = async (actor, query) => {
-  if (!isPrivileged(actor)) throw new AppError("Solo la oficina puede descargar el informe", 403);
+  if (!canManageFinance(actor)) throw new AppError("Solo la oficina puede descargar el informe", 403);
   const today = romeDay();
   const where = buildWhere(actor, query, today);
   const rows = await findMancatos({ where, orderBy: orderByFor(query), skip: 0, take: EXPORT_MAX });
@@ -533,7 +533,7 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
   if (!current) throw new AppError("Mancato pagamento no encontrado", 404);
   assertAccess(actor, current);
 
-  const privileged = isPrivileged(actor);
+  const privileged = canManageFinance(actor);
   if (!privileged && current.pagado) {
     throw new AppError("Este mancato pagamento ya esta pagado y no se puede modificar", 403);
   }
@@ -669,7 +669,7 @@ export const updateMancatoForActor = async (actor, id, data, files) => {
 };
 
 export const deleteMancatoForActor = async (actor, id) => {
-  if (!isPrivileged(actor)) {
+  if (!canManageFinance(actor)) {
     throw new AppError("No tienes permisos para realizar esta accion", 403);
   }
   const mancato = await findMancatoById(id);
@@ -703,7 +703,7 @@ export const getMancatoStatsForActor = async (actor, query) => {
   const where = buildWhere(actor, query, today);
   const [rows, totalChoferes] = await Promise.all([
     findMancatosForStats(where),
-    isPrivileged(actor) ? countActiveChoferes() : Promise.resolve(null),
+    canManageFinance(actor) ? countActiveChoferes() : Promise.resolve(null),
   ]);
 
   const items = rows.map((r) => ({
@@ -814,7 +814,7 @@ export const getMancatoStatsForActor = async (actor, query) => {
 
 // Servicios del vehiculo cerca del transito, para que la oficina elija a mano el correcto.
 export const listMancatoCandidatesForActor = async (actor, id) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const mancato = await findMancatoById(id);
   if (!mancato) throw new AppError("Mancato pagamento no encontrado", 404);
   assertAccess(actor, mancato);
@@ -831,7 +831,7 @@ export const listMancatoCandidatesForActor = async (actor, id) => {
 // Vuelve a evaluar todos los mancatos que la oficina no fijo a mano (p. ej. despues de
 // completar muchas Fechas de retiro).
 export const rematchMancatosForActor = async (actor) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   return rematchAll();
 };
 

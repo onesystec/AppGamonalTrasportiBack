@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { randomUUID } from "node:crypto";
 import { buildLocalDateRange } from "../utils/dateRange.js";
 import {
@@ -31,7 +32,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // pagar una multa de transito desde que se notifica). El verbale manda: se puede cambiar.
 const PLAZO_POR_DEFECTO_DIAS = 60;
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dayDiff = (fromDay, toDay) => Math.round((dayToDate(toDay) - dayToDate(fromDay)) / DAY_MS);
@@ -56,7 +56,7 @@ const estadoWhere = (estado, today) => {
 // El chofer solo ve las suyas; OWNER/ADMIN ven todas y pueden filtrar por chofer.
 const buildWhere = (actor, filters, today) => {
   const and = [];
-  if (!isPrivileged(actor)) and.push({ driverId: actor.id });
+  if (!canManageFinance(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
   // Un Responsable solo ve las multas de sus areas (las que no tienen area, solo los Admin).
   const areaWhere = multaAreaWhere(actor);
@@ -98,12 +98,12 @@ const buildWhere = (actor, filters, today) => {
 
 const assertAccess = (actor, multa) => {
   if (multa.driverId === actor.id) return;
-  if (isPrivileged(actor) && canAccessAreaKey(actor, multa.area)) return;
+  if (canManageFinance(actor) && canAccessAreaKey(actor, multa.area)) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
 const assertPrivileged = (actor) => {
-  if (!isPrivileged(actor)) {
+  if (!canManageFinance(actor)) {
     throw new AppError("Solo la oficina puede cargar o modificar multas", 403);
   }
 };
@@ -361,7 +361,7 @@ const toChoferResponse = async (m, today) => {
   };
 };
 
-const toActorResponse = (actor, m, today) => (isPrivileged(actor) ? toResponse(m, today) : toChoferResponse(m, today));
+const toActorResponse = (actor, m, today) => (canManageFinance(actor) ? toResponse(m, today) : toChoferResponse(m, today));
 
 const ORDER_BY_ESTADO = {
   // Lo mas urgente primero: la que vence antes (o lleva mas tiempo vencida).
@@ -568,7 +568,7 @@ export const getMultaStatsForActor = async (actor, query) => {
   const where = buildWhere(actor, query, today);
   const [rows, totalChoferes] = await Promise.all([
     findMultasForStats(where),
-    isPrivileged(actor) ? countActiveChoferes() : Promise.resolve(null),
+    canManageFinance(actor) ? countActiveChoferes() : Promise.resolve(null),
   ]);
 
   const items = rows.map((r) => ({
@@ -586,7 +586,7 @@ export const getMultaStatsForActor = async (actor, query) => {
   }));
 
   // Para el chofer, "por pagar" es solo lo que paga el (lo que paga la empresa se le descuenta aparte).
-  const payable = isPrivileged(actor) ? items : items.filter((i) => i.quienPaga === "CHOFER_PAGO");
+  const payable = canManageFinance(actor) ? items : items.filter((i) => i.quienPaga === "CHOFER_PAGO");
   const openAt = (day) =>
     payable.filter((i) => i.createdDay <= day && (!i.pagado || (i.pagadoDay && i.pagadoDay > day)));
   const totalOf = (list) => round2(list.reduce((sum, i) => sum + i.costo, 0));
@@ -701,7 +701,7 @@ const ALERT_ITEMS_PER_GROUP = 5;
 // el mismo (quienPaga = CHOFER_PAGO): las "a descontar" las paga la empresa.
 export const getMultaAlertsForActor = async (actor) => {
   const today = romeDay();
-  const privileged = isPrivileged(actor);
+  const privileged = canManageFinance(actor);
   const limit = dayToDate(addDaysDay(today, ALERT_DAYS));
   const todayDate = dayToDate(today);
   const areaWhere = multaAreaWhere(actor) ?? {};
@@ -758,7 +758,7 @@ export const getMultaAlertsForActor = async (actor) => {
 export const uploadMyComprobanteForActor = async (actor, id, file) => {
   const multa = await findMultaById(id);
   if (!multa) throw new AppError("Multa no encontrada", 404);
-  if (isPrivileged(actor) || multa.driverId !== actor.id) {
+  if (canManageFinance(actor) || multa.driverId !== actor.id) {
     throw new AppError("No tienes permisos para realizar esta accion", 403);
   }
   if (multa.quienPaga !== "CHOFER_PAGO") {

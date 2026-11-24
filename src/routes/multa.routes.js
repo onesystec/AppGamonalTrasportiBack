@@ -1,3 +1,4 @@
+import { FINANCE_ROLES } from "../utils/financeAccess.js";
 import { Router } from "express";
 import { alerts, create, exportInforme, getById, list, remove, stats, suggestDriver, suggestForMulta, suggestForMultas, summary, update, uploadMyComprobante } from "../controllers/multa.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -19,7 +20,7 @@ import {
 const router = Router();
 
 // Las multas son de la oficina: el chofer no las ve (en su app solo tiene Combustible y Mancato Pagamento).
-router.use(authenticate, authorize("OWNER", "ADMIN"));
+router.use(authenticate, authorize(...FINANCE_ROLES));
 
 // Foto o PDF de la multa y comprobante de pago: un archivo cada uno (imagen o PDF).
 const uploadFiles = upload.fields([

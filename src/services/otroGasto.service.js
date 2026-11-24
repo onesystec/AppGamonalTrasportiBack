@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { randomUUID } from "node:crypto";
 import { prisma } from "../config/prisma.js";
 import { AppError } from "../utils/AppError.js";
@@ -12,7 +13,6 @@ import { sendPushToUserIds } from "./pushNotification.service.js";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_AGE_DAYS = 60;
 
-const isOffice = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const CONCEPTO_LABEL = {
   ACEITE: "Aceite",
@@ -73,7 +73,7 @@ const resolveVehicleId = async (targa) => {
 const dateOnly = (fecha) => new Date(`${fecha}T00:00:00.000Z`);
 
 export const createOtroGastoForActor = async (actor, data, file) => {
-  if (actor.cargo !== "CHOFER" && !isOffice(actor)) throw new AppError("Solo los choferes cargan sus gastos", 403);
+  if (actor.cargo !== "CHOFER" && !canManageFinance(actor)) throw new AppError("Solo los choferes cargan sus gastos", 403);
   assertFecha(data.fecha);
   const vehicleId = await resolveVehicleId(data.targa);
   const id = randomUUID();
@@ -107,7 +107,7 @@ const monthRange = (month) => {
 // El chofer ve los suyos; la oficina, los de todos (puede filtrar por chofer, estado y mes).
 export const listOtrosGastosForActor = async (actor, { estado, driverId, month } = {}) => {
   const where = { ...(estado ? { estado } : {}), ...(month ? { fecha: monthRange(month) } : {}) };
-  if (isOffice(actor)) {
+  if (canManageFinance(actor)) {
     if (driverId) where.driverId = driverId;
   } else where.driverId = actor.id;
 
@@ -115,14 +115,14 @@ export const listOtrosGastosForActor = async (actor, { estado, driverId, month }
   const items = await Promise.all(rows.map(toResponse));
   // Lo que se debe reembolsar o ya se reembolso (un rechazado no cuenta).
   const total = Math.round(items.filter((g) => g.estado !== "RECHAZADO").reduce((sum, g) => sum + g.monto, 0) * 100) / 100;
-  const pendientes = isOffice(actor) ? await prisma.otroGasto.count({ where: { estado: "PENDIENTE" } }) : null;
+  const pendientes = canManageFinance(actor) ? await prisma.otroGasto.count({ where: { estado: "PENDIENTE" } }) : null;
   return { items, total, pendientes };
 };
 
 const loadFor = async (actor, id) => {
   const g = await prisma.otroGasto.findUnique({ where: { id }, include: INCLUDE });
   if (!g) throw new AppError("Gasto no encontrado", 404);
-  if (!isOffice(actor) && g.driverId !== actor.id) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor) && g.driverId !== actor.id) throw new AppError("No tienes permisos para realizar esta accion", 403);
   return g;
 };
 
@@ -168,7 +168,7 @@ export const deleteOtroGastoForActor = async (actor, id) => {
 
 // La oficina marca un gasto como reembolsado o lo rechaza con el motivo; el chofer recibe el aviso.
 export const reviewOtroGastoForActor = async (actor, id, { accion, nota }) => {
-  if (!isOffice(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const current = await loadFor(actor, id);
   const reembolsar = accion === "REEMBOLSAR";
   const updated = await prisma.otroGasto.update({

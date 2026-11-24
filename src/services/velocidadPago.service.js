@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { prisma } from "../config/prisma.js";
 import { PAY_TARIFFS } from "../config/payRates.js";
 import { bumpCacheVersion } from "../utils/responseCache.js";
@@ -38,7 +39,7 @@ export const pagoAparteFor = (driverId) => conPagoAparte.has(driverId);
 
 // Interruptor "pago aparte" de un chofer (Pago a choferes, solo el Admin). No cambia el importe: solo si lo de fuera de horario va aparte o junto.
 export const setPagoAparteForActor = async (actor, { driverId, activo }) => {
-  if (actor.cargo !== "OWNER") throw new AppError("Solo un Admin puede activar el pago aparte", 403);
+  if (actor.cargo !== "OWNER" && actor.cargo !== "RRHH") throw new AppError("Solo un Admin puede activar el pago aparte", 403);
   const driver = await prisma.user.findUnique({ where: { id: driverId }, select: { id: true } });
   if (!driver) throw new AppError("Chofer no encontrado", 404);
   await prisma.user.update({ where: { id: driverId }, data: { pagoAparte: activo } });
@@ -75,7 +76,7 @@ export const kmhPagoInfo = (driverId, month, defaultKmh) => {
 };
 
 export const setKmhPagoForActor = async (actor, { driverId, month, kmh }) => {
-  if (actor.cargo !== "OWNER" && actor.cargo !== "ADMIN") throw new AppError("No autorizado", 403);
+  if (!canManageFinance(actor)) throw new AppError("No autorizado", 403);
   if (!VELOCIDADES_PAGO.includes(kmh)) throw new AppError(`La velocidad tiene que ser ${VELOCIDADES_PAGO.join(", ")} km/h`, 400);
   if (month < PRIMER_MES) throw new AppError("Antes de octubre de 2026 no se paga por km: no se puede cambiar", 400);
   const driver = await prisma.user.findUnique({ where: { id: driverId }, select: { id: true } });

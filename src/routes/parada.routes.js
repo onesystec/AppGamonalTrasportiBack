@@ -1,3 +1,4 @@
+import { FINANCE_ROLES } from "../utils/financeAccess.js";
 import { Router } from "express";
 import { getReturn, list, putReturn, status } from "../controllers/parada.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -7,11 +8,11 @@ import { paradasQuerySchema, retornoSchema } from "../validators/parada.validato
 
 const router = Router();
 
-router.use(authenticate, authorize("OWNER", "ADMIN"));
+router.use(authenticate, authorize(...FINANCE_ROLES));
 
 router.get("/", validate(paradasQuerySchema, "query"), list);
 router.get("/estado", status);
-router.get("/retorno", getReturn);
-router.put("/retorno", validate(retornoSchema), putReturn);
+router.get("/retorno", authorize("OWNER", "ADMIN"), getReturn);
+router.put("/retorno", authorize("OWNER", "ADMIN"), validate(retornoSchema), putReturn);
 
 export default router;

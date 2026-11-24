@@ -1,3 +1,4 @@
+import { FINANCE_ROLES } from "../utils/financeAccess.js";
 import { Router } from "express";
 import { create, getById, list, remove, update } from "../controllers/sollecito.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -14,7 +15,7 @@ import {
 const router = Router();
 
 // Los sollecitos son de la oficina: el chofer no los ve.
-router.use(authenticate, authorize("OWNER", "ADMIN"));
+router.use(authenticate, authorize(...FINANCE_ROLES));
 
 // PDF (o foto) del sollecito y comprobante de pago.
 const uploadFiles = upload.fields([

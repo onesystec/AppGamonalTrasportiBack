@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { viajesAplican } from "../config/viajes.js";
 import { PAYABLE_STATUSES, tariffForDisplay, tariffForMonth } from "../config/payRates.js";
 import {
@@ -30,7 +31,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const MONTH_LABELS = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 const SERIES_MONTHS = 6;
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const round2 = (value) => Math.round(value * 100) / 100;
 const pctChange = (current, previous) =>
@@ -454,7 +454,7 @@ const monthOfRecord = (record) => romeDay(record.fechaServicio).slice(0, 7);
 
 export const getFinanzasResumenForActor = async (actor, query) => {
   await ensureKmhPago();
-  const privileged = isPrivileged(actor);
+  const privileged = canManageFinance(actor);
   const month = resolveMonth(query.month);
   const firstMonth = shiftMonth(month, -(SERIES_MONTHS - 1));
   const { from, to } = windowFor(firstMonth, month);
@@ -844,7 +844,7 @@ const desgloseFinal = (e, tariff, kmh) => {
 
 export const getPagosChoferesForActor = async (actor, query) => {
   await ensureKmhPago();
-  const privileged = isPrivileged(actor);
+  const privileged = canManageFinance(actor);
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
   // El chofer solo ve lo suyo, aunque pida otro.
@@ -973,7 +973,7 @@ export const getPagosChoferesForActor = async (actor, query) => {
 // Solo la oficina.
 const MAX_MESES_PAGO = 14;
 export const getPagoServiciosForActor = async (actor, { desde, hasta }) => {
-  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  if (!canManageFinance(actor)) throw new AppError("No autorizado", 403);
   await ensureKmhPago();
   const meses = [];
   for (let m = desde; m <= hasta && meses.length < MAX_MESES_PAGO; m = shiftMonth(m, 1)) meses.push(m);
@@ -1017,7 +1017,7 @@ const kmOfPay = (record, pay) => {
 const addDaysTo = (day, n) => new Date(new Date(`${day}T00:00:00.000Z`).getTime() + n * DAY_MS).toISOString().slice(0, 10);
 
 export const getKmRankingForActor = async (actor, query) => {
-  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  if (!canManageFinance(actor)) throw new AppError("No autorizado", 403);
   await ensureKmhPago();
   const periodo = query.periodo ?? "mes";
   const today = romeDay();
@@ -1091,7 +1091,7 @@ export const getPaidKmByDriver = async (month, { driverId } = {}) => {
 // una sola vez. Ademas: los trabajos adicionales aprobados (horas varias) y los permisos aprobados.
 export const getPresenciasDataForActor = async (actor, query) => {
   await ensureKmhPago();
-  if (!isPrivileged(actor)) throw new AppError("No autorizado", 403);
+  if (!canManageFinance(actor)) throw new AppError("No autorizado", 403);
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
   const allRecords = await findRecordsDetailed({ from, to, areaWhere: recordAreaWhere(actor) }).then((rows) =>
@@ -1162,7 +1162,7 @@ export const getPresenciasDataForActor = async (actor, query) => {
 export const getGastosServiciosForActor = async (actor, query) => {
   await ensureKmhPago();
   // Son datos economicos del servicio: el chofer no los ve (igual que en Registros).
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const month = resolveMonth(query.month);
   const { from, to } = windowFor(month, month);
 

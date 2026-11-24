@@ -1,3 +1,4 @@
+import { FINANCE_ROLES } from "../utils/financeAccess.js";
 import { Router } from "express";
 import { create, list, remove, review, update } from "../controllers/otroGasto.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
@@ -20,9 +21,9 @@ router.use(authenticate);
 
 // El chofer (y el Admin/Owner en su modo chofer) carga y corrige los suyos; la oficina los ve todos y los reembolsa o rechaza.
 router.get("/", validate(listOtrosGastosQuerySchema, "query"), list);
-router.post("/", authorize("CHOFER", "OWNER", "ADMIN"), uploadComprobante, validate(createOtroGastoSchema), create);
-router.patch("/:id", authorize("CHOFER", "OWNER", "ADMIN"), validate(idParamSchema, "params"), uploadComprobante, validate(updateOtroGastoSchema), update);
-router.delete("/:id", authorize("CHOFER", "OWNER", "ADMIN"), validate(idParamSchema, "params"), remove);
-router.post("/:id/revision", authorize("OWNER", "ADMIN"), validate(idParamSchema, "params"), validate(reviewOtroGastoSchema), review);
+router.post("/", authorize("CHOFER", ...FINANCE_ROLES), uploadComprobante, validate(createOtroGastoSchema), create);
+router.patch("/:id", authorize("CHOFER", ...FINANCE_ROLES), validate(idParamSchema, "params"), uploadComprobante, validate(updateOtroGastoSchema), update);
+router.delete("/:id", authorize("CHOFER", ...FINANCE_ROLES), validate(idParamSchema, "params"), remove);
+router.post("/:id/revision", authorize(...FINANCE_ROLES), validate(idParamSchema, "params"), validate(reviewOtroGastoSchema), review);
 
 export default router;

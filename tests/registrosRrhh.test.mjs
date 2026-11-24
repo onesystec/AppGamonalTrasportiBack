@@ -28,6 +28,7 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
   const tokens = {};
   const ids = {};
   let recordIds = [];
+  let tollId;
 
   const api = async (method, path, { token, body } = {}) => {
     const res = await fetch(`${base}/api${path}`, { method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
@@ -59,7 +60,14 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
     const r2 = await mk("R-2", chofer2.id, "2026-11-20", { estado: "CONSEGNATO" });
     const r3 = await mk("R-3", chofer1.id, "2026-11-25");
     recordIds = [r1.id, r2.id, r3.id];
-    await prisma.mancatoPagamento.create({ data: { numero: "M1", fechaHoraTransito: new Date("2026-11-20T08:00:00Z"), tramo: "ida", costo: 7.7, driverId: chofer1.id, vehicleId: veh.id, recordId: r1.id, asignacion: "AUTOMATICA" } }).catch(() => {});
+    const toll = await prisma.mancatoPagamento.create({
+      data: {
+        numero: "M1", targa: veh.targa, fecha: new Date("2026-11-20"),
+        fechaVencimiento: new Date("2026-12-20"), fechaHoraTransito: new Date("2026-11-20T08:00:00Z"),
+        tramo: "IDA", costo: 7.7, driverId: chofer1.id, vehicleId: veh.id, recordId: r1.id, asignacion: "AUTO",
+      },
+    });
+    tollId = toll.id;
     server = createServer(app);
     await new Promise((r) => server.listen(0, r));
     base = `http://localhost:${server.address().port}`;
@@ -155,7 +163,43 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
     assert.deepEqual(fuera.body.data.records.map((x) => x.codigo), ["R-2"], "aunque el monto pedido sea imposible, no se filtra por el");
   });
 
-  test("solo lectura: no abre el detalle, ni archivos, ni exporta, ni crea o cambia nada, ni ve finanzas", async () => {
+  test("RRHH ve todas las secciones de Finanzas aun sin el interruptor de Registros", async () => {
+    for (const path of [
+      "/finanzas/resumen?month=2026-11", "/finanzas/pagos?month=2026-11",
+      "/finanzas/gastos-servicios?month=2026-11", "/finanzas/tarifas-km",
+      "/horas/pendientes", "/paradas", "/combustible", "/mancato-pagamentos",
+      "/otros-gastos", "/solleciti", "/multas", "/vehiculos/area-c-entries", `/mancato-pagamentos/${tollId}`,
+    ]) {
+      const r = await api("GET", path, { token: tokens.rrhhNo });
+      assert.equal(r.status, 200, `${path} -> ${r.text}`);
+    }
+    const path = "/finanzas/pagos?month=2026-11";
+    const rrhh = await api("GET", path, { token: tokens.rrhhNo });
+    const owner = await api("GET", path, { token: tokens.owner });
+    assert.deepEqual(rrhh.body.data, owner.body.data);
+  });
+
+  test("RRHH puede actualizar el pago aparte desde Finanzas", async () => {
+    const body = { driverId: ids.chofer1, activo: true };
+    const r = await api("PUT", "/finanzas/pago-aparte", { token: tokens.rrhhNo, body });
+    assert.equal(r.status, 200, r.text);
+    assert.equal((await api("PUT", "/finanzas/pago-aparte", { token: tokens.chofer1, body })).status, 403);
+  });
+
+  test("RRHH revisa las horas de un chofer desde Finanzas", async () => {
+    const id = recordIds[1];
+    await prisma.record.update({ where: { id }, data: { horasEstado: "PENDIENTE" } });
+    const r = await api("POST", `/horas/${id}/revision`, {
+      token: tokens.rrhhNo,
+      body: { accion: "DEVOLVER", nota: "Revisa las horas" },
+    });
+    assert.equal(r.status, 200, r.text);
+    const record = await prisma.record.findUnique({ where: { id } });
+    assert.equal(record.horasEstado, "DEVUELTAS");
+    assert.equal(record.horasRevisadaPorId, ids.rrhhNo);
+  });
+
+  test("solo lectura: no abre el detalle, ni archivos, ni exporta, ni crea o cambia nada", async () => {
     const id = recordIds[0];
     const cierre = [
       ["GET", `/records/${id}`],
@@ -163,7 +207,6 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
       ["GET", `/records/${id}/circuito`],
       ["GET", "/records/export"],
       ["GET", "/records/sin-asignar"],
-      ["GET", "/finanzas/resumen"],
       ["GET", "/seguimiento"],
       ["GET", "/solicitudes"],
       ["GET", "/cambios"],

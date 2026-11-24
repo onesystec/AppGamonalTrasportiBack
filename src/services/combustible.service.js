@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { randomUUID } from "node:crypto";
 import {
   countActiveChoferes,
@@ -29,7 +30,6 @@ import { canAccessAreaKey, canAccessRecordArea, combustibleAreaWhere, recordArea
 import { AppError } from "../utils/AppError.js";
 import { AREA_VALUES } from "../validators/combustible.validator.js";
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 const dayToDate = (day) => new Date(`${day}T00:00:00.000Z`);
 const dateOnlyToDay = (date) => date.toISOString().slice(0, 10);
@@ -42,7 +42,7 @@ const cleanMetodo = (value) => value.replace(/\s+/g, " ").trim();
 // El chofer ve solo lo suyo; OWNER/ADMIN ven todo y pueden filtrar por chofer.
 const buildWhere = (actor, filters) => {
   const and = [];
-  if (!isPrivileged(actor)) and.push({ driverId: actor.id });
+  if (!canManageFinance(actor)) and.push({ driverId: actor.id });
   else if (filters.driverId) and.push({ driverId: filters.driverId });
   // Un Responsable solo ve las cargas de las areas que tiene marcadas.
   const areaWhere = combustibleAreaWhere(actor);
@@ -83,7 +83,7 @@ const assertAreaAllowed = (actor, area) => {
 
 const assertAccess = (actor, registro) => {
   if (registro.driverId === actor.id) return;
-  if (isPrivileged(actor) && canAccessAreaKey(actor, COMBUSTIBLE_AREA_KEY[registro.area])) return;
+  if (canManageFinance(actor) && canAccessAreaKey(actor, COMBUSTIBLE_AREA_KEY[registro.area])) return;
   throw new AppError("No tienes permisos para realizar esta accion", 403);
 };
 
@@ -91,7 +91,7 @@ const assertAccess = (actor, registro) => {
 // registro: despues queda cerrado para que el gasto no se pueda reescribir. OWNER/ADMIN
 // pueden siempre.
 const canModify = (actor, registro, today) =>
-  isPrivileged(actor) || romeDay(registro.createdAt) === today;
+  canManageFinance(actor) || romeDay(registro.createdAt) === today;
 
 const assertCanModify = (actor, registro) => {
   if (!canModify(actor, registro, romeDay())) {
@@ -172,7 +172,7 @@ const assertNotFuture = (fechaHora, now = new Date()) => {
 };
 
 const resolveDriverId = (actor, requestedDriverId) => {
-  if (!isPrivileged(actor)) return actor.id;
+  if (!canManageFinance(actor)) return actor.id;
   if (!requestedDriverId) throw new AppError("Elige el chofer de la carga", 400);
   return requestedDriverId;
 };
@@ -181,7 +181,7 @@ export const createCombustibleForActor = async (actor, data, files) => {
   const comprobanteFile = files?.comprobante?.[0];
   if (!comprobanteFile) throw new AppError("El comprobante de pago es obligatorio", 400);
   const driverId = resolveDriverId(actor, data.driverId);
-  if (isPrivileged(actor)) assertAreaAllowed(actor, data.area);
+  if (canManageFinance(actor)) assertAreaAllowed(actor, data.area);
 
   const fechaHora = romeLocalToDate(data.fecha, data.hora);
   assertNotFuture(fechaHora);
@@ -194,11 +194,11 @@ export const createCombustibleForActor = async (actor, data, files) => {
     from: new Date(fechaHora.getTime() - DUPLICADO_VENTANA_MS),
     to: new Date(fechaHora.getTime() + DUPLICADO_VENTANA_MS),
   });
-  if (duplicado && !(isPrivileged(actor) && data.forzar)) {
+  if (duplicado && !(canManageFinance(actor) && data.forzar)) {
     const quien = duplicado.driver ? ` de ${duplicado.driver.nombre} ${duplicado.driver.apellido}` : "";
     throw new AppError(
       `Ya existe una carga igual${quien} de las ${romeHHMM(duplicado.fechaHora)} (misma targa y monto). ` +
-        (isPrivileged(actor) ? "Si es otra carga, registrala igual." : "No la subas dos veces."),
+        (canManageFinance(actor) ? "Si es otra carga, registrala igual." : "No la subas dos veces."),
       409
     );
   }
@@ -291,7 +291,7 @@ export const updateCombustibleForActor = async (actor, id, data, files) => {
   assertAccess(actor, current);
   assertCanModify(actor, current);
 
-  const privileged = isPrivileged(actor);
+  const privileged = canManageFinance(actor);
   const payload = {};
   for (const key of ["targa", "monto", "area"]) {
     if (data[key] !== undefined) payload[key] = data[key];
@@ -422,7 +422,7 @@ export const getCombustibleStatsForActor = async (actor, query) => {
   const where = buildWhere(actor, { ...query, from: firstOfSeries, to: today });
   const [rows, totalChoferes, byAsignacion] = await Promise.all([
     findCombustiblesForStats(where),
-    isPrivileged(actor) ? countActiveChoferes() : Promise.resolve(null),
+    canManageFinance(actor) ? countActiveChoferes() : Promise.resolve(null),
     // Sin rango de fechas: una carga sin servicio no vence, queda esperando para siempre.
     countCombustibleByAsignacion(buildWhere(actor, {})),
   ]);
@@ -518,7 +518,7 @@ export const getCombustibleStatsForActor = async (actor, query) => {
 
 // Servicios del vehiculo cerca de la carga, para que la oficina elija a mano el correcto.
 export const listCombustibleCandidatesForActor = async (actor, id) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const carga = await findCombustibleById(id);
   if (!carga) throw new AppError("Registro de combustible no encontrado", 404);
   assertAccess(actor, carga);
@@ -532,6 +532,6 @@ export const listCombustibleCandidatesForActor = async (actor, id) => {
 
 // Vuelve a evaluar todas las cargas que la oficina no fijo a mano.
 export const rematchCombustiblesForActor = async (actor) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   return rematchAllCombustible();
 };

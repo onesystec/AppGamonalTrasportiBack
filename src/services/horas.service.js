@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { findGroupMembers, markGroupDelivered, setGroupKm } from "../models/compactado.model.js";
 import { findRecordById, findRecordsByHorasEstado, updateRecordById } from "../models/record.model.js";
 import { AppError } from "../utils/AppError.js";
@@ -312,10 +313,10 @@ export const autoApproveIfOk = async (id) => {
 // Aprobar (tal cual o ajustando la jornada) o devolver con una nota al chofer.
 export const reviewHoursForActor = async (actor, id, body) => {
   await ensureKmhPago();
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
-  assertAccess(actor, record);
+  if (actor.cargo !== "RRHH") assertAccess(actor, record);
 
   if (!record.horasEstado) throw new AppError("El chofer todavia no cargo horas en este servicio", 409);
   // Un Responsable no aprueba sus propias horas (las revisa otra persona); el Admin si puede.
@@ -499,7 +500,7 @@ const AUTO_APPROVE_PER_LOAD = 20;
 // Cola de aprobacion: horas enviadas por los choferes (y, si se pide, las devueltas).
 export const listHoursForReviewForActor = async (actor, { estado }) => {
   await ensureKmhPago();
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const estados = estado === "TODAS" ? ["PENDIENTE", "DEVUELTAS"] : [estado];
   let records = await findRecordsByHorasEstado({ estados, spedizzioneFilter: spedizzioneFilterForActor(actor) });
 
@@ -595,10 +596,10 @@ export const listHoursForReviewForActor = async (actor, { estado }) => {
 // Recalcula a mano las paradas de una jornada (por ejemplo si el GPS fallo al enviarla). Devuelve
 // tambien la lectura del GPS sobre el fin y los avisos ya recalculados.
 export const recalcParadasForActor = async (actor, id) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
-  assertAccess(actor, record);
+  if (actor.cargo !== "RRHH") assertAccess(actor, record);
   // Si no hay datos de GPS (vehiculo ni celular) se deja la estimacion por ruta en su lugar.
   let gpsError = null;
   try {
@@ -628,10 +629,10 @@ export const recalcParadasForActor = async (actor, id) => {
 
 // Recalcula a mano la estimacion por ruta de un servicio (retiro + paradas + retorno), sin GPS.
 export const recalcEstimacionForActor = async (actor, id) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
   const record = await findRecordById(id);
   if (!record) throw new AppError("Registro no encontrado", 404);
-  assertAccess(actor, record);
+  if (actor.cargo !== "RRHH") assertAccess(actor, record);
   const estimacionRuta = await computeEstimacionForRecord(id);
   const fresh = await findRecordById(id);
   const totalMin =

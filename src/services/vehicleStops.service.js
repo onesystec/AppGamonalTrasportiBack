@@ -1,3 +1,4 @@
+import { canManageFinance } from "../utils/financeAccess.js";
 import { DEPOT_ORIGIN } from "../constants/depot.js";
 import { WORK_PLACES } from "../constants/workPlaces.js";
 import { env } from "../config/env.js";
@@ -78,7 +79,6 @@ const loadSamples = async (record, fromMs, toMs) => {
   throw providerError ?? new AppError("El GPS no tiene datos de ese tramo", 404);
 };
 
-const isPrivileged = (actor) => actor.cargo === "OWNER" || actor.cargo === "ADMIN";
 
 // Punto de trabajo mas cercano a una parada: paradas de los servicios del vehiculo, el deposito y
 // los lugares de trabajo (constants/workPlaces.js y WORK_PLACES). Cada lugar tiene su radio (radioM)
@@ -325,7 +325,7 @@ export const getParadasStatus = () => ({
 });
 
 export const listParadasForActor = async (actor, query) => {
-  if (!isPrivileged(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
+  if (!canManageFinance(actor)) throw new AppError("No tienes permisos para realizar esta accion", 403);
 
   const toDay = query.to ?? romeDay();
   const fromDay =
