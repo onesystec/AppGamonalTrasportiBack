@@ -11,6 +11,7 @@ import collegamentoRoutes, { pubblico as collegamentoPubblico } from "./collegam
 import combustibleRoutes from "./combustible.routes.js";
 import documentRoutes from "./document.routes.js";
 import fileRoutes from "./file.routes.js";
+import cronologiaVehicularRoutes from "./cronologiaVehicular.routes.js";
 import finanzasRoutes from "./finanzas.routes.js";
 import gpsRoutes from "./gps.routes.js";
 import integracionOnesystecRoutes from "./integracionOnesystec.routes.js";
@@ -67,6 +68,7 @@ router.use("/metas", metaRoutes);
 router.use("/busta-paga", bustaPagaRoutes);
 router.use("/memorandums", memorandumRoutes);
 router.use("/combustible", combustibleRoutes);
+router.use("/cronologia-vehicular", cronologiaVehicularRoutes);
 router.use("/finanzas", finanzasRoutes);
 router.use("/gps", gpsRoutes);
 router.use("/horas", horasRoutes);

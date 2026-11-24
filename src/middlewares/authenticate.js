@@ -1,4 +1,5 @@
-import { verifyToken } from "../utils/jwt.js";
+import { isDriverMode } from "../utils/modoChofer.js";
+import { sessionLifetimeSeconds, verifyToken } from "../utils/jwt.js";
 import { findUserByIdForAuth } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -39,9 +40,14 @@ export const authenticate = asyncHandler(async (req, res, next) => {
     throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
   }
 
-  // Modo chofer: el Admin/Owner que activa ese switch en la app pide ver todo como un chofer (sus servicios, sus horas, sus
+  const lifetime = sessionLifetimeSeconds(user.cargo);
+  if (lifetime !== null && (!payload.iat || Math.floor(Date.now() / 1000) >= payload.iat + lifetime)) {
+    throw new AppError("No autenticado: la sesion ha expirado", 401);
+  }
+
+  // Modo chofer: la oficina que activa el switch en la app pide ver todo como un chofer (sus servicios, sus horas, sus
   // cargos). Solo baja permisos: para cualquier otro cargo el header se ignora. req.realUser conserva al usuario de verdad.
-  const asDriver = req.headers["x-modo-chofer"] === "1" && (user.cargo === "OWNER" || user.cargo === "ADMIN");
+  const asDriver = isDriverMode(req, user);
   req.realUser = user;
   req.user = asDriver ? { ...user, cargo: "CHOFER" } : user;
   next();

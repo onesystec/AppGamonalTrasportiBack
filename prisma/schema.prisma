@@ -159,6 +159,8 @@ model User {
   updatedAt                    DateTime         @updatedAt
 
   documentos                Documento[]
+  declaracionesVehiculo     DeclaracionVehiculo[]
+
   bustasPaga                BustaPaga[]             @relation("BustaPagaChofer")
   bustasPagaSubidas         BustaPaga[]             @relation("BustaPagaSubidaPor")
   memorandumsEmitidos       Memorandum[]            @relation("MemorandumEmisor")
@@ -532,6 +534,7 @@ model Record {
   id     String       @id @default(uuid())
   estado RecordStatus @default(IN_SOSPESO)
   aceptacionChofer EstadoAceptacionChofer?
+  aceptadoChoferAt DateTime?
 
   driverId  String
   driver    User     @relation(fields: [driverId], references: [id])
@@ -1650,4 +1653,16 @@ model Collegamento {
 
   @@index([stato])
   @@map("collegamenti")
+}
+
+model DeclaracionVehiculo {
+  id       String   @id @default(uuid())
+  driverId String
+  driver   User     @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  targa    String?
+  modelo   String?
+  fecha    DateTime @default(now())
+
+  @@index([driverId, fecha])
+  @@map("declaraciones_vehiculo")
 }

@@ -276,4 +276,71 @@ describe("Registros para Recursos Humanos (base local)", { skip: !dbOk && "falta
     assert.equal(r.status, 201, r.text);
     assert.equal(r.body.data.user.rrhhVeServicios, true);
   });
+  test("la sesión real dura dos horas para chofer y doce para oficina", async () => {
+    const { signSessionToken, verifyToken } = await import("../src/utils/jwt.js");
+    for (const [cargo, hours] of [["CHOFER", 2], ["OWNER", 12], ["ADMIN", 12], ["RRHH", 12]]) {
+      const token = signSessionToken({ id: ids.rrhhNo, cargo });
+      const { exp, iat } = verifyToken(token);
+      assert.equal(exp - iat, hours * 3600);
+    }
+    const iat = Math.floor(Date.now() / 1000) - 7200;
+    const oldDriverToken = signToken({ sub: ids.chofer1, iat });
+    assert.equal((await api("GET", "/auth/me", { token: oldDriverToken })).status, 401);
+    const officeToken = signToken({ sub: ids.rrhhNo, iat });
+    assert.equal((await api("GET", "/auth/me", { token: officeToken })).status, 200);
+  });
+
+  test("Cronología conserva el fin de semana, aísla choferes y respeta el modo chofer de RRHH", async () => {
+    const friday = new Date("2026-11-20T14:30:00Z");
+    const monday = new Date("2026-11-23T08:00:00Z");
+    await prisma.record.update({ where: { id: recordIds[0] }, data: { horaInicioReal: friday } });
+    await prisma.record.update({ where: { id: recordIds[1] }, data: { horaInicioReal: monday } });
+    await prisma.declaracionVehiculo.create({
+      data: { driverId: ids.chofer1, targa: "GA111AA", modelo: "Ducato", fecha: new Date("2026-11-23T07:00:00Z") },
+    });
+
+    const path = "/cronologia-vehicular";
+    const office = await api("GET", path, { token: tokens.rrhhNo });
+    assert.equal(office.status, 200, office.text);
+    const first = office.body.data.find((item) => item.driver.id === ids.chofer1);
+    assert.equal(first.desde, friday.toISOString());
+    assert.equal(first.hasta, monday.toISOString());
+    assert.equal(first.confirmadoEn, "2026-11-23T07:00:00.000Z");
+    const own = await api("GET", path, { token: tokens.chofer1 });
+    assert.equal(own.status, 200, own.text);
+    assert.deepEqual(own.body.data, [first]);
+
+    const context = await api("GET", `${path}/confirmacion`, { token: tokens.chofer1 });
+    assert.equal(context.status, 200, context.text);
+    assert.equal(context.body.data.lastService.targa, "GA111AA");
+    assert.equal(context.body.data.suggested, null, "Ya lo tiene otro chofer");
+    const [vehicle] = context.body.data.vehicles;
+    const stale = await api("POST", `${path}/confirmacion`, {
+      token: tokens.chofer1, body: { vehicleId: vehicle.id, continuar: true },
+    });
+    assert.equal(stale.status, 409, stale.text);
+
+    const confirmed = await api("POST", `${path}/confirmacion`, {
+      token: tokens.chofer2, body: { vehicleId: vehicle.id, continuar: true },
+    });
+    assert.equal(confirmed.status, 204, confirmed.text);
+    const released = await api("POST", `${path}/confirmacion`, {
+      token: tokens.chofer2, body: { vehicleId: null },
+    });
+    assert.equal(released.status, 204, released.text);
+    const updated = await api("GET", path, { token: tokens.chofer2 });
+    assert.ok(updated.body.data[0].hasta);
+
+    assert.equal((await api("GET", `${path}/confirmacion`, { token: tokens.rrhhNo })).status, 403);
+    const mode = await fetch(`${base}/api${path}/confirmacion`, {
+      headers: { Authorization: `Bearer ${tokens.rrhhNo}`, "X-Modo-Chofer": "1" },
+    });
+    assert.equal(mode.status, 200, await mode.text());
+    const modeTimeline = await fetch(`${base}/api${path}`, {
+      headers: { Authorization: `Bearer ${tokens.rrhhNo}`, "X-Modo-Chofer": "1" },
+    });
+    assert.equal(modeTimeline.status, 200);
+    assert.deepEqual((await modeTimeline.json()).data, []);
+  });
+
 });

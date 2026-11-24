@@ -983,6 +983,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
     data = {
       ...(vehicleId !== record.vehicleId ? { vehicleId } : {}),
       aceptacionChofer: "CONFIRMADA",
+      aceptadoChoferAt: new Date(),
       ...(record.solicitud?.recordRemotoId && record.estado === "IN_SOSPESO" ? { estado: "IN_CONSEGNA" } : {}),
     };
   } else {
@@ -1011,7 +1012,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
     if (payload.driverId) {
       const driver = await assertDriverActivo(payload.driverId);
       if (payload.driverId !== record.driverId) {
-        payload = { ...payload, aceptacionChofer: OPEN_STATES.includes(payload.estado ?? record.estado) ? estadoAceptacionInicial(driver) : null };
+        payload = { ...payload, aceptadoChoferAt: null, aceptacionChofer: OPEN_STATES.includes(payload.estado ?? record.estado) ? estadoAceptacionInicial(driver) : null };
       }
     }
 

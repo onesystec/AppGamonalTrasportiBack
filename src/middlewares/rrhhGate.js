@@ -1,3 +1,4 @@
+import { isDriverMode } from "../utils/modoChofer.js";
 import { verifyToken } from "../utils/jwt.js";
 import { findUserByIdForAuth } from "../models/user.model.js";
 import { AppError } from "../utils/AppError.js";
@@ -6,7 +7,7 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 // El acceso a cada acción de Finanzas se valida en su ruta y servicio.
 const RRHH_ALLOWED_PREFIXES = [
   "/app", "/auth", "/users", "/documents", "/vehiculos", "/vencimientos", "/busta-paga", "/memorandums",
-  "/finanzas", "/combustible", "/mancato-pagamentos", "/multas", "/solleciti", "/otros-gastos",
+  "/cronologia-vehicular", "/finanzas", "/combustible", "/mancato-pagamentos", "/multas", "/solleciti", "/otros-gastos",
 ];
 
 const RRHH_FINANCE_HOURS = /^\/horas\/[^/]+\/(revision|paradas|estimacion)\/?$/;
@@ -33,7 +34,7 @@ export const rrhhGate = asyncHandler(async (req, _res, next) => {
   }
 
   const user = await findUserByIdForAuth(payload.sub);
-  if (user?.cargo !== "RRHH") return next();
+  if (user?.cargo !== "RRHH" || isDriverMode(req, user)) return next();
 
   if (RRHH_ALLOWED_PREFIXES.some((prefix) => req.path === prefix || req.path.startsWith(`${prefix}/`))) return next();
   if (req.method === "GET" && /^\/(horas\/pendientes|paradas(\/estado)?)\/?$/.test(req.path)) return next();

@@ -12,7 +12,7 @@ import {
 import { buildResetPasswordEmail } from "../emails/resetPasswordEmail.js";
 import { toUserResponse } from "./user.service.js";
 import { AppError } from "../utils/AppError.js";
-import { signToken, verifySsoTicket } from "../utils/jwt.js";
+import { signSessionToken, verifySsoTicket } from "../utils/jwt.js";
 import { comparePassword, hashPassword } from "../utils/password.js";
 import { generateResetToken, hashResetToken } from "../utils/resetToken.js";
 
@@ -36,7 +36,7 @@ export const loginUser = async ({ correoElectronico, password }) => {
     throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
   }
 
-  const token = signToken({ sub: user.id });
+  const token = signSessionToken(user);
   const safeUser = await findUserById(user.id);
 
   return { user: await toUserResponse(safeUser), token };
@@ -78,7 +78,7 @@ export const ssoLoginUser = async (ticket) => {
     throw new AppError("Tu cuenta esta inactiva. Contacta a un administrador.", 403);
   }
 
-  return { user: await toUserResponse(user), accessToken: signToken({ sub: user.id }) };
+  return { user: await toUserResponse(user), accessToken: signSessionToken(user) };
 };
 
 export const requestPasswordReset = async (correoElectronico) => {
@@ -128,5 +128,5 @@ export const changeOwnPassword = async (actorId, { currentPassword, newPassword 
     throw new AppError("La contrasena nueva debe ser distinta de la actual", 400);
   }
   await resetPasswordAndClearToken(actorId, await hashPassword(newPassword));
-  return { token: signToken({ sub: actorId }) };
+  return { token: signSessionToken(user) };
 };
