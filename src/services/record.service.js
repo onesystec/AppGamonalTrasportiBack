@@ -125,9 +125,14 @@ export const listarVehiculosParaAsignacion = async (actor, id) => {
   return prisma.vehiculo.findMany({ where: flotaDisponible, select: { id: true, targa: true, modelo: true }, orderBy: { targa: "asc" } });
 };
 
-const guardarAsignacionChofer = async (id, data, driverId, aceptacionChofer) => {
+const guardarAsignacionChofer = async (record, data) => {
   try {
-    return await updateRecordById(id, data, { driverId, aceptacionChofer, estado: { in: OPEN_STATES } });
+    return await updateRecordById(record.id, data, {
+      driverId: record.driverId,
+      vehicleId: record.vehicleId,
+      aceptacionChofer: record.aceptacionChofer,
+      estado: record.estado,
+    });
   } catch (err) {
     if (err?.code === "P2025") throw new AppError("Cambió la asignación del servicio. Actualiza la ficha.", 409);
     throw err;
@@ -960,13 +965,26 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
   }
 
   if (confirmarVehiculo) {
-    if (record.aceptacionChofer === "CONFIRMADA" && record.vehicleId === data.vehicleId) {
+    const tieneVehiculo = record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA;
+    if (tieneVehiculo && data.vehicleId && data.vehicleId !== record.vehicleId) {
+      throw new AppError("La oficina ya ha asignado un vehículo para este servicio", 409);
+    }
+    const vehicleId = tieneVehiculo ? record.vehicleId : data.vehicleId;
+    if (record.aceptacionChofer === "CONFIRMADA" && record.vehicleId === vehicleId) {
       void sincronizzaSicuro({ recordId: id });
       return toResponse(record, actor);
     }
     if (!requiereConfirmacionChofer(record)) throw new AppError("El servicio no está pendiente de aceptación", 409);
-    const vehiculo = await prisma.vehiculo.findFirst({ where: { id: data.vehicleId, ...flotaDisponible }, select: { id: true } });
-    if (!vehiculo) throw new AppError("El vehículo ya no está disponible", 409);
+    if (!vehicleId) throw new AppError("Selecciona un vehículo para aceptar el servicio", 400);
+    if (!tieneVehiculo) {
+      const vehiculo = await prisma.vehiculo.findFirst({ where: { id: vehicleId, ...flotaDisponible }, select: { id: true } });
+      if (!vehiculo) throw new AppError("El vehículo ya no está disponible", 409);
+    }
+    data = {
+      ...(vehicleId !== record.vehicleId ? { vehicleId } : {}),
+      aceptacionChofer: "CONFIRMADA",
+      ...(record.solicitud?.recordRemotoId && record.estado === "IN_SOSPESO" ? { estado: "IN_CONSEGNA" } : {}),
+    };
   } else {
     assertChoferConfirmado(actor, record);
   }
@@ -1052,7 +1070,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
       }
     }
   } else if (confirmarVehiculo) {
-    payload = { vehicleId: data.vehicleId, aceptacionChofer: "CONFIRMADA" };
+    payload = data;
   } else {
     payload = Object.fromEntries(
       Object.entries(data).filter(([key]) => SELF_EDITABLE_FIELDS.includes(key))
@@ -1111,11 +1129,11 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
     };
   }
 
-  const viaje = applyViajeRules(actor, record, payload);
+  const viaje = confirmarVehiculo ? { payload, estadoViaje: null } : applyViajeRules(actor, record, payload);
   payload = applyHoursApprovalRules(actor, record, viaje.payload);
 
   const updated = confirmarVehiculo
-    ? await guardarAsignacionChofer(id, payload, actor.id, record.aceptacionChofer)
+    ? await guardarAsignacionChofer(record, payload)
     : await updateRecordById(id, payload);
   if (viaje.estadoViaje) await setGroupOpenEstado(record.compactadoId, viaje.estadoViaje);
   // Si el servicio vino de una app conectada (App Piazza), se le avisa el cambio de estado, chofer o vehiculo (solo manda si algo cambio).

@@ -285,7 +285,7 @@ export const aceptarAutomaticamente = async (solicitudId) => {
     if (!solicitud || solicitud.estado !== "PENDIENTE" || !solicitud.collegamentoId) return null;
     const record = await crearServicioDirecto(solicitud, {
       codigoPreferido: await codigoLibre(solicitud.shipment),
-      estado: "IN_CONSEGNA",
+      estado: "IN_SOSPESO",
     });
     const { count } = await prisma.solicitudServicio.updateMany({
       where: { id: solicitudId, estado: "PENDIENTE" },

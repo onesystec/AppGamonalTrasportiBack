@@ -48,7 +48,7 @@ const RECORD_INCLUDE = {
   vehiculoFinal: { select: { id: true, targa: true, modelo: true } },
   client: { select: { id: true, nombre: true } },
   // Si el servicio vino de una app conectada (App Piazza): de que empresa (insignia "Da ..." en el detalle).
-  solicitud: { select: { collegamento: { select: { remotoNome: true } } } },
+  solicitud: { select: { recordRemotoId: true, collegamento: { select: { remotoNome: true } } } },
   stops: { orderBy: { orden: "asc" } },
   // Comprobantes de combustible asignados a este servicio (ver utils/fuelCost.js).
   combustibles: {
