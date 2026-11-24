@@ -142,7 +142,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(record.destinazione, "Via Roma 1, 20121 Milano MI");
     assert.equal(record.kilometros, 12);
     assert.match(record.descripcion, /Codice App Piazza: P-100/);
-    assert.equal(record.estado, "IN_SOSPESO");
+    assert.equal(record.estado, "IN_CONSEGNA");
     assert.equal(record.fechaServicio.toISOString().slice(0, 10), "2026-11-24", "el dia del servicio es el de su ETA");
     // Ya no hay nada que aceptar a mano.
     const pendientes = await api("GET", "/solicitudes?estado=PENDIENTE", { token: ownerToken });
@@ -159,7 +159,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     await esperar(() => aggiornamenti.some((b) => b.tipo === "ACCETTATO"));
     assert.deepEqual(aggiornamenti.find((b) => b.tipo === "ACCETTATO"), { recordId: "pz-1", tipo: "ACCETTATO" });
     const aggiornamento = await esperar(() => aggiornamenti.find((b) => b.tipo === "AGGIORNAMENTO"));
-    assert.equal(aggiornamento.estado, "IN_SOSPESO");
+    assert.equal(aggiornamento.estado, "IN_CONSEGNA");
     assert.equal(aggiornamento.autista ?? null, null);
     assert.equal(aggiornamento.targa ?? null, null);
   });
@@ -170,7 +170,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     const r = await api("PATCH", `/records/${sol.recordId}`, { token: ownerToken, body: { driverId: choferA.id, vehicleId: vehA.id } });
     assert.equal(r.status, 200, r.text);
     const msg = await esperar(() => aggiornamenti.find((b) => b.autista));
-    assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista: "Carlos Test", targa: "GA111AA" });
+    assert.deepEqual(msg, { recordId: "pz-1", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: "GA111AA" });
     const sinAsignar = await api("GET", "/records/sin-asignar", { token: ownerToken });
     assert.ok(!sinAsignar.body.data.records.some((x) => x.id === sol.recordId));
   });
@@ -198,7 +198,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
         const { ultimoEnviado } = await prisma.solicitudServicio.findUnique({ where: { id: sol.id } });
         return ultimoEnviado?.autista === autista && ultimoEnviado?.targa === targa;
       });
-      assert.deepEqual(aggiornamenti.slice(desde), [{ recordId: remoto, tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista, targa }]);
+      assert.deepEqual(aggiornamenti.slice(desde), [{ recordId: remoto, tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista, targa }]);
     }
 
     const propio = await prisma.record.create({
@@ -233,7 +233,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(r.status, 200, r.text);
     assert.equal(r.body.data.inviato, true);
     assert.deepEqual(entregas.at(-1), { url: "/api/collegamenti/pubblico/p-conexion-nueva/aggiornamenti", authorization: `Bearer ${tokenNuevo}` });
-    assert.deepEqual(aggiornamenti.at(-1), { recordId: "pz-selectores", tipo: "AGGIORNAMENTO", estado: "IN_SOSPESO", autista: "Carlos Test", targa: "GB222BB" });
+    assert.deepEqual(aggiornamenti.at(-1), { recordId: "pz-selectores", tipo: "AGGIORNAMENTO", estado: "IN_CONSEGNA", autista: "Carlos Test", targa: "GB222BB" });
     assert.equal((await prisma.solicitudServicio.findUnique({ where: { id: sol.id } })).collegamentoId, col.id);
     assert.equal((await prisma.collegamento.findUnique({ where: { id: col.id } })).ultimoErrore, null);
   });
@@ -357,7 +357,7 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
   test("si Piazza elimina o anula un servicio que todavia no salio, aqui pasa a Anulado (y se ve asi en la lista del dia)", async () => {
     const r = await enviar({ recordId: "pz-an", codigo: "P-AN", destinazione: "Via Anulada 1, Milano", eta: "2026-11-27T10:00:00Z" });
     const sol = await esperarAceptada(r.body.data.id);
-    assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "IN_SOSPESO");
+    await prisma.record.update({ where: { id: sol.recordId }, data: { estado: "IN_SOSPESO" } });
     const a = await annullare("pz-an", "eliminado en Piazza");
     assert.equal(a.status, 200, a.text);
     const rec = await prisma.record.findUnique({ where: { id: sol.recordId } });
@@ -378,13 +378,12 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
   test("si ya tenia chofer asignado pero no habia salido, tambien pasa a Anulado; un servicio que ya salio NO se toca (solo alerta)", async () => {
     const a = await enviar({ recordId: "pz-an-chofer", codigo: "P-AN2", destinazione: "Via Con Chofer 2, Milano", eta: "2026-11-27T11:00:00Z" });
     const sa = await esperarAceptada(a.body.data.id);
-    await prisma.record.update({ where: { id: sa.recordId }, data: { driverId: choferA.id, vehicleId: vehA.id } });
+    await prisma.record.update({ where: { id: sa.recordId }, data: { driverId: choferA.id, vehicleId: vehA.id, estado: "IN_SOSPESO" } });
     await annullare("pz-an-chofer");
     assert.equal((await prisma.record.findUnique({ where: { id: sa.recordId } })).estado, "ANNULLATO");
 
     const b = await enviar({ recordId: "pz-an-salio", codigo: "P-AN3", destinazione: "Via Ya Salio 3, Milano", eta: "2026-11-27T12:00:00Z" });
     const sb = await esperarAceptada(b.body.data.id);
-    await prisma.record.update({ where: { id: sb.recordId }, data: { estado: "IN_CONSEGNA" } });
     await annullare("pz-an-salio", "cliente cancelo");
     assert.equal((await prisma.record.findUnique({ where: { id: sb.recordId } })).estado, "IN_CONSEGNA", "uno que ya salio no se anula solo");
     const hist = await api("GET", `/cambios?recordId=${sb.recordId}`, { token: ownerToken });

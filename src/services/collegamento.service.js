@@ -283,7 +283,10 @@ export const aceptarAutomaticamente = async (solicitudId) => {
   try {
     solicitud = await prisma.solicitudServicio.findUnique({ where: { id: solicitudId }, include: { collegamento: { select: { remotoNome: true } } } });
     if (!solicitud || solicitud.estado !== "PENDIENTE" || !solicitud.collegamentoId) return null;
-    const record = await crearServicioDirecto(solicitud, { codigoPreferido: await codigoLibre(solicitud.shipment) });
+    const record = await crearServicioDirecto(solicitud, {
+      codigoPreferido: await codigoLibre(solicitud.shipment),
+      estado: "IN_CONSEGNA",
+    });
     const { count } = await prisma.solicitudServicio.updateMany({
       where: { id: solicitudId, estado: "PENDIENTE" },
       data: { estado: "ACEPTADA", recordId: record.id, revisadoAt: new Date(), motivoRechazo: null },
