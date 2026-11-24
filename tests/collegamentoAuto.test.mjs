@@ -174,18 +174,19 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal(asignado.status, 200, asignado.text);
     assert.equal(asignado.body.data.record.aceptacionChofer, "PENDIENTE");
     assert.equal((await api("PATCH", ruta, { token, body: { estado: "CONSEGNATO" } })).status, 409);
-    assert.equal((await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: vehA.id } })).status, 409);
+    assert.equal((await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: {} })).status, 400);
     const previo = await esperar(() => aggiornamenti.find((body) => body.autista));
     assert.equal(previo.targa, null);
-    const aceptado = await api("POST", `${ruta}/asignacion/aceptar`, { token });
-    assert.equal(aceptado.status, 200, aceptado.text);
-    assert.equal(aceptado.body.data.record.aceptacionChofer, "VEHICULO_PENDIENTE");
+    const preparar = await api("POST", `${ruta}/asignacion/aceptar`, { token });
+    assert.equal(preparar.status, 200, preparar.text);
+    assert.equal((await api("GET", ruta, { token })).body.data.record.aceptacionChofer, "PENDIENTE");
 
     const asignadoB = await prisma.vehiculo.create({ data: { targa: "QC345AB", modelo: "Transit", area: "DHL" } });
     const taller = await prisma.vehiculo.create({ data: { targa: "QC346AB", modelo: "Transit", area: "DHL", estado: "EN_MANTENIMIENTO" } });
     const lista = await api("GET", `${ruta}/asignacion/vehiculos`, { token });
     assert.deepEqual(lista.body.data.vehicles.map(({ id }) => id), [vehA.id, asignadoB.id]);
     assert.equal((await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: taller.id } })).status, 409);
+    assert.equal((await api("GET", ruta, { token })).body.data.record.aceptacionChofer, "PENDIENTE");
     const confirmado = await api("POST", `${ruta}/asignacion/vehiculo`, { token, body: { vehicleId: asignadoB.id } });
     assert.equal(confirmado.status, 200, confirmado.text);
     assert.equal(confirmado.body.data.record.aceptacionChofer, "CONFIRMADA");

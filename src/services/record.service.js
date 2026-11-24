@@ -113,15 +113,15 @@ const cargaAsignacionChofer = async (actor, id) => {
 
 export const aceptarAsignacionChofer = async (actor, id) => {
   const record = await cargaAsignacionChofer(actor, id);
-  if (record.aceptacionChofer === "VEHICULO_PENDIENTE") return toResponse(record, actor);
-  if (record.aceptacionChofer !== "PENDIENTE") throw new AppError("El servicio no está pendiente de aceptación", 409);
-  const updated = await guardarAsignacionChofer(id, { aceptacionChofer: "VEHICULO_PENDIENTE" }, actor.id, "PENDIENTE");
-  return toResponse(updated, actor);
+  if (!requiereConfirmacionChofer(record)) throw new AppError("El servicio no está pendiente de aceptación", 409);
+  // Clientes abiertos antes del despliegue esperan este paso para mostrar el selector.
+  // La respuesta permite abrirlo sin escribir una aceptación incompleta en la base.
+  return toResponse({ ...record, aceptacionChofer: "VEHICULO_PENDIENTE" }, actor);
 };
 
 export const listarVehiculosParaAsignacion = async (actor, id) => {
   const record = await cargaAsignacionChofer(actor, id);
-  if (record.aceptacionChofer !== "VEHICULO_PENDIENTE") throw new AppError("Acepta el servicio primero", 409);
+  if (!requiereConfirmacionChofer(record)) throw new AppError("El servicio no está pendiente de aceptación", 409);
   return prisma.vehiculo.findMany({ where: flotaDisponible, select: { id: true, targa: true, modelo: true }, orderBy: { targa: "asc" } });
 };
 
@@ -964,7 +964,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
       void sincronizzaSicuro({ recordId: id });
       return toResponse(record, actor);
     }
-    if (record.aceptacionChofer !== "VEHICULO_PENDIENTE") throw new AppError("Acepta el servicio primero", 409);
+    if (!requiereConfirmacionChofer(record)) throw new AppError("El servicio no está pendiente de aceptación", 409);
     const vehiculo = await prisma.vehiculo.findFirst({ where: { id: data.vehicleId, ...flotaDisponible }, select: { id: true } });
     if (!vehiculo) throw new AppError("El vehículo ya no está disponible", 409);
   } else {
@@ -1115,7 +1115,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
   payload = applyHoursApprovalRules(actor, record, viaje.payload);
 
   const updated = confirmarVehiculo
-    ? await guardarAsignacionChofer(id, payload, actor.id, "VEHICULO_PENDIENTE")
+    ? await guardarAsignacionChofer(id, payload, actor.id, record.aceptacionChofer)
     : await updateRecordById(id, payload);
   if (viaje.estadoViaje) await setGroupOpenEstado(record.compactadoId, viaje.estadoViaje);
   // Si el servicio vino de una app conectada (App Piazza), se le avisa el cambio de estado, chofer o vehiculo (solo manda si algo cambio).
