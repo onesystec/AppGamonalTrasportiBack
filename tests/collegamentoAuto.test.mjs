@@ -375,6 +375,18 @@ describe("App collegate: servicios directo al Registro (base local + Piazza simu
     assert.equal((await prisma.record.findUnique({ where: { id: sol.recordId } })).estado, "ANNULLATO");
   });
 
+  test("una eliminación de Piazza anula también un servicio creado en viaje", async () => {
+    const recibido = await enviar({ recordId: "pz-eliminado-express", codigo: "P-ELIM-EXPRESS" });
+    const sol = await esperarAceptada(recibido.body.data.id);
+    const where = { id: sol.recordId };
+    assert.equal((await prisma.record.findUnique({ where })).estado, "IN_CONSEGNA");
+    const motivo = "Servizio annullato dall'ufficio: duplicato";
+    assert.equal((await annullare("pz-eliminado-express", motivo)).status, 200);
+    assert.equal((await annullare("pz-eliminado-express", motivo)).status, 200);
+    assert.equal((await prisma.record.findUnique({ where })).estado, "ANNULLATO");
+    assert.equal(await prisma.cambioServicio.count({ where: { recordId: sol.recordId, campo: "app_annullata" } }), 1);
+  });
+
   test("si ya tenia chofer asignado pero no habia salido, tambien pasa a Anulado; un servicio que ya salio NO se toca (solo alerta)", async () => {
     const a = await enviar({ recordId: "pz-an-chofer", codigo: "P-AN2", destinazione: "Via Con Chofer 2, Milano", eta: "2026-11-27T11:00:00Z" });
     const sa = await esperarAceptada(a.body.data.id);

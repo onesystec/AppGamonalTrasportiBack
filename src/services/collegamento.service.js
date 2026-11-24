@@ -473,14 +473,19 @@ export const riceviAnnullo = async (riga, recordRemotoId, { motivo } = {}) => {
     });
     await registraHito(riga, solicitud.id, null, "app_annullata", `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}`);
   } else if (solicitud.estado === "ACEPTADA" && solicitud.recordId) {
-    // El servicio ya esta en el Registro. Si todavia no salio (Pendiente), pasa a Anulado como lo hizo la otra app (eliminarlo o anularlo alla es lo mismo); si ya salio
-    // (retirado, en camino o entregado) NO se toca: no se puede anular algo que ya se hizo, asi que solo queda en la linea de tiempo y se avisa a la oficina (alerta + push).
+    // Piazza usa este texto al eliminar el registro. Comparte la ruta con la cancelación
+    // ordinaria y la reasignación, que solo anulan automáticamente un servicio pendiente.
+    const eliminato = motivo === "Servizio annullato dall'ufficio" || motivo?.startsWith("Servizio annullato dall'ufficio:");
     const record = await prisma.record.findUnique({
       where: { id: solicitud.recordId },
       select: { id: true, codigo: true, shipment: true, spedizzione: true, extrasPiazzaZona: true, estado: true, driverId: true, driver: { select: { correoElectronico: true } } },
     });
-    if (record) {
-      const { count } = await prisma.record.updateMany({ where: { id: record.id, estado: "IN_SOSPESO" }, data: { estado: "ANNULLATO" } });
+    if (record && record.estado !== "ANNULLATO") {
+      const { count } = await prisma.record.updateMany({
+        where: { id: record.id, estado: eliminato ? { not: "ANNULLATO" } : "IN_SOSPESO" },
+        data: { estado: "ANNULLATO" },
+      });
+      if (eliminato && count === 0) return { ok: true };
       const anulado = count > 0;
       const quien = `Anulado por ${riga.remotoNome}${motivo ? `: ${motivo}` : ""}`;
       await registraCambi({
