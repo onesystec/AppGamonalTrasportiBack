@@ -3,6 +3,7 @@ import { lookup } from "node:dns/promises";
 import { env } from "../config/env.js";
 import { prisma } from "../config/prisma.js";
 import { SIN_ASIGNAR_CORREO, SIN_ASIGNAR_TARGA } from "../constants/sinAsignar.js";
+import { OPEN_STATES } from "../models/compactado.model.js";
 import { AppError } from "../utils/AppError.js";
 import { hostPrivato } from "../utils/codiceCollegamento.js";
 import { decryptSecret } from "../utils/secretBox.js";
@@ -111,7 +112,8 @@ const nomePersona = (p) => (p && p.correoElectronico !== SIN_ASIGNAR_CORREO ? `$
 export const datiAggiornamento = (record) => ({
   estado: record.estado,
   autista: nomePersona(record.driver),
-  targa: !["PENDIENTE", "VEHICULO_PENDIENTE"].includes(record.aceptacionChofer) && record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
+  // Mientras el servicio abierto espera que el chofer acepte, la targa todavia no esta confirmada.
+  targa: !(OPEN_STATES.includes(record.estado) && ["PENDIENTE", "VEHICULO_PENDIENTE"].includes(record.aceptacionChofer)) && record.vehicle?.targa && record.vehicle.targa !== SIN_ASIGNAR_TARGA ? record.vehicle.targa : null,
 });
 
 // Campo por campo (Postgres guarda el JSON con otro orden de claves, asi que no sirve comparar el texto).

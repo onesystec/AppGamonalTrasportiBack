@@ -90,8 +90,19 @@ export const assertDriverActivo = async (driverId) => {
   return driver;
 };
 
+const ACEPTACION_PENDIENTE = ["PENDIENTE", "VEHICULO_PENDIENTE"];
+
+// La aceptacion del chofer solo se exige mientras el servicio esta abierto. Si la oficina ya lo entrego, anulo o
+// reprogramo, el chofer tiene que poder cargar sus horas, peajes y carburante aunque no lo hubiera aceptado.
 export const requiereConfirmacionChofer = (record) =>
-  ["PENDIENTE", "VEHICULO_PENDIENTE"].includes(record.aceptacionChofer);
+  OPEN_STATES.includes(record.estado) && ACEPTACION_PENDIENTE.includes(record.aceptacionChofer);
+
+// Al sacar un servicio de los estados abiertos, el "Por aceptar" que quedara pendiente ya no aplica: se borra.
+const sinAceptacionSiCerrado = (record, payload) => {
+  const estado = payload.estado ?? record.estado;
+  const aceptacion = "aceptacionChofer" in payload ? payload.aceptacionChofer : record.aceptacionChofer;
+  return !OPEN_STATES.includes(estado) && ACEPTACION_PENDIENTE.includes(aceptacion) ? { ...payload, aceptacionChofer: null } : payload;
+};
 
 export const assertChoferConfirmado = (actor, record) => {
   if (actor.cargo === "CHOFER" && requiereConfirmacionChofer(record)) {
@@ -1131,7 +1142,7 @@ export const updateRecordForActor = async (actor, id, data, { confirmarVehiculo 
   }
 
   const viaje = confirmarVehiculo ? { payload, estadoViaje: null } : applyViajeRules(actor, record, payload);
-  payload = applyHoursApprovalRules(actor, record, viaje.payload);
+  payload = sinAceptacionSiCerrado(record, applyHoursApprovalRules(actor, record, viaje.payload));
 
   const updated = confirmarVehiculo
     ? await guardarAsignacionChofer(record, payload)
