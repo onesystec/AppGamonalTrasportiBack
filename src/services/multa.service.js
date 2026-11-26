@@ -1,3 +1,4 @@
+import { prisma } from "../config/prisma.js";
 import { canManageFinance } from "../utils/financeAccess.js";
 import { randomUUID } from "node:crypto";
 import { buildLocalDateRange } from "../utils/dateRange.js";
@@ -293,12 +294,15 @@ export const createMultaForActor = async (actor, data, files) => {
     }
 
     const vehicle = await findVehicleByTarga(data.targa);
+    const multaOrigenId = (await resolveMultaOrigen(data.multaOrigenId, id)) ?? null;
+    // Sancion por datos del conductor sin chofer indicado: el infractor es el de la multa original.
+    const driverId = data.driverId ?? (multaOrigenId ? ((await findMultaById(multaOrigenId))?.driverId ?? null) : null);
     const created = await createMultaRecord({
       id,
       numeroVerbale: data.numeroVerbale,
       targa: data.targa,
       vehicleId: vehicle?.id ?? null,
-      driverId: data.driverId ?? null,
+      driverId,
       createdById: actor.id,
       fechaInfraccion: data.fechaInfraccion ? dayToDate(data.fechaInfraccion) : null,
       horaInfraccion: data.fechaInfraccion ? (data.horaInfraccion ?? null) : null,
@@ -314,7 +318,7 @@ export const createMultaForActor = async (actor, data, files) => {
       multaKey,
       comprobanteKey,
       ...resolveDati(data, data.fechaRecepcion, null),
-      multaOrigenId: (await resolveMultaOrigen(data.multaOrigenId, id)) ?? null,
+      multaOrigenId,
       // Subir el comprobante de pago al cargarla ya la deja como pagada.
       pagado: Boolean(comprobanteKey),
       pagadoAt: comprobanteKey ? now : null,
@@ -481,6 +485,12 @@ export const updateMultaForActor = async (actor, id, data, files) => {
   Object.assign(payload, resolveDati(data, recepcionDay, current));
   const origen = await resolveMultaOrigen(data.multaOrigenId, id);
   if (origen !== undefined) payload.multaOrigenId = origen;
+  // Una sancion por datos del conductor tiene el mismo infractor que su multa original: al vincularla, si no se indica
+  // otro chofer, toma el de la original.
+  if (origen && data.driverId === undefined) {
+    const original = await findMultaById(origen);
+    if (original?.driverId) payload.driverId = original.driverId;
+  }
 
   const oldKeys = [];
   const uploaded = [];
@@ -512,6 +522,10 @@ export const updateMultaForActor = async (actor, id, data, files) => {
     }
 
     const updated = await updateMultaById(id, payload);
+    // Mismo infractor en la multa original y en sus sanciones por datos del conductor.
+    if (payload.driverId !== undefined) {
+      await prisma.multa.updateMany({ where: { multaOrigenId: id }, data: { driverId: payload.driverId } });
+    }
     await Promise.all(oldKeys.map((key) => deleteObject(key).catch(() => {})));
     return toResponse(updated, romeDay());
   } catch (err) {

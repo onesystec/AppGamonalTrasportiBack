@@ -98,7 +98,7 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
 
   // Multa original citada (por ejemplo la de "datos del conductor"): su chofer y, si hace falta, su dia y hora.
   const refsOf = new Map(pending.map((m) => [m.id, extractRefs(m.comentarios)]));
-  const needsRefs = [...refsOf.values()].some((r) => r.length > 0);
+  const needsRefs = [...refsOf.values()].some((r) => r.length > 0) || pending.some((m) => m.multaOrigenId);
   const allMultas = needsRefs
     ? await prisma.multa.findMany({
         select: { id: true, numeroVerbale: true, driverId: true, vehicleId: true, fechaInfraccion: true, horaInfraccion: true, driver: { select: { id: true, nombre: true, apellido: true } } },
@@ -115,7 +115,9 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
 
   // Ancla de cada multa: vehiculo + dia (+ hora) de la infraccion.
   const anchors = pending.map((m) => {
-    const refMulta = (refsOf.get(m.id) ?? []).map(findByRef).find((r) => r && r.id !== m.id) ?? null;
+    const refMulta =
+      (m.multaOrigenId && allMultas.find((r) => r.id === m.multaOrigenId)) ||
+      ((refsOf.get(m.id) ?? []).map(findByRef).find((r) => r && r.id !== m.id) ?? null);
     let { vehicleId } = m;
     let day = m.fechaInfraccion ? dateOnlyToDay(m.fechaInfraccion) : null;
     let hora = m.horaInfraccion ?? null;
@@ -128,7 +130,13 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
       hora = null;
       viaRef = true;
     }
-    if (!day && refMulta?.fechaInfraccion) {
+    // Sancion vinculada a su multa original: el dia y la unidad que importan son los de la original.
+    if (m.multaOrigenId && refMulta?.fechaInfraccion) {
+      day = dateOnlyToDay(refMulta.fechaInfraccion);
+      hora = refMulta.horaInfraccion ?? null;
+      vehicleId = refMulta.vehicleId ?? vehicleId;
+      viaRef = true;
+    } else if (!day && refMulta?.fechaInfraccion) {
       day = dateOnlyToDay(refMulta.fechaInfraccion);
       hora = refMulta.horaInfraccion ?? null;
       vehicleId = vehicleId ?? refMulta.vehicleId;
@@ -344,7 +352,7 @@ const finish = (cands, multaId, permisoByKey, sinDia = false) => {
 };
 
 const SELECT = {
-  id: true, vehicleId: true, driverId: true, fechaInfraccion: true, horaInfraccion: true, fechaRecepcion: true, comentarios: true, numeroVerbale: true, area: true, datiConductor: true,
+  id: true, vehicleId: true, driverId: true, fechaInfraccion: true, horaInfraccion: true, fechaRecepcion: true, comentarios: true, numeroVerbale: true, area: true, datiConductor: true, multaOrigenId: true,
 };
 
 const assertOffice = (actor) => {
