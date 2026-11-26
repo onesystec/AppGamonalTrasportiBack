@@ -119,6 +119,14 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
     let day = m.fechaInfraccion ? dateOnlyToDay(m.fechaInfraccion) : null;
     let hora = m.horaInfraccion ?? null;
     let viaRef = false;
+    // Sancion por no comunicar los datos del conductor (126-bis) sin la multa original cargada: el dia que importa es el del
+    // transito original, que va en los comentarios ("transito 29/05/2026"), no el del verbale de la sancion.
+    const transito = !refMulta && /126-?bis/i.test(m.comentarios ?? "") ? (m.comentarios ?? "").match(/transito\s+(\d{2})\/(\d{2})\/(\d{4})/i) : null;
+    if (transito) {
+      day = `${transito[3]}-${transito[2]}-${transito[1]}`;
+      hora = null;
+      viaRef = true;
+    }
     if (!day && refMulta?.fechaInfraccion) {
       day = dateOnlyToDay(refMulta.fechaInfraccion);
       hora = refMulta.horaInfraccion ?? null;
@@ -301,7 +309,7 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
     else if (list.length === 0) {
       modo = "sin-datos";
       resumen = "Esa unidad no tiene servicios cargados cerca de esa fecha: revisa en la app de Farmacia quien la llevaba.";
-    } else if (viaRef) resumen = "El dia y la hora salen de la multa original a la que se refiere esta.";
+    } else if (viaRef) resumen = "El dia sale del verbale original al que se refiere esta (no se comunicaron los datos del conductor).";
     if (day && !list.some((c) => c.confianza === "ALTA" || c.confianza === "MEDIA") && list.length > 0) resumen = resumen ?? "Hay varios choferes posibles: confirma con el verbale.";
     result.set(multa.id, { ...base, modo, resumen, candidatos: list });
   }
