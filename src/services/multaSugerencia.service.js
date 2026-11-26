@@ -300,7 +300,7 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
     if (!day) resumen = "Falta el dia de la infraccion: con ese dato la sugerencia seria mucho mas precisa.";
     else if (list.length === 0) {
       modo = "sin-datos";
-      resumen = "Esa unidad no tiene servicios cargados cerca de esa fecha.";
+      resumen = "Esa unidad no tiene servicios cargados cerca de esa fecha: revisa en la app de Farmacia quien la llevaba.";
     } else if (viaRef) resumen = "El dia y la hora salen de la multa original a la que se refiere esta.";
     if (day && !list.some((c) => c.confianza === "ALTA" || c.confianza === "MEDIA") && list.length > 0) resumen = resumen ?? "Hay varios choferes posibles: confirma con el verbale.";
     result.set(multa.id, { ...base, modo, resumen, candidatos: list });
