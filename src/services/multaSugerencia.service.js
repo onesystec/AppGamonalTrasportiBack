@@ -65,7 +65,8 @@ const normTokens = (s) =>
     .filter((t) => t.length > 1);
 const namedDriversOf = (m) => {
   const names = [];
-  if (m.datiConductor) names.push(m.datiConductor);
+  // Solo el nombre principal: "Kevin Mera (certeza Media; alternativa Dany Aranda)" -> "Kevin Mera".
+  if (m.datiConductor) names.push(m.datiConductor.split(/[(;,/]| o | alternativa/i)[0]);
   for (const match of (m.comentarios ?? "").matchAll(TRASGRESSORE_RE)) names.push(match[1]);
   return names.map(normTokens).filter((t) => t.length >= 2);
 };
