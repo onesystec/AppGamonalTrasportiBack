@@ -60,7 +60,8 @@ const hora = z.string().trim().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Hora invalida
 export const createMultaSchema = z.object({
   numeroVerbale,
   targa,
-  driverId: z.string().uuid("Elige el chofer responsable"),
+  // Opcional: una multa nueva puede quedar sin chofer; la app sugiere el posible infractor y la oficina lo confirma.
+  driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
   // Dia de la infraccion (opcional): sirve para saber quien llevaba el vehiculo ese dia.
   fechaInfraccion: z.preprocess(
     emptyToUndefined,
@@ -94,7 +95,11 @@ export const createMultaSchema = z.object({
 export const updateMultaSchema = z.object({
   numeroVerbale: numeroVerbale.optional(),
   targa: targa.optional(),
-  driverId: z.preprocess(emptyToUndefined, z.string().uuid("Chofer invalido").optional()),
+  // "NINGUNO" quita el chofer (la multa vuelve a "sin chofer" y se muestra el posible infractor); "" no lo toca.
+  driverId: z.preprocess(
+    (value) => (value === "NINGUNO" ? null : emptyToUndefined(value)),
+    z.string().uuid("Chofer invalido").nullable().optional()
+  ),
   // "" borra la fecha de infraccion (null).
   fechaInfraccion: z.preprocess(
     emptyToNull,

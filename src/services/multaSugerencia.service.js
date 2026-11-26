@@ -53,11 +53,34 @@ const extractRefs = (comentarios) => {
   return [...refs];
 };
 
+// Conductor que nombra el verbale (contestada en el momento, o el que se declaro en los datos del conductor): viene en
+// datiConductor o en los comentarios como "Trasgressore: NOMBRE APELLIDO".
+const TRASGRESSORE_RE = /trasgress?ore[^:\n]*:\s*([^\n.;(]+)/gi;
+const normTokens = (s) =>
+  (s ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter((t) => t.length > 1);
+const namedDriversOf = (m) => {
+  const names = [];
+  if (m.datiConductor) names.push(m.datiConductor);
+  for (const match of (m.comentarios ?? "").matchAll(TRASGRESSORE_RE)) names.push(match[1]);
+  return names.map(normTokens).filter((t) => t.length >= 2);
+};
+// El usuario coincide si su (primer) nombre y su (primer) apellido estan en el nombre del verbale.
+const userMatchesName = (user, tokens) => {
+  const [nombre] = normTokens(user.nombre);
+  const [apellido] = normTokens(user.apellido);
+  return Boolean(nombre && apellido && tokens.includes(nombre) && tokens.includes(apellido));
+};
+
 const confidenceOf = (list) => {
   if (list.length === 0) return;
   const [top, second] = list;
   const clearLead = !second || top.score - second.score >= 40;
-  if (top.referencia) top.confianza = "ALTA";
+  if (top.referencia || top.nombrado) top.confianza = "ALTA";
   else if (top.score >= 100 && clearLead) top.confianza = "ALTA";
   else if (top.score >= 50 && !list.some((c) => c !== top && c.dia > 0)) top.confianza = "ALTA";
   else if (top.score >= 50 || (top.score >= 25 && list.length === 1)) top.confianza = "MEDIA";
@@ -79,6 +102,11 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
     ? await prisma.multa.findMany({
         select: { id: true, numeroVerbale: true, driverId: true, vehicleId: true, fechaInfraccion: true, horaInfraccion: true, driver: { select: { id: true, nombre: true, apellido: true } } },
       })
+    : [];
+  // Choferes que el verbale nombra como conductor (aunque hoy esten inactivos).
+  const namedOf = new Map(pending.map((m) => [m.id, namedDriversOf(m)]));
+  const people = [...namedOf.values()].some((n) => n.length > 0)
+    ? await prisma.user.findMany({ select: { id: true, nombre: true, apellido: true } })
     : [];
   const byNumero = new Map(allMultas.map((m) => [normNumero(m.numeroVerbale), m]));
   // Exacto, o el numero citado esta dentro del verbale (por ejemplo "26570R/2026" dentro de "V/26570R/2026").
@@ -169,6 +197,17 @@ const suggestForMultas = async (multas, { recordFilter } = {}) => {
       c.referencia = true;
       c.extra += 120;
       c.motivos.ref = `Es el chofer de la multa original (verbale ${refMulta.numeroVerbale}), a la que se refiere esta.`;
+    }
+
+    // 0) el verbale nombra al conductor: es el (salvo que se trate de otra persona fuera de la flota)
+    for (const tokens of namedOf.get(multa.id) ?? []) {
+      for (const p of people.filter((u) => userMatchesName(u, tokens))) {
+        const c = entry(p);
+        if (c.nombrado) continue;
+        c.nombrado = true;
+        c.extra += 150;
+        c.motivos.nombrado = "El verbale lo nombra como conductor (trasgresor)";
+      }
     }
 
     if (!vehicleId) {
@@ -283,19 +322,20 @@ const finish = (cands, multaId, permisoByKey, sinDia = false) => {
       apellido: c.apellido,
       score,
       referencia: Boolean(c.referencia),
+      nombrado: Boolean(c.nombrado),
       dia: c.dia,
-      motivos: [c.motivos.ref, c.motivos.dia, c.motivos.adj, c.motivos.cerca, c.motivos.entre, c.motivos.vecina, c.motivos.habitual].filter(Boolean),
+      motivos: [c.motivos.nombrado, c.motivos.ref, c.motivos.dia, c.motivos.adj, c.motivos.cerca, c.motivos.entre, c.motivos.vecina, c.motivos.habitual].filter(Boolean),
     });
   }
   out.sort((a, b) => b.score - a.score);
   const top = out.slice(0, MAX_CANDIDATES);
   confidenceOf(top);
-  if (sinDia) for (const c of top) if (!c.referencia) c.confianza = "BAJA";
-  return top.map(({ dia, referencia, ...rest }) => rest);
+  if (sinDia) for (const c of top) if (!c.referencia && !c.nombrado) c.confianza = "BAJA";
+  return top.map(({ dia, referencia, nombrado, ...rest }) => rest);
 };
 
 const SELECT = {
-  id: true, vehicleId: true, driverId: true, fechaInfraccion: true, horaInfraccion: true, fechaRecepcion: true, comentarios: true, numeroVerbale: true, area: true,
+  id: true, vehicleId: true, driverId: true, fechaInfraccion: true, horaInfraccion: true, fechaRecepcion: true, comentarios: true, numeroVerbale: true, area: true, datiConductor: true,
 };
 
 const assertOffice = (actor) => {

@@ -298,7 +298,7 @@ export const createMultaForActor = async (actor, data, files) => {
       numeroVerbale: data.numeroVerbale,
       targa: data.targa,
       vehicleId: vehicle?.id ?? null,
-      driverId: data.driverId,
+      driverId: data.driverId ?? null,
       createdById: actor.id,
       fechaInfraccion: data.fechaInfraccion ? dayToDate(data.fechaInfraccion) : null,
       horaInfraccion: data.fechaInfraccion ? (data.horaInfraccion ?? null) : null,
@@ -448,7 +448,7 @@ export const updateMultaForActor = async (actor, id, data, files) => {
     if (data[key] !== undefined) payload[key] = data[key];
   }
   if (data.targa) payload.vehicleId = (await findVehicleByTarga(data.targa))?.id ?? null;
-  if (data.driverId) payload.driverId = data.driverId;
+  if (data.driverId !== undefined) payload.driverId = data.driverId;
   if (data.area !== undefined) payload.area = resolveMultaArea(actor, data.area);
 
   // Fechas: validar infraccion <= recepcion <= vencimiento con los valores finales.
