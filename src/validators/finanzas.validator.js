@@ -51,6 +51,22 @@ export const velocidadPagoSchema = z.object({
   kmh: z.coerce.number().int("Velocidad invalida").refine((v) => [85, 90, 95].includes(v), "La velocidad tiene que ser 85, 90 o 95 km/h"),
 });
 
+// Calculo por categoria de un chofer en un mes: cada valor en null vuelve a ser automatico.
+const montoManual = z.coerce.number({ invalid_type_error: "Importe invalido" }).min(-100000, "Importe invalido").max(100000, "Importe invalido").nullable().optional();
+export const categoriaPagoSchema = z.object({
+  driverId: z.string().uuid("Chofer invalido"),
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mes invalido (usa AAAA-MM)"),
+  categoria: z.enum(["JUNIOR", "SENIOR", "MASTER"], { errorMap: () => ({ message: "Categoria invalida" }) }).nullable().optional(),
+  factor: z.coerce.number().int("Factor invalido").refine((v) => [85, 90, 95].includes(v), "El factor tiene que ser 85, 90 o 95").nullable().optional(),
+  conduccion: montoManual,
+  reperibilidad: montoManual,
+  esperas: montoManual,
+  disponibilidad: montoManual,
+  productividad: montoManual,
+  ajuste: montoManual,
+  nota: z.string().max(500, "La nota es muy larga").nullable().optional(),
+});
+
 // Pago aparte del basico (fuera de horario y reperibilita) de un chofer: activarlo o apagarlo.
 export const pagoAparteSchema = z.object({
   driverId: z.string().uuid("Chofer invalido"),

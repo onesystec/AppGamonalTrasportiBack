@@ -172,6 +172,7 @@ model User {
   otrosGastos               OtroGasto[]             @relation("OtroGastoChofer")
   otrosGastosRevisados      OtroGasto[]             @relation("OtroGastoRevisor")
   velocidadesPago           VelocidadPagoChofer[]   @relation("VelocidadPagoChofer")
+  categoriasPago            CategoriaPagoChofer[]   @relation("CategoriaPagoChofer")
   trabajosAdicionalesRevisados TrabajoAdicional[]   @relation("TrabajoAdicionalRevisor")
   multasCreadas             Multa[]                 @relation("MultaCreadaPor")
   combustiblesComoChofer    RegistroCombustible[]   @relation("CombustibleChofer")
@@ -1665,4 +1666,33 @@ model DeclaracionVehiculo {
 
   @@index([driverId, fecha])
   @@map("declaraciones_vehiculo")
+}
+
+// Calculo por categoria (Junior, Senior, Master) de un chofer en un mes, en Pago a choferes. Solo se guardan los valores que la oficina
+// cambio a mano: los que quedan en null se calculan solos (categoria por km, factor 85/95, disponibilidad y productividad aproximadas).
+model CategoriaPagoChofer {
+  id       String @id @default(uuid())
+  driverId String
+  driver   User   @relation("CategoriaPagoChofer", fields: [driverId], references: [id], onDelete: Cascade)
+
+  // "AAAA-MM"
+  mes            String
+  // JUNIOR, SENIOR o MASTER
+  categoria      String?
+  // 85, 90 o 95 (km / factor = horas de conduccion)
+  factor         Int?
+  conduccion     Decimal? @db.Decimal(10, 2)
+  reperibilidad  Decimal? @db.Decimal(10, 2)
+  esperas        Decimal? @db.Decimal(10, 2)
+  disponibilidad Decimal? @db.Decimal(10, 2)
+  productividad  Decimal? @db.Decimal(10, 2)
+  ajuste         Decimal? @db.Decimal(10, 2)
+  nota           String?
+  cambiadoPorId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([driverId, mes])
+  @@map("categoria_pago_choferes")
 }

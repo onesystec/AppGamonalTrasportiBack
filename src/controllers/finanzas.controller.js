@@ -9,6 +9,7 @@ import {
 import { buildPresenciasWorkbook, presenciasFileName } from "../services/presenciasExcel.service.js";
 import { setKmhPagoForActor, setPagoAparteForActor } from "../services/velocidadPago.service.js";
 import { getTarifasKm, setTarifasKm } from "../services/tarifas.service.js";
+import { getCategoriasPagoForActor, setCategoriaPagoForActor } from "../services/categoriaPago.service.js";
 import { sharedForOffice } from "../utils/responseCache.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -47,6 +48,17 @@ export const presencias = asyncHandler(async (req, res) => {
 export const velocidadPago = asyncHandler(async (req, res) => {
   const result = await setKmhPagoForActor(req.user, req.body);
   res.status(200).json({ success: true, data: { velocidadPago: result } });
+});
+
+// Calculo por categoria (Junior, Senior, Master): valores cambiados a mano por chofer en el mes.
+export const getCategoriasPago = asyncHandler(async (req, res) => {
+  const result = await getCategoriasPagoForActor(req.user, req.query);
+  res.status(200).json({ success: true, data: { categorias: result } });
+});
+
+export const putCategoriaPago = asyncHandler(async (req, res) => {
+  const result = await setCategoriaPagoForActor(req.user, req.body);
+  res.status(200).json({ success: true, data: { categoria: result } });
 });
 
 export const pagoAparte = asyncHandler(async (req, res) => {

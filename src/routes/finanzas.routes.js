@@ -1,10 +1,10 @@
 import { FINANCE_ROLES } from "../utils/financeAccess.js";
 import { Router } from "express";
-import { getTarifas, gastosServicios, pagoAparte, pagoServicios, pagos, presencias, putTarifas, rankingKm, resumen, velocidadPago } from "../controllers/finanzas.controller.js";
+import { getCategoriasPago, getTarifas, gastosServicios, pagoAparte, pagoServicios, pagos, presencias, putCategoriaPago, putTarifas, rankingKm, resumen, velocidadPago } from "../controllers/finanzas.controller.js";
 import { authenticate } from "../middlewares/authenticate.js";
 import { authorize } from "../middlewares/authorize.js";
 import { validate } from "../middlewares/validate.js";
-import { monthQuerySchema, pagoAparteSchema, pagoServiciosQuerySchema, pagosQuerySchema, presenciasQuerySchema, rankingKmQuerySchema, tarifasKmSchema, velocidadPagoSchema } from "../validators/finanzas.validator.js";
+import { categoriaPagoSchema, monthQuerySchema, pagoAparteSchema, pagoServiciosQuerySchema, pagosQuerySchema, presenciasQuerySchema, rankingKmQuerySchema, tarifasKmSchema, velocidadPagoSchema } from "../validators/finanzas.validator.js";
 
 const router = Router();
 
@@ -17,6 +17,8 @@ router.get("/ranking-km", authorize(...FINANCE_ROLES), validate(rankingKmQuerySc
 router.get("/presencias", authorize(...FINANCE_ROLES), validate(presenciasQuerySchema, "query"), presencias);
 router.put("/pago-aparte", authorize("OWNER", "RRHH"), validate(pagoAparteSchema), pagoAparte);
 router.put("/velocidad-pago", authorize(...FINANCE_ROLES), validate(velocidadPagoSchema), velocidadPago);
+router.get("/categorias-pago", authorize(...FINANCE_ROLES), validate(monthQuerySchema, "query"), getCategoriasPago);
+router.put("/categoria-pago", authorize(...FINANCE_ROLES), validate(categoriaPagoSchema), putCategoriaPago);
 router.get("/gastos-servicios", validate(monthQuerySchema, "query"), gastosServicios);
 
 // Tarifas por km (precio por km de cada categoria de vehiculo y la de DHL/AB Service): las ve la oficina y las cambia el Admin.
